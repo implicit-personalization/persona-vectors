@@ -1,34 +1,49 @@
 # %% Imports
+import nnsight
 import torch
 from nnsight import LanguageModel
 from tqdm.auto import tqdm
 
 from src.activations import extract_activations
-from src.environment import set_seed
+from src.environment import load_env, set_seed
 from src.format import format_messages
 from src.load import load_personas
 from src.plots import plot_layer_similarity
 
 # %% Setup code
+
+# Load .env (NDIF_API_KEY, HF_HOME, etc.) before anything else
+load_env()
 torch.set_grad_enabled(False)
 set_seed(1337)
 
 # %% Setting up the model
-# NOTE: The model is a small model which is easy to run and test locally.
-# I would keep it like that for this notebook. And keeping inference local for simplicity
-# Later I would focus on creating a notebook which instead loads directly from saved activations
-# And instead focuses on plotting and other analyses
-MODEL_NAME = "google/gemma-2-2b-it"
+# Set REMOTE=True to run inference on NDIF servers instead of locally.
+# Requires NDIF_API_KEY in .env. The model loads on the meta device (no local GPU needed).
+REMOTE = False
+# REMOTE = True
+
+# MODEL_NAME = "google/gemma-2-9b-it"
+MODEL_NAME = "google/gemma-2-9b-it"
 DTYPE = torch.bfloat16
 
 print(f"Loading {MODEL_NAME}...")
+if REMOTE:
+    # Meta device — no weights downloaded locally; execution happens on NDIF servers.
+    # print(nnsight.ndif_status())
+    # print(nnsight.ndif.compare())
+    print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
+    model = LanguageModel(MODEL_NAME)
+else:
+    # NOTE: The model is a small model which is easy to run and test locally.
+    # I would keep it like that for this notebook. And keeping inference local for simplicity
+    MODEL_NAME = "google/gemma-2-2b-it"
+    model = LanguageModel(
+        MODEL_NAME,
+        dtype=DTYPE,
+        device_map="auto",
+    )
 
-model = LanguageModel(
-    MODEL_NAME,
-    dtype=DTYPE,
-    device_map="auto",
-    attn_implementation="eager",  # This was present in Arena I didn't change it for now
-)
 tokenizer = model.tokenizer
 
 NUM_LAYERS = model.config.num_hidden_layers
@@ -58,7 +73,9 @@ EVAL_QUESTIONS = [
 ]
 
 # NOTE: Work with a subset for faster inference
-EVAL_QUESTIONS = EVAL_QUESTIONS[:2]
+# FIX: With more then 1 qeustion since I'm batching it crashes on the Remote (OOM)
+# I think it leverages also KV caching so it makes sense with the biography prompt I guess
+EVAL_QUESTIONS = EVAL_QUESTIONS[:1]
 
 print(f"Defined {len(EVAL_QUESTIONS)} evaluation questions")
 
@@ -78,8 +95,6 @@ N_TOKENS = 50
 
 # HACK: Generating the response here is a hack for now — later it would be
 # nice to use responses from actual conversations or a dedicated pipeline.
-
-
 def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Tensor]:
     """Generate a response and return the full formatted text plus a token mask."""
 
@@ -94,7 +109,9 @@ def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Ten
     prompt_length = prompt_ids.shape[1]
 
     # NOTE: Generate response — hack for now; ideally responses come from real conversations
-    with model.generate(prompt, max_new_tokens=N_TOKENS, do_sample=False) as tracer:
+    with model.generate(
+        prompt, max_new_tokens=N_TOKENS, do_sample=False, remote=REMOTE
+    ) as tracer:
         result = tracer.result.save()
 
     # Decode only the newly generated tokens (exclude the input prompt)
@@ -103,9 +120,9 @@ def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Ten
     )
 
     messages_full = messages + [{"role": "assistant", "content": response_text}]
-
     full_text, response_start_idx = format_messages(messages_full, tokenizer)
 
+    # NOTE: Mask tokens in the responses (all of them) -> This can be flexibly changed to save just last the last token
     token_mask = torch.arange(len(tokenizer(full_text).input_ids)) >= response_start_idx
 
     return full_text, token_mask
@@ -113,37 +130,46 @@ def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Ten
 
 # %% Compare activations between templated_prompt and biography_md
 def get_mean_activations(
-    model, system_prompt: str, questions: list[str], label: str, verbose: bool = False
-) -> list[torch.Tensor]:
-    all_hs = []
-    full_text: str = ""
-    token_mask: torch.Tensor = torch.empty(0, dtype=torch.bool)
+    model,
+    system_prompt: str,
+    questions: list[str],
+    label: str,
+    verbose: bool = False,
+    remote: bool = False,
+) -> torch.Tensor:
+    full_texts: list[str] = []
+    token_masks: list[torch.Tensor] = []
 
-    # Generate response for each question with the given persona and extract activations
+    # Generate response for each question with the given persona
     for question in tqdm(questions, desc=label):
         full_text, token_mask = generate_response(system_prompt, question)
-        all_hs.append(extract_activations(model, full_text, token_mask))
+        full_texts.append(full_text)
+        token_masks.append(token_mask)
 
     # Show one example (the last one)
     if verbose:
-        print(f"\n{full_text}\n")
+        print(f"\n{full_texts[-1] = }\n")
 
-    return [
-        torch.stack([hs[i] for hs in all_hs]).mean(dim=0) for i in range(len(all_hs[0]))
-    ]
+    # Single batched forward pass over all questions.
+    # token_masks are built against unpadded sequences; extract_activations
+    # tokenizes with padding=True and right-aligns them to handle nnsight's left-padding.
+    all_hs = extract_activations(model, full_texts, token_masks, remote=remote)
+
+    # (n_questions, L, d_model) -> (L, d_model)
+    return all_hs.mean(dim=0)
 
 
 # NOTE: Currently the different questions are flattened we can think of how to proceed with this and when to average
 # But I would still keep things separate for each layer to have more flexibility for later
 short_hidden_states = get_mean_activations(
-    model, persona["templated_prompt"], EVAL_QUESTIONS, "short prompt"
+    model, persona["templated_prompt"], EVAL_QUESTIONS, "short prompt", remote=REMOTE
 )
 
 long_hidden_states = get_mean_activations(
-    model, persona["biography_md"], EVAL_QUESTIONS, "long prompt"
+    model, persona["biography_md"], EVAL_QUESTIONS, "long prompt", remote=REMOTE
 )
 
-print(f"Hidden state shape per layer: {short_hidden_states[0].shape}")
+print(f"Hidden state shape: {short_hidden_states.shape}")
 
 # %% Compare activations across layers
 
@@ -151,10 +177,6 @@ print(f"Hidden state shape per layer: {short_hidden_states[0].shape}")
 # long_hidden_states = get_mean_activations(
 #     model, "", EVAL_QUESTIONS, "long prompt", verbose=True
 # )
-
-# stack into torch tensors
-short = torch.stack(short_hidden_states)  # (L, d_model)
-long = torch.stack(long_hidden_states)  # (L, d_model)
 
 # TODO: Fix the centering approach (just PoC and reminder for now)
 # center per layer (along feature dimension)
@@ -165,5 +187,8 @@ long = torch.stack(long_hidden_states)  # (L, d_model)
 # %% Plot cosine similarity across layers
 persona_name = f"{persona['persona']['first_name']} {persona['persona']['last_name']}"
 fig = plot_layer_similarity(
-    short, long, title=f"Short vs Long Prompt — {persona_name}", show=True
+    short_hidden_states,
+    long_hidden_states,
+    title=f"Short vs Long Prompt — {persona_name}",
+    show=True,
 )

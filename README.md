@@ -44,6 +44,14 @@ This project uses [uv](https://github.com/astral-sh/uv) and `pyproject.toml`.
 uv sync
 ```
 
+## Configuration
+
+Copy `.env.example` to `.env` and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
 ## Quickstart
 
 > I have set it up like this to run it cell by cell via the REPL but it can be also changed to be a jupyter or better a [marimo notebook](https://marimo.io/)
@@ -96,7 +104,12 @@ python main.py analyze --activations ./activations --out ./plots --similarity co
 - [ ] Load pre-generated responses from SynthPersona / PersonaGuess instead of regenerating
 - [ ] Wire up `main.py` extraction and analysis to use `src/` functions
 - [ ] Support passing different JSONL files and persona prompt formats via CLI
-- [ ] Scale to the full question set (and batch with vLLM)
+- [ ] Scale to the full question set
 - [ ] Save persona vectors to disk (`.pt` / `.safetensors` or whatever is best), -> upload to Hugging Face potentially
 - [ ] Exploratory analyses with plots and similarity metrics
 - [ ] Steering experiments using the extracted persona vectors
+
+### Additional notes
+
+I would be interested in using VLLM but I don't have a nvidia GPU moreover I'm not sure about the current support of VLLM with ndif.
+Moreover it would be very nice to have all of this working with nnterp possibly instead.

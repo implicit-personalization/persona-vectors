@@ -26,9 +26,10 @@ venv/
 ENV/
 env/
 
-# Environment variables
+# Environment variables — .env.example is intentionally tracked
 .env
 .env.*
+!.env.example
 
 # IDE
 .idea/
