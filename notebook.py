@@ -21,8 +21,8 @@ set_seed(1337)
 # %% Setting up the model
 # Set REMOTE=True to run inference on NDIF servers instead of locally.
 # Requires NDIF_API_KEY in .env. The model loads on the meta device (no local GPU needed).
-# REMOTE = False
-REMOTE = True  # NOTE: Currently has problems
+REMOTE = False
+# REMOTE = True  # NOTE: Currently has problems
 
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 DTYPE = torch.bfloat16
@@ -82,10 +82,8 @@ print(f"Defined {len(EVAL_QUESTIONS)} evaluation questions")
 personas = load_personas(get_personas_path())
 print(f"Loaded {len(personas)} personas")
 
-first_persona = personas[0]["persona"]
-print(
-    f"Persona 0: {first_persona['first_name']} {first_persona['last_name']} Age: {first_persona['age']}"
-)
+first_persona = personas[0]
+print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
 
 # %% Test: Generate responses for the different contexts
 persona = personas[0]
@@ -151,7 +149,7 @@ def get_mean_activations(
 
     # Show one example (the last one)
     if verbose:
-        print(f"\n{full_texts[-1] = }\n")
+        print(f"\n{full_texts[-1]}\n")
 
     # Single batched forward pass over all questions.
     # token_masks are built against unpadded sequences; extract_activations
@@ -189,9 +187,9 @@ def get_mean_activations(
 short_hidden_states = get_mean_activations(
     model,
     MODEL_NAME,
-    persona["id"],
+    persona.id,
     "templated",
-    persona["templated_prompt"],
+    persona.templated_prompt,
     EVAL_QUESTIONS,
     "short prompt",
     remote=REMOTE,
@@ -200,9 +198,9 @@ short_hidden_states = get_mean_activations(
 long_hidden_states = get_mean_activations(
     model,
     MODEL_NAME,
-    persona["id"],
+    persona.id,
     "biography",
-    persona["biography_md"],
+    persona.biography_md,
     EVAL_QUESTIONS,
     "long prompt",
     remote=REMOTE,
@@ -224,10 +222,9 @@ print(f"Hidden state shape: {short_hidden_states.shape}")
 # long = long - long.mean(dim=1, keepdim=True)
 
 # %% Plot cosine similarity across layers
-persona_name = f"{persona['persona']['first_name']} {persona['persona']['last_name']}"
 fig = plot_layer_similarity(
     short_hidden_states,
     long_hidden_states,
-    title=f"Short vs Long Prompt — {persona_name}",
+    title=f"Short vs Long Prompt — {persona.name}",
     show=True,
 )
