@@ -60,4 +60,5 @@ artifacts/
 
 # Tmp to avoid pushing things I'm testing
 __marimo__/
-notebook_marimo.py
+AGENTS.md
+# notebook_marimo.py

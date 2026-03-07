@@ -21,8 +21,8 @@ set_seed(1337)
 # %% Setting up the model
 # Set REMOTE=True to run inference on NDIF servers instead of locally.
 # Requires NDIF_API_KEY in .env. The model loads on the meta device (no local GPU needed).
-REMOTE = False
-# REMOTE = True  # NOTE: Currently has problems
+# REMOTE = False
+REMOTE = True
 
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 DTYPE = torch.bfloat16
@@ -72,9 +72,7 @@ EVAL_QUESTIONS = [
 ]
 
 # NOTE: Work with a subset for faster inference
-# FIX: With more then 1 qeustion since I'm batching it crashes on the Remote (OOM)
-# I think it leverages also KV caching so it makes sense with the biography prompt I guess
-EVAL_QUESTIONS = EVAL_QUESTIONS[:1]
+EVAL_QUESTIONS = EVAL_QUESTIONS[:2]
 
 print(f"Defined {len(EVAL_QUESTIONS)} evaluation questions")
 
@@ -93,7 +91,11 @@ ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
 
 # HACK: Generating the response here is a hack for now — later it would be
 # nice to use responses from actual conversations or a dedicated pipeline.
-def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Tensor]:
+def generate_response(
+    system_prompt: str,
+    question: str,
+    remote: bool = False,
+) -> tuple[str, torch.Tensor]:
     """Generate a response and return the full formatted text plus a token mask."""
 
     messages = [
@@ -108,7 +110,7 @@ def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Ten
 
     # NOTE: Generate response — hack for now; ideally responses come from real conversations
     with model.generate(
-        prompt, max_new_tokens=N_TOKENS, do_sample=False, remote=REMOTE
+        prompt, max_new_tokens=N_TOKENS, do_sample=False, remote=remote
     ) as tracer:
         result = tracer.result.save()
 
@@ -143,7 +145,11 @@ def get_mean_activations(
 
     # Generate response for each question with the given persona
     for question in tqdm(questions, desc=label):
-        full_text, token_mask = generate_response(system_prompt, question)
+        full_text, token_mask = generate_response(
+            system_prompt,
+            question,
+            remote=remote,
+        )
         full_texts.append(full_text)
         token_masks.append(token_mask)
 
@@ -151,10 +157,12 @@ def get_mean_activations(
     if verbose:
         print(f"\n{full_texts[-1]}\n")
 
-    # Single batched forward pass over all questions.
-    # token_masks are built against unpadded sequences; extract_activations
-    # tokenizes with padding=True and right-aligns them to handle nnsight's left-padding.
-    all_hs = extract_activations(model, full_texts, token_masks, remote=remote)
+    all_hs = extract_activations(
+        model,
+        full_texts,
+        token_masks,
+        remote=remote,
+    )
 
     save_per_question_vectors(
         root_dir=ACTIVATIONS_DIR,

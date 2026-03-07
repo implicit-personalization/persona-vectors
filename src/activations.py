@@ -1,15 +1,21 @@
 import nnsight
 import torch
 
+# TODO: Test if I can use this function also remotly
+# def _get_hidden_states(layer_output):
+#     """Return the hidden-state tensor from a layer output."""
+#     if isinstance(layer_output, tuple):
+#         return layer_output[0]
+#     return layer_output
 
-# HACK: Pehrpas there is a cleaner way to do this Idk to be honest
+
 def extract_activations(
     model,
     full_texts: list[str],
     token_masks: list[torch.Tensor],
     remote: bool = False,
 ) -> torch.Tensor:
-    """Run a single batched forward pass and return mean hidden states over masked tokens per layer.
+    """Run a forward passes and return mean hidden states over masked tokens per layer.
 
     Args:
         model: The nnsight LanguageModel.
@@ -23,50 +29,46 @@ def extract_activations(
             it loads on the meta device (no local GPU needed).
     """
 
+    if len(full_texts) != len(token_masks):
+        raise ValueError("full_texts and token_masks must have the same length")
+
     masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
     if not all(m.any() for m in masks):
         raise ValueError("token_mask selects zero tokens")
 
-    # Tokenize once with padding so we can reuse input_ids in the trace (no re-tokenization).
-    # nnsight left-pads, so real tokens for sample i are right-aligned in the padded sequence.
-    # lengths[i] = number of real tokens; pad count = max_len - lengths[i].
-    encodings = model.tokenizer(full_texts, padding=True, return_tensors="pt")
-    max_len = encodings.input_ids.shape[1]
-    lengths = encodings.attention_mask.sum(dim=1)  # (batch,) real token counts
+    all_hs: list[torch.Tensor] = []
 
-    # Right-align each unpadded mask by prepending False for the padding positions.
-    # After this, padded_masks[i] is True exactly where we want to average over
-    batch = len(masks)
+    def _trace_one(text: str, mask: torch.Tensor) -> None:
+        # Compute the masked mean inside the trace so only (n_layer ,d_model)
+        with model.trace(text, remote=remote):
+            saved_hs = nnsight.save([])
+            for layer in model.model.layers:
+                # NOTE: We assume a batch size of 1 and sequeeze that dimension.
+                # NOTE: We have to be very careful of what layer.output returns it might change beteween models
+                # I'm currently assuming it returns a Torch.tensor -> (batch, seq_len, d_model) -> batch = 1
 
-    # (batch, max_len)
-    padded_masks = torch.stack(
-        [
-            torch.cat([torch.zeros(max_len - lengths[i], dtype=torch.bool), masks[i]])
-            for i in range(batch)
-        ]
-    )
+                # WARNING: If this raises a RemoteException: RecursionError, the NDIF server is running
+                # nnsight <0.6.2 which has a ModuleList integer-index proxy bug. Wait for the server
+                # to update before upgrading to the latest version of nnsight
 
-    # Compute the masked mean inside the trace so only (batch, d_model) per layer is saved
-    # and transferred, instead of the full (batch, max_len, d_model) activations.
-    # mask_f is a plain tensor serialised with the request — it's tiny.
-    with model.trace(encodings, remote=remote):
-        saved_hs = nnsight.save([])
-        for layer in model.model.layers:
-            # layer.output: (batch, max_len, d_model)
-            # Gemma's decoder layer returns a plain tensor, not a tuple.
-            # NOTE: This is architecture-specific — verify the correct attribute if switching models.
+                # Take the mean over the masked tokens
+                # -> stripping batch dimension which intentinally will always be one
+                hidden_states = layer.output
+                mask_on_device = mask.to(device=hidden_states.device)
+                layer_mean = (
+                    hidden_states[:, mask_on_device, :].squeeze(dim=0).mean(dim=0)
+                )
+                saved_hs.append(layer_mean.detach().cpu().save())
 
-            # WARNING: If this raises a RemoteException: RecursionError, the NDIF server is running
-            # nnsight <0.6.2 which has a ModuleList integer-index proxy bug. Wait for the server
-            # to update before upgrading to the latest version of nnsight
+        all_hs.append(torch.stack(list(saved_hs), dim=0))
 
-            layer_hs = []
-            for i in range(batch):
-                masked = layer.output[i][padded_masks[i]]
-                layer_hs.append(masked.mean(dim=0).detach().cpu())
+    # TODO: Fix problems with remote tracing
+    # with model.session(remote=remote):
 
-            # Stack over the batch -> (batch, d_model).
-            saved_hs.append(torch.stack(layer_hs))
+    # NOTE: Explicitly do this sequentially to avoid problems with left padding related to positional embedding.
+    # Sessions can still reduce NDIF request overhead, even though each text is traced one at a time here.
+    for text, mask in zip(full_texts, masks):
+        _trace_one(text, mask)
 
-    # Shape: (batch, n_layers, d_model)
-    return torch.stack(saved_hs, dim=1)
+    # Shape: (n_text, n_layers, d_model)
+    return torch.stack(all_hs, dim=0)

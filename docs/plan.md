@@ -53,5 +53,3 @@ Average activation across all tokens in each of the responses
 3. [ ] Extend to more questions instead of the default one.
 4. [ ] Extend to use the responses from Synth Persona and PersonaGuess without the need to regenerate the responses.
 5. [ ] Update the main script to use argparse with flags like --extract and --plot to create plots or save the extracted persona vector to disk in a specified directory.
-
-- Also see if we can batch inference for multiple questions in the trace and perhaps do it efficiently with VLLM. (Take a look at the readme -> Low priority)
