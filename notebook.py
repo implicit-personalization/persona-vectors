@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 from src.activation_io import load_per_question_vectors, save_per_question_vectors
 from src.activations import extract_activations
 from src.environment import get_artifacts_dir, load_env, set_seed
-from src.persona_io import get_personas_path, load_personas
+from src.persona_io import load_personas, load_qa_pairs
 from src.plots import plot_layer_similarity
 from src.prompt_format import format_messages
 
@@ -50,41 +50,22 @@ D_MODEL = model.config.hidden_size
 print(f"Model loaded with {NUM_LAYERS} layers")
 print(f"Hidden size: {D_MODEL}")
 
-# %% Definition of some basic questions
-
-# HACK: For now we take some simple questions to check things are working
-EVAL_QUESTIONS = [
-    "What advice would you give to someone starting a new chapter in their life?",
-    "How do you view the relationship between knowledge and wisdom?",
-    "What do you think about the nature of truth?",
-    "How should someone approach making difficult decisions?",
-    "What role does creativity play in problem-solving?",
-    "How do you see the balance between tradition and progress?",
-    "What matters most when building trust with others?",
-    "How do you think about the passage of time?",
-    "What would you say to someone feeling lost or uncertain?",
-    "How do you approach understanding something complex?",
-    "What do you think about the nature of change?",
-    "How should one deal with failure or setbacks?",
-    "What role does intuition play in understanding?",
-    "How do you view the relationship between the individual and society?",
-    "What do you think makes something meaningful?",
-]
-
-# NOTE: Work with a subset for faster inference
-EVAL_QUESTIONS = EVAL_QUESTIONS[:2]
-
-print(f"Defined {len(EVAL_QUESTIONS)} evaluation questions")
-
-# %% Getting the personas (Example )
-personas = load_personas(get_personas_path())
+# %% Load dataset from HuggingFace
+HF_REPO = "implicit-personalization/synth-persona"
+personas = load_personas(from_hf=True, hf_repo=HF_REPO)
+qa_by_persona = load_qa_pairs(from_hf=True, hf_repo=HF_REPO)  # dict[id -> list[QAPair]]
 print(f"Loaded {len(personas)} personas")
 
 first_persona = personas[0]
 print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
 
+# %% Pick persona and build evaluation questions from its QA pairs
+# NOTE: Work with a subset for faster inference
+EVAL_QUESTIONS = [qa.question for qa in qa_by_persona[first_persona.id]][:2]
+print(f"Using {len(EVAL_QUESTIONS)} evaluation questions for {first_persona.name}")
+
 # %% Test: Generate responses for the different contexts
-persona = personas[0]
+persona = first_persona
 N_TOKENS = 50
 ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
 
@@ -108,6 +89,7 @@ def generate_response(
     prompt_ids = tokenizer(prompt, return_tensors="pt").input_ids
     prompt_length = prompt_ids.shape[1]
 
+    # FIX: Instead of this it should use the actual answers for the questsions
     # NOTE: Generate response — hack for now; ideally responses come from real conversations
     with model.generate(
         prompt, max_new_tokens=N_TOKENS, do_sample=False, remote=remote

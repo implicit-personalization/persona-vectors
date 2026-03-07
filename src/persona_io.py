@@ -1,17 +1,16 @@
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from huggingface_hub import hf_hub_download
 
-def get_personas_path() -> Path:
-    """Return the path to the personas JSONL file, from PERSONAS_PATH env or default."""
-    return Path(os.environ.get("PERSONAS_PATH", "dataset_personas.jsonl"))
+from src.environment import get_hf_dataset_repo
 
 
 @dataclass
 class QAPair:
+    id: str
     qid: str
     type: Literal["explicit", "implicit"]
     question: str
@@ -28,23 +27,48 @@ class PersonaData:
     persona: dict
     templated_prompt: str
     biography_md: str
-    qa_pairs: list[QAPair]
 
     @property
     def name(self) -> str:
         return f"{self.persona['first_name']} {self.persona['last_name']}"
 
     def __repr__(self):
-        return (
-            f"PersonaData(id={self.id!r}, name={self.name!r}, "
-            f"qa_pairs={len(self.qa_pairs)})"
-        )
+        return f"PersonaData(id={self.id!r}, name={self.name!r})"
 
 
-def load_personas(path: str | Path = "dataset_personas.jsonl") -> list[PersonaData]:
-    """Load all personas from a JSONL file, one record per line."""
+def _resolve_path(
+    filename: str,
+    path: str | Path | None,
+    from_hf: bool,
+    hf_repo: str | None,
+) -> Path:
+    """Resolve a local path or download from HuggingFace."""
+    if from_hf:
+        repo = hf_repo or get_hf_dataset_repo()
+        return Path(hf_hub_download(repo, filename, repo_type="dataset"))
+    if path is None:
+        raise ValueError("path is required when from_hf=False")
+    return Path(path)
+
+
+def load_personas(
+    path: str | Path | None = None,
+    from_hf: bool = False,
+    hf_repo: str | None = None,
+) -> list[PersonaData]:
+    """Load all personas from a JSONL file or HuggingFace.
+
+    Args:
+        path: Local path to dataset_personas.jsonl. Required if from_hf=False.
+        from_hf: If True, download from HuggingFace (cached via HF_HOME).
+        hf_repo: HuggingFace dataset repo id.
+
+    Returns:
+        List of PersonaData objects.
+    """
+    resolved = _resolve_path("dataset_personas.jsonl", path, from_hf, hf_repo)
     personas = []
-    with open(path, "r") as f:
+    with open(resolved, "r") as f:
         for line in f:
             data = json.loads(line)
             personas.append(
@@ -53,40 +77,39 @@ def load_personas(path: str | Path = "dataset_personas.jsonl") -> list[PersonaDa
                     persona=data["persona"],
                     templated_prompt=data["templated_prompt"],
                     biography_md=data["biography_md"],
-                    qa_pairs=[
-                        QAPair(
-                            qid=qp["qid"],
-                            type=qp["type"],
-                            question=qp["question"],
-                            answer=qp["answer"],
-                            difficulty=qp["difficulty"],
-                        )
-                        for qp in data.get("qa_pairs", [])
-                    ],
                 )
             )
     return personas
 
 
-def get_qa_pairs(
-    persona: PersonaData,
-    type: Literal["explicit", "implicit"] | None = None,
-    difficulty: int | None = None,
-    as_text: bool = False,
-) -> list[QAPair] | list[tuple[str, str]]:
-    """Return qa_pairs filtered by type and/or difficulty.
+def load_qa_pairs(
+    path: str | Path | None = None,
+    from_hf: bool = False,
+    hf_repo: str | None = None,
+) -> dict[str, list[QAPair]]:
+    """Load QA pairs from a JSONL file or HuggingFace, grouped by persona id.
 
-    If as_text=True, returns (question, answer) tuples instead of QAPair objects.
+    Args:
+        path: Local path to dataset_qa.jsonl. Required if from_hf=False.
+        from_hf: If True, download from HuggingFace (cached via HF_HOME).
+        hf_repo: HuggingFace dataset repo id.
+
+    Returns:
+        Dict mapping persona id -> list of QAPair objects.
     """
-    pairs = persona.qa_pairs
-
-    if type is not None:
-        pairs = [p for p in pairs if p.type == type]
-
-    if difficulty is not None:
-        pairs = [p for p in pairs if p.difficulty == difficulty]
-
-    if as_text:
-        return [(p.question, p.answer) for p in pairs]
-
-    return pairs
+    resolved = _resolve_path("dataset_qa.jsonl", path, from_hf, hf_repo)
+    qa_by_persona: dict[str, list[QAPair]] = {}
+    with open(resolved, "r") as f:
+        for line in f:
+            data = json.loads(line)
+            persona_id = data["id"]
+            pair = QAPair(
+                id=persona_id,
+                qid=data["qid"],
+                type=data["type"],
+                question=data["question"],
+                answer=data["answer"],
+                difficulty=data["difficulty"],
+            )
+            qa_by_persona.setdefault(persona_id, []).append(pair)
+    return qa_by_persona

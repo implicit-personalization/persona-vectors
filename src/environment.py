@@ -19,6 +19,11 @@ def get_artifacts_dir() -> Path:
     return Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
 
 
+def get_hf_dataset_repo() -> str:
+    """Get the HuggingFace dataset repo id from env, with a default fallback."""
+    return os.environ.get("HF_DATASET_REPO", "implicit-personalization/synth-persona")
+
+
 def set_seed(seed: int) -> None:
     """Set random seed for reproducibility."""
     random.seed(seed)
