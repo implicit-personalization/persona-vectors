@@ -1,3 +1,4 @@
+import os
 import random
 from pathlib import Path
 
@@ -11,6 +12,11 @@ def load_env() -> None:
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
+
+
+def get_artifacts_dir() -> Path:
+    """Get the root artifacts directory."""
+    return Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
 
 
 def set_seed(seed: int) -> None:

@@ -37,6 +37,7 @@ def extract_activations(
     # Right-align each unpadded mask by prepending False for the padding positions.
     # After this, padded_masks[i] is True exactly where we want to average over
     batch = len(masks)
+
     # (batch, max_len)
     padded_masks = torch.stack(
         [
@@ -45,23 +46,27 @@ def extract_activations(
         ]
     )
 
+    # Compute the masked mean inside the trace so only (batch, d_model) per layer is saved
+    # and transferred, instead of the full (batch, max_len, d_model) activations.
+    # mask_f is a plain tensor serialised with the request — it's tiny.
     with model.trace(encodings, remote=remote):
         saved_hs = nnsight.save([])
         for layer in model.model.layers:
-            # layer.output is the hidden state tensor of shape (batch, max_len, d_model).
+            # layer.output: (batch, max_len, d_model)
             # Gemma's decoder layer returns a plain tensor, not a tuple.
             # NOTE: This is architecture-specific — verify the correct attribute if switching models.
 
-            # Apply the pre-aligned mask per sample: select masked positions, mean-pool -> (d_model,).
+            # WARNING: If this raises a RemoteException: RecursionError, the NDIF server is running
+            # nnsight <0.6.2 which has a ModuleList integer-index proxy bug. Wait for the server
+            # to update before upgrading to the latest version of nnsight
+
+            layer_hs = []
+            for i in range(batch):
+                masked = layer.output[i][padded_masks[i]]
+                layer_hs.append(masked.mean(dim=0).detach().cpu())
+
             # Stack over the batch -> (batch, d_model).
-            saved_hs.append(
-                torch.stack(
-                    [
-                        layer.output[i][padded_masks[i]].mean(dim=0).detach().cpu()
-                        for i in range(batch)
-                    ]
-                )
-            )
+            saved_hs.append(torch.stack(layer_hs))
 
     # Shape: (batch, n_layers, d_model)
     return torch.stack(saved_hs, dim=1)

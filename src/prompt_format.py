@@ -1,4 +1,5 @@
 # NOTE: This can be changed to work with system prompt instead
+# HACK: I also will review this more carefully if nobody else is going to do it when we have a real example of dataset
 
 
 def _normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:

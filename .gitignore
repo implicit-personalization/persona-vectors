@@ -53,7 +53,7 @@ Thumbs.db
 # Project specific
 results/
 outputs/
-plots/
+artifacts/
 *.json.bak
 *.jsonl
 *.jsonl.bak

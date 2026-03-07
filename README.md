@@ -100,12 +100,14 @@ python main.py analyze --activations ./activations --out ./plots --similarity co
 
 ## Roadmap
 
+> Review this repo https://github.com/Butanium/assistant-axis and think of what we need from that
+
 - [ ] Conclude work on the notebook to actually have extraction of the basic persona vectors -> And extend it to real word (with support for question/answers from William's work)
 - [ ] Load pre-generated responses from SynthPersona / PersonaGuess instead of regenerating
 - [ ] Wire up `main.py` extraction and analysis to use `src/` functions
 - [ ] Support passing different JSONL files and persona prompt formats via CLI
 - [ ] Scale to the full question set
-- [ ] Save persona vectors to disk (`.pt` / `.safetensors` or whatever is best), -> upload to Hugging Face potentially
+- [x] Save persona vectors to disk (`.pt` / `.safetensors` or whatever is best)
 - [ ] Exploratory analyses with plots and similarity metrics
 - [ ] Steering experiments using the extracted persona vectors
 

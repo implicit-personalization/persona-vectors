@@ -55,7 +55,3 @@ Average activation across all tokens in each of the responses
 5. [ ] Update the main script to use argparse with flags like --extract and --plot to create plots or save the extracted persona vector to disk in a specified directory.
 
 - Also see if we can batch inference for multiple questions in the trace and perhaps do it efficiently with VLLM. (Take a look at the readme -> Low priority)
-
-#### Next step
-
-After we have persona vectors stored on disk, we can load them and write code to do steering with those persona vectors to test different hypotheses.

@@ -4,11 +4,12 @@ import torch
 from nnsight import LanguageModel
 from tqdm.auto import tqdm
 
+from src.activation_io import load_per_question_vectors, save_per_question_vectors
 from src.activations import extract_activations
-from src.environment import load_env, set_seed
-from src.format import format_messages
-from src.load import load_personas
+from src.environment import get_artifacts_dir, load_env, set_seed
+from src.persona_io import get_personas_path, load_personas
 from src.plots import plot_layer_similarity
+from src.prompt_format import format_messages
 
 # %% Setup code
 
@@ -20,11 +21,10 @@ set_seed(1337)
 # %% Setting up the model
 # Set REMOTE=True to run inference on NDIF servers instead of locally.
 # Requires NDIF_API_KEY in .env. The model loads on the meta device (no local GPU needed).
-REMOTE = False
-# REMOTE = True
+# REMOTE = False
+REMOTE = True  # NOTE: Currently has problems
 
-# MODEL_NAME = "google/gemma-2-9b-it"
-MODEL_NAME = "google/gemma-2-9b-it"
+MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 DTYPE = torch.bfloat16
 
 print(f"Loading {MODEL_NAME}...")
@@ -37,7 +37,6 @@ if REMOTE:
 else:
     # NOTE: The model is a small model which is easy to run and test locally.
     # I would keep it like that for this notebook. And keeping inference local for simplicity
-    MODEL_NAME = "google/gemma-2-2b-it"
     model = LanguageModel(
         MODEL_NAME,
         dtype=DTYPE,
@@ -80,7 +79,7 @@ EVAL_QUESTIONS = EVAL_QUESTIONS[:1]
 print(f"Defined {len(EVAL_QUESTIONS)} evaluation questions")
 
 # %% Getting the personas (Example )
-personas = load_personas()
+personas = load_personas(get_personas_path())
 print(f"Loaded {len(personas)} personas")
 
 first_persona = personas[0]["persona"]
@@ -91,6 +90,7 @@ print(
 # %% Test: Generate responses for the different contexts
 persona = personas[0]
 N_TOKENS = 50
+ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
 
 
 # HACK: Generating the response here is a hack for now — later it would be
@@ -131,6 +131,9 @@ def generate_response(system_prompt: str, question: str) -> tuple[str, torch.Ten
 # %% Compare activations between templated_prompt and biography_md
 def get_mean_activations(
     model,
+    model_name: str,
+    persona_id: str,
+    prompt_variant: str,
     system_prompt: str,
     questions: list[str],
     label: str,
@@ -155,18 +158,54 @@ def get_mean_activations(
     # tokenizes with padding=True and right-aligns them to handle nnsight's left-padding.
     all_hs = extract_activations(model, full_texts, token_masks, remote=remote)
 
+    save_per_question_vectors(
+        root_dir=ACTIVATIONS_DIR,
+        model_name=model_name,
+        prompt_variant=prompt_variant,
+        persona_id=persona_id,
+        per_question_vectors=all_hs,
+        questions=questions,
+    )
+
+    loaded_hs, loaded_questions = load_per_question_vectors(
+        root_dir=ACTIVATIONS_DIR,
+        model_name=model_name,
+        prompt_variant=prompt_variant,
+        persona_id=persona_id,
+    )
+
+    # NOTE: Some sanity checks
+    if loaded_questions != questions:
+        raise ValueError("loaded questions do not match saved questions")
+    if not torch.equal(loaded_hs, all_hs):
+        raise ValueError("loaded activations do not match saved activations")
+
     # (n_questions, L, d_model) -> (L, d_model)
-    return all_hs.mean(dim=0)
+    return loaded_hs.mean(dim=0)
 
 
 # NOTE: Currently the different questions are flattened we can think of how to proceed with this and when to average
 # But I would still keep things separate for each layer to have more flexibility for later
 short_hidden_states = get_mean_activations(
-    model, persona["templated_prompt"], EVAL_QUESTIONS, "short prompt", remote=REMOTE
+    model,
+    MODEL_NAME,
+    persona["id"],
+    "templated",
+    persona["templated_prompt"],
+    EVAL_QUESTIONS,
+    "short prompt",
+    remote=REMOTE,
 )
 
 long_hidden_states = get_mean_activations(
-    model, persona["biography_md"], EVAL_QUESTIONS, "long prompt", remote=REMOTE
+    model,
+    MODEL_NAME,
+    persona["id"],
+    "biography",
+    persona["biography_md"],
+    EVAL_QUESTIONS,
+    "long prompt",
+    remote=REMOTE,
 )
 
 print(f"Hidden state shape: {short_hidden_states.shape}")

@@ -1,8 +1,12 @@
 import json
+import os
 from pathlib import Path
 from typing import TypedDict
 
-# NOTE: Those functions should be extended possibly the filename should be changed to have both loading and storing ? Idk But I think it can be improved
+
+def get_personas_path() -> Path:
+    """Get the path to the personas dataset file."""
+    return Path(os.environ.get("PERSONAS_PATH", "dataset_personas.jsonl"))
 
 
 class PersonaData(TypedDict):

@@ -1,15 +1,21 @@
-from pathlib import Path
-
 import plotly.graph_objects as go
 import torch
 import torch.nn.functional as F
+
+from src.environment import get_artifacts_dir
+
+
+def _plots_dir():
+    path = get_artifacts_dir() / "plots"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def plot_layer_similarity(
     short: torch.Tensor,
     long: torch.Tensor,
     title: str = "Layer-wise Activation Similarity",
-    output_path: str | None = None,
+    filename: str | None = None,
     show: bool = False,
 ) -> go.Figure:
     """Plot cosine similarity between two sets of activation across layers.
@@ -18,7 +24,8 @@ def plot_layer_similarity(
         short: (L, d_model) tensor of activations for the first prompt.
         long: (L, d_model) tensor of activations for the second prompt.
         title: Plot title.
-        output_path: If provided, save the interactive HTML file to this path.
+        filename: If provided, save an interactive HTML file as
+            <artifacts_dir>/plots/<filename>.html.
         show: If True, open the plot in the browser.
 
     Returns:
@@ -46,9 +53,9 @@ def plot_layer_similarity(
         template="plotly_white",
     )
 
-    if output_path is not None:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(output_path)
+    if filename is not None:
+        output_path = _plots_dir() / f"{filename}.html"
+        fig.write_html(str(output_path))
         print(f"Plot saved to {output_path}")
 
     if show:
