@@ -14,19 +14,18 @@ def _():
     from src.activation_io import load_per_question_vectors, save_per_question_vectors
     from src.activations import extract_activations
     from src.environment import get_artifacts_dir, load_env, set_seed
-    from src.persona_io import get_personas_path, load_personas
     from src.plots import plot_layer_similarity
     from src.prompt_format import format_messages
+    from src.synth_persona_io import SynthPersonaDataset
 
     return (
         LanguageModel,
+        SynthPersonaDataset,
         extract_activations,
         format_messages,
         get_artifacts_dir,
-        get_personas_path,
         load_env,
         load_per_question_vectors,
-        load_personas,
         nnsight,
         plot_layer_similarity,
         save_per_question_vectors,
@@ -81,46 +80,29 @@ def _(LanguageModel, nnsight, torch):
 
 
 @app.cell
-def _():
-    # HACK: For now we take some simple questions to check things are working
-    EVAL_QUESTIONS = [
-        "What advice would you give to someone starting a new chapter in their life?",
-        "How do you view the relationship between knowledge and wisdom?",
-        "What do you think about the nature of truth?",
-        "How should someone approach making difficult decisions?",
-        "What role does creativity play in problem-solving?",
-        "How do you see the balance between tradition and progress?",
-        "What matters most when building trust with others?",
-        "How do you think about the passage of time?",
-        "What would you say to someone feeling lost or uncertain?",
-        "How do you approach understanding something complex?",
-        "What do you think about the nature of change?",
-        "How should one deal with failure or setbacks?",
-        "What role does intuition play in understanding?",
-        "How do you view the relationship between the individual and society?",
-        "What do you think makes something meaningful?",
-    ]
+def _(SynthPersonaDataset):
+    dataset = SynthPersonaDataset()
+    print(f"Loaded {len(dataset)} personas")
+
+    first_persona = dataset[0]
+    print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
 
     # NOTE: Work with a subset for faster inference
-    # EVAL_QUESTIONS = EVAL_QUESTIONS[:2]
-
-    print(f"Defined {len(EVAL_QUESTIONS)} evaluation questions")
-    return (EVAL_QUESTIONS,)
-
-
-@app.cell
-def _(get_personas_path, load_personas):
-    personas = load_personas(get_personas_path())
-    print(f"Loaded {len(personas)} personas")
-
-    first_persona = personas[0]
-    print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
-    return (personas,)
+    EVAL_QUESTIONS = dataset.questions(first_persona.id)[:2]
+    print(f"Using {len(EVAL_QUESTIONS)} evaluation questions for {first_persona.name}")
+    return EVAL_QUESTIONS, first_persona
 
 
 @app.cell
-def _(format_messages, get_artifacts_dir, model, personas, tokenizer, torch):
-    persona = personas[0]
+def _(
+    first_persona,
+    format_messages,
+    get_artifacts_dir,
+    model,
+    tokenizer,
+    torch,
+):
+    persona = first_persona
     N_TOKENS = 50
     ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
 

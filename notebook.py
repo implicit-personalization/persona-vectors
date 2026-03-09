@@ -7,9 +7,9 @@ from tqdm.auto import tqdm
 from src.activation_io import load_per_question_vectors, save_per_question_vectors
 from src.activations import extract_activations
 from src.environment import get_artifacts_dir, load_env, set_seed
-from src.persona_io import load_personas, load_qa_pairs
 from src.plots import plot_layer_similarity
 from src.prompt_format import format_messages
+from src.synth_persona_io import SynthPersonaDataset
 
 # %% Setup code
 
@@ -51,17 +51,15 @@ print(f"Model loaded with {NUM_LAYERS} layers")
 print(f"Hidden size: {D_MODEL}")
 
 # %% Load dataset from HuggingFace
-HF_REPO = "implicit-personalization/synth-persona"
-personas = load_personas(from_hf=True, hf_repo=HF_REPO)
-qa_by_persona = load_qa_pairs(from_hf=True, hf_repo=HF_REPO)  # dict[id -> list[QAPair]]
-print(f"Loaded {len(personas)} personas")
-
-first_persona = personas[0]
+dataset = SynthPersonaDataset()
+print(f"Loaded {len(dataset)} personas")
+first_persona = dataset[0]
 print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
 
 # %% Pick persona and build evaluation questions from its QA pairs
 # NOTE: Work with a subset for faster inference
-EVAL_QUESTIONS = [qa.question for qa in qa_by_persona[first_persona.id]][:2]
+print(dataset.get_qa(first_persona.id)[:2])
+EVAL_QUESTIONS = dataset.questions(first_persona.id)[:2]
 print(f"Using {len(EVAL_QUESTIONS)} evaluation questions for {first_persona.name}")
 
 # %% Test: Generate responses for the different contexts
