@@ -7,7 +7,12 @@ from typing import Literal
 
 def get_personas_path() -> Path:
     """Return the path to the personas JSONL file, from PERSONAS_PATH env or default."""
-    return Path(os.environ.get("PERSONAS_PATH", "dataset_personas.jsonl"))
+    return Path(os.environ.get("PERSONAS_PATH", "data/dataset_personas.jsonl"))
+
+
+def get_neutral_prompts_path() -> Path:
+    """Return the path to the neutral prompts JSONL file."""
+    return Path(os.environ.get("NEUTRAL_PROMPTS_PATH", "data/neutral_prompts.jsonl"))
 
 
 @dataclass
@@ -41,7 +46,7 @@ class PersonaData:
         )
 
 
-def load_personas(path: str | Path = "dataset_personas.jsonl") -> list[PersonaData]:
+def load_personas(path: str | Path = "data/dataset_personas.jsonl") -> list[PersonaData]:
     """Load all personas from a JSONL file, one record per line."""
     personas = []
     with open(path, "r") as f:
@@ -90,3 +95,45 @@ def get_qa_pairs(
         return [(p.question, p.answer) for p in pairs]
 
     return pairs
+
+
+def _parse_neutral_prompt_row(data: dict, line_no: int) -> str:
+    for key in ("prompt", "question", "text"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise ValueError(
+        f"neutral prompt row {line_no} must contain one of: prompt, question, text"
+    )
+
+
+def load_neutral_prompts(path: str | Path = "data/neutral_prompts.jsonl") -> list[str]:
+    """Load neutral prompts from a JSONL file.
+
+    Each line can either be:
+    - a plain JSON string, or
+    - a JSON object with one of these keys: prompt, question, text.
+    """
+    prompts: list[str] = []
+    with open(path, "r") as f:
+        for i, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            parsed = json.loads(line)
+            if isinstance(parsed, str):
+                prompt = parsed.strip()
+            elif isinstance(parsed, dict):
+                prompt = _parse_neutral_prompt_row(parsed, i)
+            else:
+                raise ValueError(
+                    f"neutral prompt row {i} must be either JSON string or object"
+                )
+
+            if prompt:
+                prompts.append(prompt)
+
+    if not prompts:
+        raise ValueError(f"no neutral prompts found in {path}")
+
+    return prompts

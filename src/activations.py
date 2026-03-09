@@ -9,6 +9,67 @@ def _get_hidden_states(layer_output):
     return layer_output
 
 
+def _get_last_prompt_token_index(mask: torch.Tensor) -> int:
+    """Infer prompt-final token index from a response-token mask."""
+    response_positions = torch.nonzero(mask, as_tuple=False).flatten()
+    if response_positions.numel() == 0:
+        raise ValueError("token_mask selects zero tokens")
+
+    response_start = int(response_positions[0].item())
+    if response_start <= 0:
+        raise ValueError("cannot infer last prompt token when response starts at index 0")
+
+    return response_start - 1
+
+
+def extract_activation_summaries(
+    model,
+    full_texts: list[str],
+    token_masks: list[torch.Tensor],
+    remote: bool = False,
+) -> dict[str, torch.Tensor]:
+    """Run forward passes and return response/prompt summaries per layer.
+
+    Returns:
+        Dict with:
+            - response_mean: (n_text, n_layers, d_model)
+            - last_prompt_token: (n_text, n_layers, d_model)
+    """
+    if len(full_texts) != len(token_masks):
+        raise ValueError("full_texts and token_masks must have the same length")
+
+    masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
+    last_prompt_indices = [_get_last_prompt_token_index(m) for m in masks]
+
+    with model.session(remote=remote):
+        all_response_means: list[torch.Tensor] = nnsight.save([])
+        all_last_prompt_tokens: list[torch.Tensor] = nnsight.save([])
+
+        for text, mask, prompt_idx in zip(full_texts, masks, last_prompt_indices):
+            with model.trace(text):
+                saved_response_means = nnsight.save([])
+                saved_last_prompt_tokens = nnsight.save([])
+                for layer in model.model.layers:
+                    hidden_states = _get_hidden_states(layer.output)
+                    mask_on_device = mask.to(device=hidden_states.device)
+
+                    response_mean = (
+                        hidden_states[:, mask_on_device, :].squeeze(dim=0).mean(dim=0)
+                    )
+                    last_prompt_token = hidden_states[:, prompt_idx, :].squeeze(dim=0)
+
+                    saved_response_means.append(response_mean.detach().cpu().save())
+                    saved_last_prompt_tokens.append(last_prompt_token.detach().cpu().save())
+
+            all_response_means.append(torch.stack(list(saved_response_means), dim=0))
+            all_last_prompt_tokens.append(torch.stack(list(saved_last_prompt_tokens), dim=0))
+
+    return {
+        "response_mean": torch.stack(all_response_means, dim=0),
+        "last_prompt_token": torch.stack(all_last_prompt_tokens, dim=0),
+    }
+
+
 def extract_activations(
     model,
     full_texts: list[str],
@@ -28,38 +89,10 @@ def extract_activations(
             When using remote=True, instantiate the model without device_map/dtype so
             it loads on the meta device (no local GPU needed).
     """
-
-    if len(full_texts) != len(token_masks):
-        raise ValueError("full_texts and token_masks must have the same length")
-
-    masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
-    if not all(m.any() for m in masks):
-        raise ValueError("token_mask selects zero tokens")
-
-    with model.session(remote=remote):
-        all_hs: list[torch.Tensor] = nnsight.save([])
-
-        for text, mask in zip(full_texts, masks):
-            # Compute the masked mean inside the trace so only (n_layer ,d_model)
-            # with model.trace(text, remote=use_remote):
-            with model.trace(text):
-                saved_hs = nnsight.save([])
-                for layer in model.model.layers:
-                    # WARNING: If this raises a RemoteException: RecursionError, the NDIF server is running
-                    # nnsight <0.6.2 which has a ModuleList integer-index proxy bug. Wait for the server
-                    # to update before upgrading to the latest version of nnsight
-
-                    # Take the mean over the masked tokens
-                    # from (batch, seq_len, d_model) -> with batch = 1
-                    # -> stripping batch dimension which intentinally will always be one
-                    hidden_states = _get_hidden_states(layer.output)
-                    mask_on_device = mask.to(device=hidden_states.device)
-                    layer_mean = (
-                        hidden_states[:, mask_on_device, :].squeeze(dim=0).mean(dim=0)
-                    )
-                    saved_hs.append(layer_mean.detach().cpu().save())
-
-            all_hs.append(torch.stack(list(saved_hs), dim=0))
-
-    # Shape: (n_text, n_layers, d_model)
-    return torch.stack(all_hs, dim=0)
+    summaries = extract_activation_summaries(
+        model=model,
+        full_texts=full_texts,
+        token_masks=token_masks,
+        remote=remote,
+    )
+    return summaries["response_mean"]

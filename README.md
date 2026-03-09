@@ -10,30 +10,47 @@ Extract persona-aligned activation vectors from language models and experiment w
 
 ## Overview
 
-Given a set of personas and evaluation questions, this project:
+Given a set of personas and a fixed neutral prompt bank, this project:
 
-1. Formats each persona as a system prompt (short templated or long biography)
-2. Generates model responses to each question under that persona (perhaps given as input already)
-3. Extracts hidden states over the response tokens at every layer
-4. Averages those hidden states across questions to produce a **persona vector** per layer
+1. Runs an extraction grid over prompt format (`templated`, `biography`) and neutral prompts
+2. Generates assistant responses under persona context and under a baseline assistant context
+3. Extracts two activation summaries per run with NNsight:
+   - response-token mean per layer
+   - last-prompt-token activation per layer
+4. Stacks and averages across neutral prompts to produce persona representations
+5. Builds contrastive vectors by subtracting baseline representations
 
-The resulting vectors can be compared across layers (cosine similarity, Euclidean distance) and eventually used for steering experiments.
+The resulting vectors can be compared across layers and across prompt formats (biography vs templated), then used for downstream steering experiments.
 
 ## Repository Layout
 
 ```
 persona-vectors/
-├── notebook.py                # Exploration script: loads model, extracts and compares activations
-├── main.py                    # CLI entry point (extract / analyze subcommands — WIP)
-├── pyproject.toml             # Dependencies (managed with uv)
+│
+├── main.py                    # CLI entry point for extraction and analysis
+├── notebook.py                # End-to-end pipeline for a extracting single persona vector
+├── notebook_marimo.py         # Reactive Marimo web pipeline
+│
+├── src/
+│   ├── activations.py         # extract_activations / get_mean_activations via NNsight
+│   ├── activation_io.py       # Saves and loads per-question activation tensors to/from disk in safetensors + JSON format
+│   ├── environment.py         # Shared utilities for loading .env + seed settings
+│   ├── persona_io.py          # Loads personas and Q&A pairs from a JSONL dataset into typed Python dataclasses
+│   ├── plots.py               # Computes + plots layer-wise cosine similarity between two activation tensors
+│   └── prompt_format.py       # Chat template formatting + response_start_idx computation
+│
 ├── docs/
 │   └── plan.md                # Working plan and TODOs
-└── src/
-    ├── activations.py         # extract_activations / get_mean_activations
-    ├── format.py              # Chat template formatting + response_start_idx computation
-    ├── load.py                # Persona JSONL loading (load_personas, get_persona_name)
-    ├── plots.py               # Layer-wise similarity plots (Plotly)
-    └── environment.py         # Seed and environment helpers
+│
+├── data/
+│   ├── dataset_personas.jsonl
+│   ├── dataset_qa.jsonl
+│   └── neutral_prompts.jsonl  # Fixed neutral prompt bank used for extraction
+├── pyproject.toml             # Project dependencies (torch, nnsight, safetensors, marimo, etc.) managed with uv
+├── uv.lock                    # Locked dependency versions for reproducible installs
+├── .env.example               # Required environment variables (NDIF_API_KEY, HF_HOME, PERSONAS_PATH, ARTIFACTS_DIR)
+├── .gitignore            
+└── README.md                
 ```
 
 ## Installation
@@ -56,21 +73,30 @@ cp .env.example .env
 
 > I have set it up like this to run it cell by cell via the REPL but it can be also changed to be a jupyter or better a [marimo notebook](https://marimo.io/)
 
-Run the exploration notebook to load a model, extract persona vectors, and compare them across layers:
+Run extraction from CLI:
 
 ```bash
-python notebook.py
+python main.py extract \
+  --model google/gemma-2-2b-it \
+  --input data/dataset_personas.jsonl \
+  --neutral-prompts data/neutral_prompts.jsonl \
+  --out artifacts/activations
 ```
 
-This will:
+Run analysis after extraction:
 
-- Load `google/gemma-2-2b-it` (change `MODEL_NAME` at the top of the file)
-- Load personas from `dataset_personas.jsonl`
-- Generate responses to a small set of evaluation questions under two prompt variants (`templated_prompt` vs `biography_md`)
-- Compute mean hidden states per layer for each variant
+```bash
+python main.py analyze \
+  --activations artifacts/activations \
+  --model google/gemma-2-2b-it \
+  --input data/dataset_personas.jsonl
+```
 
-> **Note:** Response generation is done locally via `nnsight`.
-> Activations are averaged over response tokens only — the system prompt and question tokens are excluded .
+This produces:
+- per-neutral-prompt activation stacks `(n_prompts, n_layers, d_model)`
+- averaged persona representations `(n_layers, d_model)`
+- contrastive vectors `(n_layers, d_model)` vs baseline assistant
+- biography vs templated layerwise cosine plots and PCA projection artifacts
 
 ## Core Concepts
 
@@ -83,20 +109,29 @@ Each persona in the dataset ships with two system prompt variants:
 | `templated_prompt` | Short structured prompt (e.g. name, age, occupation) |
 | `biography_md`     | Long narrative biography for the sasme persona       |
 
-## CLI (WIP)
-
-> [!WARNING]
-> This is just a basic template for later to work on with the functionality I thought might be useful
-
-`main.py` exposes two subcommands that are scaffolded but not yet implemented:
+## CLI
 
 ```bash
-# Extract activations
-python main.py extract --model <model_name_or_path>  --input dataset_personas.jsonl --out ./activations
+# Extract full persona grid with NNsight
+python main.py extract \
+  --model <model_name_or_path> \
+  --input data/dataset_personas.jsonl \
+  --neutral-prompts data/neutral_prompts.jsonl \
+  --out artifacts/activations
 
-# Analyze saved activations
-python main.py analyze --activations ./activations --out ./plots --similarity cosine
+# Analyze saved contrastive vectors (biography vs templated)
+python main.py analyze \
+  --activations artifacts/activations \
+  --model <model_name_or_path> \
+  --input data/dataset_personas.jsonl
 ```
+
+Useful `extract` flags:
+- `--remote` to execute traces on NDIF
+- `--baseline-system-prompt "You are a helpful assistant."`
+- `--max-new-tokens <int>`
+- `--do-sample` to sample during generation
+- `--persona-limit <int>` for smoke tests
 
 ## Roadmap
 
