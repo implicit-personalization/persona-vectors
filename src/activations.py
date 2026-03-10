@@ -12,54 +12,38 @@ def _get_hidden_states(layer_output):
 def extract_activations(
     model,
     full_texts: list[str],
-    token_masks: list[torch.Tensor],
     remote: bool = False,
-) -> torch.Tensor:
-    """Run a forward passes and return mean hidden states over masked tokens per layer.
+) -> list[torch.Tensor]:
+    """Run forward passes and return full hidden states per layer for each text.
 
     Args:
         model: The nnsight LanguageModel.
         full_texts: List of full formatted prompt+response strings, one per sample.
-        token_masks: List of boolean masks over the full (unpadded) token sequence per
-            sample. True values are averaged. Each mask should match the length of the
-            tokenized full_texts[i] without padding.
         remote: If True, execute the trace on NDIF's remote servers instead of locally.
             Requires NDIF_API_KEY to be set (via .env or environment variable).
             When using remote=True, instantiate the model without device_map/dtype so
             it loads on the meta device (no local GPU needed).
+
+    Returns:
+        List of tensors with shape (n_layers, seq_len, d_model), one per input text.
     """
-
-    if len(full_texts) != len(token_masks):
-        raise ValueError("full_texts and token_masks must have the same length")
-
-    masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
-    if not all(m.any() for m in masks):
-        raise ValueError("token_mask selects zero tokens")
-
     with model.session(remote=remote):
         all_hs: list[torch.Tensor] = nnsight.save([])
 
-        for text, mask in zip(full_texts, masks):
-            # Compute the masked mean inside the trace so only (n_layer ,d_model)
-            # with model.trace(text, remote=use_remote):
+        for text in full_texts:
             with model.trace(text):
                 saved_hs = nnsight.save([])
                 for layer in model.model.layers:
                     # WARNING: If this raises a RemoteException: RecursionError, the NDIF server is running
                     # nnsight <0.6.2 which has a ModuleList integer-index proxy bug. Wait for the server
                     # to update before upgrading to the latest version of nnsight
-
-                    # Take the mean over the masked tokens
-                    # from (batch, seq_len, d_model) -> with batch = 1
-                    # -> stripping batch dimension which intentinally will always be one
                     hidden_states = _get_hidden_states(layer.output)
-                    mask_on_device = mask.to(device=hidden_states.device)
-                    layer_mean = (
-                        hidden_states[:, mask_on_device, :].squeeze(dim=0).mean(dim=0)
-                    )
-                    saved_hs.append(layer_mean.detach().cpu().save())
+
+                    # Save the full sequence from (batch, seq_len, d_model) -> (seq_len, d_model)
+                    # with batch intentionally always equal to one here.
+                    layer_hs = hidden_states.squeeze(dim=0)
+                    saved_hs.append(layer_hs.detach().cpu().save())
 
             all_hs.append(torch.stack(list(saved_hs), dim=0))
 
-    # Shape: (n_text, n_layers, d_model)
-    return torch.stack(all_hs, dim=0)
+    return list(all_hs)
