@@ -1,4 +1,4 @@
-"""Per-question activation storage and retrieval.
+"""Per-question reduced activation storage and retrieval.
 The storage format uses INDEX-BASED MAPPING:
     tensor at index i  <->  metadata[i]  <->  metadata[i]["qid"]
 
@@ -53,17 +53,18 @@ def save_per_question_activations(
     per_question_activations: list[torch.Tensor],
     metadata: list[dict],
 ) -> Path:
-    """Save per-question activation tensors and rich metadata.
+    """Save per-question reduced activation tensors and metadata.
 
     NOTE: Order matters! Tensor at index i maps to metadata[i]. The metadata
     list should contain a "qid" key for each question to enable cross-referencing
     with the original dataset (SynthPersonaDataset.get_qa).
 
     Args:
-        per_question_activations: List of activation tensors, one per question.
+        per_question_activations: List of reduced activation tensors, one per question.
+            Each tensor is typically shaped (n_layers, d_model).
             The order of this list MUST match the order of metadata.
-        metadata: List of dicts with keys: qid, question, answer, seq_len,
-            answer_start, answer_end. The order MUST match per_question_activations.
+        metadata: List of dicts with lightweight question metadata. The order
+            MUST match per_question_activations.
     """
     n_questions = len(per_question_activations)
     if len(metadata) != n_questions:
@@ -96,13 +97,13 @@ def load_per_question_activations(
     prompt_variant: str,
     persona_id: str,
 ) -> tuple[list[torch.Tensor], list[dict]]:
-    """Load activation tensors and their metadata.
+    """Load reduced activation tensors and their metadata.
 
     NOTE: The returned lists are aligned by index. Use metadata[i]["qid"]
     to cross-reference with the original dataset (SynthPersonaDataset.get_qa).
 
     Returns:
-        per_question_activations: List of activation tensors, ordered by index.
+        per_question_activations: List of reduced activation tensors, ordered by index.
         metadata: List of metadata dicts with "qid" key. aligned with tensors.
             Use metadata[i]["qid"] to match with SynthPersonaDataset.get_qa(persona_id).
     """

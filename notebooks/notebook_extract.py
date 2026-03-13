@@ -73,8 +73,9 @@ def extract_variant_activations(
     label: str,
     remote: bool = False,
 ):
-    """Extract activations and store rich metadata with token indices."""
+    """Extract masked mean activations and store lightweight metadata."""
     full_texts: list[str] = []
+    token_masks: list[torch.Tensor] = []
     all_metadata: list[dict] = []
 
     for qa in tqdm(qa_pairs, desc=label):
@@ -87,21 +88,17 @@ def extract_variant_activations(
         seq_len = tokenizer(full_prompt, return_tensors="pt").input_ids.shape[1]
 
         full_texts.append(full_prompt)
+        token_masks.append(torch.arange(seq_len) >= answer_start)
 
-        # HACK: For now we only store the assistant answer span because that is
-        # the only boundary used in the current analysis notebook.
         all_metadata.append(
             {
                 "qid": qa.qid,
                 "question": qa.question,
                 "answer": qa.answer,
-                "seq_len": seq_len,
-                "answer_start": answer_start,
-                "answer_end": seq_len,
             }
         )
 
-    all_hs = extract_activations(model, full_texts, remote=remote)
+    all_hs = extract_activations(model, full_texts, token_masks, remote=remote)
 
     artifact_dir = save_per_question_activations(
         root_dir=ACTIVATIONS_DIR,

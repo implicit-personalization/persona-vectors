@@ -28,25 +28,16 @@ ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
 # %% Load activations and use stored metadata
 results = {}
 for variant in ["templated", "biography"]:
-    per_question_activations, metadata = load_per_question_activations(
+    per_question_activations, _ = load_per_question_activations(
         root_dir=ACTIVATIONS_DIR,
         model_name=MODEL_NAME,
         prompt_variant=variant,
         persona_id=persona.id,
     )
 
-    per_question_vectors = []
-    for act, meta in zip(per_question_activations, metadata):
-        answer_start = meta["answer_start"]
-        answer_end = meta["answer_end"]
-        mask = torch.zeros(act.shape[1], dtype=torch.bool)
-
-        # NOTE: Example for the answer tokens only
-        mask[answer_start:answer_end] = True
-        vec = act[:, mask, :].mean(dim=1)
-        per_question_vectors.append(vec)
-
-    results[variant] = torch.stack(per_question_vectors, dim=0).mean(dim=0)
+    # Activations are already reduced to the chosen token span during extraction,
+    # so loading is now just averaging over questions.
+    results[variant] = torch.stack(per_question_activations, dim=0).mean(dim=0)
 
 short_hidden_states = results["templated"]
 long_hidden_states = results["biography"]
