@@ -1,10 +1,14 @@
 # %% Imports
 import torch
+from rich.console import Console
+from rich.table import Table
 
-from src.activation_io import load_per_question_activations
+from src.activation_io import load_per_question_vectors
 from src.environment import get_artifacts_dir, load_env, set_seed
 from src.plots import plot_layer_similarity
 from src.synth_persona_io import SynthPersonaDataset
+
+console = Console()
 
 # %% Setup code
 load_env()
@@ -13,14 +17,21 @@ set_seed(1337)
 
 # %% Configuration
 # Use 9b for remote (production), 2b for local testing
+# REMOTE = False
 REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 
 # %% Load dataset
 dataset = SynthPersonaDataset()
-print(f"Loaded {len(dataset)} personas")
 first_persona = dataset[0]
-print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
+
+dataset_table = Table(title="Dataset")
+dataset_table.add_column("Property", style="cyan")
+dataset_table.add_column("Value", style="magenta")
+dataset_table.add_row("Total Personas", str(len(dataset)))
+dataset_table.add_row("First Persona", first_persona.name)
+dataset_table.add_row("Age", str(first_persona.persona["age"]))
+console.print(dataset_table)
 
 persona = first_persona
 ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
@@ -28,16 +39,14 @@ ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
 # %% Load activations and use stored metadata
 results = {}
 for variant in ["templated", "biography"]:
-    per_question_activations, _ = load_per_question_activations(
+    per_question_activations, _ = load_per_question_vectors(
         root_dir=ACTIVATIONS_DIR,
         model_name=MODEL_NAME,
         prompt_variant=variant,
         persona_id=persona.id,
     )
 
-    # Activations are already reduced to the chosen token span during extraction,
-    # so loading is now just averaging over questions.
-    results[variant] = torch.stack(per_question_activations, dim=0).mean(dim=0)
+    results[variant] = per_question_activations.mean(dim=0)
 
 short_hidden_states = results["templated"]
 long_hidden_states = results["biography"]
