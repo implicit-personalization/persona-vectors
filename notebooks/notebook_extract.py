@@ -23,9 +23,7 @@ set_seed(1337)
 # Use 9b for remote (production), 2b for local testing
 # REMOTE = False
 REMOTE = True
-
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
-DTYPE = torch.bfloat16
 
 print(f"Loading {MODEL_NAME}...")
 if REMOTE:
@@ -37,7 +35,7 @@ if REMOTE:
 else:
     model = LanguageModel(
         MODEL_NAME,
-        dtype=DTYPE,
+        dtype="auto",
         device_map="auto",
     )
 
