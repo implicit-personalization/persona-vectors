@@ -2,13 +2,17 @@
 import nnsight
 import torch
 from nnsight import LanguageModel
+from rich.console import Console
+from rich.table import Table
 from tqdm.auto import tqdm
 
-from src.activation_io import save_per_question_activations
+from src.activation_io import save_per_question_vectors
 from src.activations import extract_activations
 from src.environment import get_artifacts_dir, load_env, set_seed
 from src.prompt_format import format_messages
 from src.synth_persona_io import QAPair, SynthPersonaDataset
+
+console = Console()
 
 # %% Setup code
 load_env()  # Load .env (NDIF_API_KEY, HF_HOME, etc.) before anything else
@@ -19,10 +23,7 @@ set_seed(1337)
 # Use 9b for remote (production), 2b for local testing
 # REMOTE = False
 REMOTE = True
-
-# NOTE: This is for ease of use and testing on my computer and remotly at the same time
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
-DTYPE = torch.bfloat16
 
 print(f"Loading {MODEL_NAME}...")
 if REMOTE:
@@ -34,7 +35,7 @@ if REMOTE:
 else:
     model = LanguageModel(
         MODEL_NAME,
-        dtype=DTYPE,
+        dtype="auto",
         device_map="auto",
     )
 
@@ -42,20 +43,31 @@ tokenizer = model.tokenizer
 
 NUM_LAYERS = model.config.num_hidden_layers
 D_MODEL = model.config.hidden_size
-print(f"Model loaded with {NUM_LAYERS} layers")
-print(f"Hidden size: {D_MODEL}")
+
+model_table = Table(title="Model Config")
+model_table.add_column("Property", style="cyan")
+model_table.add_column("Value", style="magenta")
+model_table.add_row("Model", MODEL_NAME)
+model_table.add_row("Layers", str(NUM_LAYERS))
+model_table.add_row("Hidden Size", str(D_MODEL))
+console.print(model_table)
 
 # %% Load dataset from HuggingFace
 dataset = SynthPersonaDataset()
-print(f"Loaded {len(dataset)} personas")
 first_persona = dataset[0]
-print(f"Persona 0: {first_persona.name} Age: {first_persona.persona['age']}")
+
+dataset_table = Table(title="Dataset")
+dataset_table.add_column("Property", style="cyan")
+dataset_table.add_column("Value", style="magenta")
+dataset_table.add_row("Total Personas", str(len(dataset)))
+dataset_table.add_row("First Persona", first_persona.name)
+dataset_table.add_row("Age", str(first_persona.persona["age"]))
+console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
 persona = first_persona
-
-# NOTE: Work with a subset for faster inference
-qa_pairs = dataset.get_qa(persona.id)[:2]
+# qa_pairs = dataset.get_qa(persona.id)[:2] # for short example
+qa_pairs = dataset.get_qa(persona.id)
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
@@ -73,9 +85,10 @@ def extract_variant_activations(
     label: str,
     remote: bool = False,
 ):
-    """Extract activations and store rich metadata with token indices."""
+    """Extract masked mean activations and store lightweight metadata."""
     full_texts: list[str] = []
-    all_metadata: list[dict] = []
+    token_masks: list[torch.Tensor] = []
+    all_questions: list[str] = []
 
     for qa in tqdm(qa_pairs, desc=label):
         messages = [
@@ -87,29 +100,18 @@ def extract_variant_activations(
         seq_len = tokenizer(full_prompt, return_tensors="pt").input_ids.shape[1]
 
         full_texts.append(full_prompt)
+        token_masks.append(torch.arange(seq_len) >= answer_start)
+        all_questions.append(qa.question)
 
-        # HACK: For now we only store the assistant answer span because that is
-        # the only boundary used in the current analysis notebook.
-        all_metadata.append(
-            {
-                "qid": qa.qid,
-                "question": qa.question,
-                "answer": qa.answer,
-                "seq_len": seq_len,
-                "answer_start": answer_start,
-                "answer_end": seq_len,
-            }
-        )
+    all_hs = extract_activations(model, full_texts, token_masks, remote=remote)
 
-    all_hs = extract_activations(model, full_texts, remote=remote)
-
-    artifact_dir = save_per_question_activations(
+    artifact_dir = save_per_question_vectors(
         root_dir=ACTIVATIONS_DIR,
         model_name=model_name,
         prompt_variant=prompt_variant,
         persona_id=persona_id,
-        per_question_activations=all_hs,
-        metadata=all_metadata,
+        per_question_vectors=all_hs,
+        questions=all_questions,
     )
     print(
         f"Saved {prompt_variant} activations to {artifact_dir} ({len(qa_pairs)} examples)"
