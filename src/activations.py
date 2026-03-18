@@ -45,10 +45,6 @@ def extract_activations(
                 # Compute the masked mean inside the trace so only (n_layer ,d_model)
                 with model.trace(text):
                     for layer in model.model.layers:
-                        # WARNING: If this raises a RemoteException: RecursionError, the NDIF server is running
-                        # nnsight <0.6.2 which has a ModuleList integer-index proxy bug. Wait for the server
-                        # to update before upgrading to the latest version of nnsight
-
                         # Take the mean over the masked tokens
                         # from (batch, seq_len, d_model) -> with batch = 1
                         # -> stripping batch dimension which intentinally will always be one
