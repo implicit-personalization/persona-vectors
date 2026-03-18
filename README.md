@@ -50,6 +50,14 @@ uv run python -m notebooks.notebook_extract
 uv run python -m notebooks.notebook_load
 ```
 
+## Streamlit App
+
+A web UI for interactive persona vector extraction and analysis:
+
+```bash
+PYTHONPATH=. streamlit run src/ui/app.py
+```
+
 ## How It Works
 
 ### Two Notebooks
