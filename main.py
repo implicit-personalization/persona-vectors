@@ -1,20 +1,7 @@
 #!/usr/bin/env python
-import argparse
-from dataclasses import dataclass
+from pathlib import Path
 
-
-# NOTE: This is just a possible template
-@dataclass
-class ExtractConfig:
-    model: str
-    output_dir: str
-
-
-@dataclass
-class AnalyzeConfig:
-    activations_path: str
-    output_dir: str
-    similarity: str
+from src.parser import AnalyzeConfig, ExtractConfig, SteerConfig, build_parser
 
 
 def extract_activations(cfg: ExtractConfig) -> None:
@@ -31,26 +18,24 @@ def analyze_activations(cfg: AnalyzeConfig) -> None:
     raise NotImplementedError("Analysis not implemented yet")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Extract activations and analyze them (similarity + PCA)."
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def steer_activations(cfg: SteerConfig) -> None:
+    from src.environment import load_env
+    from src.steering import compute_steering_vector, save_steering_vector
 
-    extract = subparsers.add_parser("extract", help="Extract model activations")
-    extract.add_argument("--model", required=True, help="Model name or path")
-    extract.add_argument("--input", required=True, help="Input data path")
-    extract.add_argument("--out", required=True, help="Output directory")
+    load_env()
 
-    analyze = subparsers.add_parser("analyze", help="Analyze saved activations")
-    analyze.add_argument("--out", required=True, help="Output directory")
-    analyze.add_argument(
-        "--similarity",
-        default="cosine",
-        choices=["cosine", "dot"],
-        help="Similarity metric",
+    sv_dict = compute_steering_vector(
+        persona_id=cfg.persona_id,
+        model_name=cfg.model,
+        layer_idx=cfg.layer,
+        activations_dir=cfg.activations_dir,
     )
-    return parser
+
+    if not sv_dict:
+        return
+
+    out_path = cfg.out_dir / cfg.persona_id
+    save_steering_vector(sv_dict, out_path)
 
 
 def main() -> None:
@@ -72,6 +57,15 @@ def main() -> None:
             similarity=args.similarity,
         )
         analyze_activations(cfg)
+    elif args.command == "steer":
+        cfg = SteerConfig(
+            persona_id=args.persona_id,
+            model=args.model,
+            layer=args.layer,
+            activations_dir=Path(args.activations_dir),
+            out_dir=Path(args.out),
+        )
+        steer_activations(cfg)
 
 
 if __name__ == "__main__":

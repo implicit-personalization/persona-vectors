@@ -89,4 +89,7 @@ python main.py extract --model google/gemma-2-2b-it --out ./activations
 
 # Analyze saved activations
 python main.py analyze --activations ./activations --out ./plots --similarity cosine
+
+# Run steering (example)
+python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id 005e1868-4e17-47e3-94fa-0d20e8d93662
 ```
