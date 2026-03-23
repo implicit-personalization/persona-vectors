@@ -33,11 +33,7 @@ if REMOTE:
     print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
     model = LanguageModel(MODEL_NAME)
 else:
-    model = LanguageModel(
-        MODEL_NAME,
-        dtype="auto",
-        device_map="auto",
-    )
+    model = LanguageModel(MODEL_NAME, dtype="auto", device_map="auto", dispatch=True)
 
 tokenizer = model.tokenizer
 
