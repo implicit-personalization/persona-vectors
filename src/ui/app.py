@@ -11,7 +11,7 @@ from src.plots import plot_multiple_layer_similarities
 from src.synth_persona_io import SynthPersonaDataset
 from src.ui.utils.extraction import run_extraction
 from src.ui.utils.local_dataset import LocalPersonaDataset
-from src.ui.utils.runtime import load_model
+from src.ui.utils.runtime import list_remote_models, load_model
 
 # NOTE: This has a lot of code some function in the future will be abastracted away elsewhre and this could also be splitted into different files
 # But for now it is mostly a proof of concept and can be modified accordingly to fit your needs
@@ -21,6 +21,7 @@ torch.set_grad_enabled(False)
 set_seed(1337)
 
 DEFAULT_MODEL = "google/gemma-2-2b-it"
+REMOTE_DEFAULT_MODEL = "google/gemma-2-9b-it"
 
 
 @st.cache_resource(show_spinner=False)
@@ -77,6 +78,53 @@ def _display_model_name(model_dir_name: str) -> str:
     return model_dir_name.replace("__", "/")
 
 
+def _sidebar_model_controls() -> tuple[bool, str]:
+    with st.sidebar:
+        st.header("Settings")
+        remote = st.toggle("Remote (NDIF)", value=False)
+
+        if remote:
+            remote_models = list_remote_models()
+            if remote_models:
+                default_model = (
+                    REMOTE_DEFAULT_MODEL
+                    if REMOTE_DEFAULT_MODEL in remote_models
+                    else remote_models[0]
+                )
+                model_name = st.selectbox(
+                    "Remote model",
+                    options=remote_models,
+                    index=remote_models.index(default_model),
+                )
+                st.caption("Using running NDIF models.")
+            else:
+                st.error("No running NDIF models found.")
+                model_name = REMOTE_DEFAULT_MODEL
+        else:
+            model_name = st.text_input("HuggingFace model", value=DEFAULT_MODEL)
+
+    return remote, model_name
+
+
+def _sidebar_shared_controls() -> tuple[bool, str, str, str]:
+    remote, model_name = _sidebar_model_controls()
+
+    with st.sidebar:
+        st.divider()
+        st.subheader("Extraction")
+        dataset_source = st.selectbox(
+            "Dataset source",
+            ["HuggingFace: synth-persona", "Local JSONL upload"],
+        )
+        variants = st.multiselect(
+            "Prompt variants",
+            options=["templated", "biography"],
+            default=["templated", "biography"],
+        )
+
+    return remote, model_name, dataset_source, variants
+
+
 def _list_available_models(artifacts_root: str | Path) -> list[str]:
     root = Path(artifacts_root)
     if not root.exists():
@@ -93,16 +141,11 @@ def _list_available_personas(
     return sorted([d.name for d in model_dir.iterdir() if d.is_dir()])
 
 
-def _run_extraction_tab() -> None:
+def _run_extraction_tab(
+    remote: bool, model_name: str, dataset_source: str, variants: list[str]
+) -> None:
     st.subheader("Extraction")
     st.caption("Run persona-vector extraction using existing src/ modules.")
-
-    model_name = st.text_input("Model", value=DEFAULT_MODEL)
-
-    dataset_source = st.selectbox(
-        "Dataset source",
-        ["HuggingFace: synth-persona", "Local JSONL upload"],
-    )
 
     if dataset_source == "Local JSONL upload":
         st.file_uploader(
@@ -177,16 +220,6 @@ def _run_extraction_tab() -> None:
             value=total_matching,
         )
 
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        remote = st.toggle("Remote (NDIF)", value=False)
-    with col2:
-        variants = st.multiselect(
-            "Prompt variants",
-            options=["templated", "biography"],
-            default=["templated", "biography"],
-        )
-
     if not variants:
         st.info("Select at least one prompt variant.")
         return
@@ -235,7 +268,7 @@ def _run_extraction_tab() -> None:
         )
 
 
-def _run_load_tab() -> None:
+def _run_load_tab(model_name: str) -> None:
     st.subheader("Load + Compare")
     st.caption("Load saved vectors and compare layer-wise cosine similarity.")
 
@@ -245,20 +278,6 @@ def _run_load_tab() -> None:
     )
 
     available_models = _list_available_models(artifacts_root)
-    if available_models:
-        model_options = available_models
-        model_default = (
-            DEFAULT_MODEL if DEFAULT_MODEL in available_models else available_models[0]
-        )
-    else:
-        model_options = [DEFAULT_MODEL]
-        model_default = DEFAULT_MODEL
-
-    model_name = st.selectbox(
-        "Model",
-        options=model_options,
-        index=model_options.index(model_default),
-    )
     if not available_models:
         st.info("No models found. Run extraction first to populate the directory.")
 
@@ -343,11 +362,13 @@ def main() -> None:
     st.set_page_config(page_title="Persona Vectors", page_icon="🧭", layout="wide")
     st.title("Persona Vectors Monitor")
 
+    remote, model_name, dataset_source, variants = _sidebar_shared_controls()
+
     tab_extract, tab_load = st.tabs(["Extract", "Load + Compare"])
     with tab_extract:
-        _run_extraction_tab()
+        _run_extraction_tab(remote, model_name, dataset_source, variants)
     with tab_load:
-        _run_load_tab()
+        _run_load_tab(model_name)
 
 
 if __name__ == "__main__":
