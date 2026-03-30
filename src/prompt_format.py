@@ -1,3 +1,32 @@
+def format_biography_prompt(biography_md: str) -> str:
+    _, _, biography_body = biography_md.partition("\n")
+    biography_body = biography_body.lstrip()
+
+    prompt = f"""You are roleplaying as a specific person in a conversation.
+Stay fully in character. Be truthful to the profile below.
+Do not mention that you are an AI model.
+
+# Person biography:
+
+{biography_body}
+
+ROLEPLAY GUIDELINES:
+
+- Answer naturally and conversationally as this person."""
+    return prompt
+
+
+def format_templated_prompt(templated_prompt: str) -> str:
+    TEMPLATED_PROMPT_STRIP_LINE = "- If a question asks for details not supported by the profile, respond with plausible uncertainty or say you don't know, rather than inventing facts."
+
+    lines = [
+        line
+        for line in templated_prompt.splitlines()
+        if line.strip() != TEMPLATED_PROMPT_STRIP_LINE
+    ]
+    return "\n".join(lines).strip()
+
+
 def _normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
     """Merge a leading system message into the first user message."""
     if not messages or messages[0]["role"] != "system":
