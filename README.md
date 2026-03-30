@@ -58,6 +58,12 @@ A web UI for interactive persona vector extraction and analysis:
 PYTHONPATH=. streamlit run src/ui/app.py
 ```
 
+The app includes:
+
+- extraction from HuggingFace or uploaded local JSONL datasets
+- layer-wise cosine similarity, PCA, and UMAP views over saved activations
+- a chat tab with persona-based system prompts
+
 ## How It Works
 
 ### Two Notebooks
@@ -78,14 +84,13 @@ Each extraction produces:
 ```
 artifacts/activations/<model_dir>/<prompt_variant>/<persona_id>/
 ├── activations.safetensors   # Per-question hidden states
-└── metadata.json            # Dataset qids in saved order
+└── metadata.json            # persona_id, persona_name, questions
 ```
 
-At load time, `response_start_idx` is reconstructed by:
+`<model_dir>` is the model name with `/` replaced by `__`.
 
-1. Looking up questions/answers from the dataset via saved qids
-2. Formatting the prompt (system + question + answer)
-3. Tokenizing to find the boundary
+The metadata stores the question text directly, so load-time analysis no longer needs
+to re-resolve qids from the dataset.
 
 ## CLI (WIP)
 

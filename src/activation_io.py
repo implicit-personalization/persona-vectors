@@ -23,6 +23,7 @@ def save_per_question_vectors(
     model_name: str,
     prompt_variant: str,
     persona_id: str,
+    persona_name: str,
     per_question_vectors: torch.Tensor,
     questions: list[str],
 ) -> Path:
@@ -47,7 +48,11 @@ def save_per_question_vectors(
     save_file(tensors, str(tensor_path))
 
     metadata_path = artifact_dir / "metadata.json"
-    metadata = {"questions": questions}
+    metadata = {
+        "persona_id": persona_id,
+        "persona_name": persona_name,
+        "questions": questions,
+    }
     metadata_path.write_text(json.dumps(metadata, indent=2))
 
     return artifact_dir
@@ -70,3 +75,18 @@ def load_per_question_vectors(
     metadata = json.loads((artifact_dir / "metadata.json").read_text())
 
     return tensors["per_question_vectors"], metadata["questions"]
+
+
+def load_activation_metadata(
+    root_dir: str | Path,
+    model_name: str,
+    prompt_variant: str,
+    persona_id: str,
+) -> dict:
+    artifact_dir = build_activation_path(
+        root_dir=root_dir,
+        model_name=model_name,
+        prompt_variant=prompt_variant,
+        persona_id=persona_id,
+    )
+    return json.loads((artifact_dir / "metadata.json").read_text())

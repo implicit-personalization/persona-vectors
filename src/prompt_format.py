@@ -27,7 +27,7 @@ def format_templated_prompt(templated_prompt: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+def normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
     """Merge a leading system message into the first user message."""
     if not messages or messages[0]["role"] != "system":
         return messages
@@ -61,7 +61,7 @@ def format_messages(messages: list[dict[str, str]], tokenizer) -> tuple[str, int
             normalized_messages, tokenize=False, add_generation_prompt=False
         )
     except Exception:
-        normalized_messages = _normalize_messages(messages)
+        normalized_messages = normalize_messages(messages)
         full_prompt = tokenizer.apply_chat_template(
             normalized_messages, tokenize=False, add_generation_prompt=False
         )

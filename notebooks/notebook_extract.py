@@ -110,6 +110,7 @@ def extract_variant_activations(
         model_name=model_name,
         prompt_variant=prompt_variant,
         persona_id=persona_id,
+        persona_name=persona.name,
         per_question_vectors=all_hs,
         questions=all_questions,
     )
