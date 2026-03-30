@@ -117,22 +117,36 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
 
     status_box = st.empty()
     status_box.info("Extraction in progress...")
+    progress = st.progress(0, text="Preparing extraction...")
 
     with st.spinner("Loading model..."):
         model = cached_model(model_name=model_name, remote=remote)
 
     try:
-        results = run_extraction(
-            model=model,
-            model_name=model_name,
-            persona=selected_persona,
-            qa_pairs=qa_pairs,
-            variants=selected_variants,
-            remote=remote,
-        )
+        total_steps = len(selected_variants)
+        results = []
+
+        for idx, variant in enumerate(selected_variants, start=1):
+            progress.progress(
+                (idx - 1) / total_steps if total_steps else 1.0,
+                text=f"Processing variant {idx}/{total_steps}: {variant}",
+            )
+            variant_results = run_extraction(
+                model=model,
+                model_name=model_name,
+                persona=selected_persona,
+                qa_pairs=qa_pairs,
+                variants=[variant],
+                remote=remote,
+            )
+            results.extend(variant_results)
+
+        progress.progress(1.0, text="Extraction complete")
     except Exception as exc:
         st.error(f"Extraction failed: {exc}")
         return
+    finally:
+        progress.empty()
 
     status_box.success("Extraction complete")
     st.success(f"Saved {len(results)} artifact set(s)")

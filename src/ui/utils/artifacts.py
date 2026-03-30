@@ -150,6 +150,7 @@ def load_embedding_samples(
     selected_layers: list[int],
     project_fn: Callable[[torch.Tensor], torch.Tensor],
     persona_names: dict[str, str],
+    progress_fn: Callable[[int, int, int], None] | None = None,
 ) -> tuple[list[tuple[int, torch.Tensor, list[str], list[str]]], list[str]]:
     """Load samples for 2D projections without re-reading each layer from disk."""
 
@@ -171,7 +172,8 @@ def load_embedding_samples(
 
         vectors_by_persona[persona_id] = vectors
 
-    for layer_idx in selected_layers:
+    total_layers = len(selected_layers)
+    for idx, layer_idx in enumerate(selected_layers, start=1):
         samples: list[torch.Tensor] = []
         labels: list[str] = []
         hover_text: list[str] = []
@@ -189,6 +191,8 @@ def load_embedding_samples(
             )
 
         if not samples:
+            if progress_fn is not None:
+                progress_fn(idx, total_layers, len(plots))
             continue
 
         all_samples = torch.cat(samples, dim=0)
@@ -196,13 +200,20 @@ def load_embedding_samples(
             errors.append(
                 f"Layer {layer_idx}: need at least 2 samples for {variant} analysis"
             )
+            if progress_fn is not None:
+                progress_fn(idx, total_layers, len(plots))
             continue
 
         try:
             coords = project_fn(all_samples)
         except Exception as exc:
             errors.append(f"Layer {layer_idx}: {exc}")
+            if progress_fn is not None:
+                progress_fn(idx, total_layers, len(plots))
             continue
         plots.append((int(layer_idx), coords, labels, hover_text))
+
+        if progress_fn is not None:
+            progress_fn(idx, total_layers, len(plots))
 
     return plots, errors

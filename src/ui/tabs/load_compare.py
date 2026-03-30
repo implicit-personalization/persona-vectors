@@ -159,44 +159,57 @@ def _render_embedding_analysis(
     if not st.button("Load and compare"):
         return
 
+    progress = st.progress(0, text="Preparing projections...")
+
+    def update_progress(current: int, total: int, loaded: int) -> None:
+        fraction = current / total if total else 1.0
+        progress.progress(
+            fraction,
+            text=f"Processing layer {current}/{total} ({loaded} plot(s) ready)",
+        )
+
     project_fn = project_pca if analysis_mode == "PCA" else project_umap
-    plots, errors = load_embedding_samples(
-        artifacts_root,
-        model_name,
-        persona_ids,
-        selected_variant,
-        selected_layers,
-        project_fn,
-        persona_names,
-    )
+    try:
+        plots, errors = load_embedding_samples(
+            artifacts_root,
+            model_name,
+            persona_ids,
+            selected_variant,
+            selected_layers,
+            project_fn,
+            persona_names,
+            progress_fn=update_progress,
+        )
 
-    if errors:
-        for err in errors:
-            st.error(f"Failed to load vectors: {err}")
-    if not plots:
-        st.error("No samples loaded successfully")
-        return
+        if errors:
+            for err in errors:
+                st.error(f"Failed to load vectors: {err}")
+        if not plots:
+            st.error("No samples loaded successfully")
+            return
 
-    if analysis_mode == "PCA":
-        title_prefix, x_label, y_label = "PCA", "PC1", "PC2"
-    else:
-        title_prefix, x_label, y_label = "UMAP", "UMAP 1", "UMAP 2"
+        if analysis_mode == "PCA":
+            title_prefix, x_label, y_label = "PCA", "PC1", "PC2"
+        else:
+            title_prefix, x_label, y_label = "UMAP", "UMAP 1", "UMAP 2"
 
-    cols = st.columns(2)
-    for idx, (layer_idx, coords, labels, hover_text) in enumerate(plots):
-        with cols[idx % 2]:
-            fig = build_embedding_figure(
-                coords=coords,
-                labels=labels,
-                title=f"{title_prefix}, layer {layer_idx}",
-                x_label=x_label,
-                y_label=y_label,
-                hover_text=hover_text,
-            )
-            st.plotly_chart(fig, width="stretch")
+        cols = st.columns(2)
+        for idx, (layer_idx, coords, labels, hover_text) in enumerate(plots):
+            with cols[idx % 2]:
+                fig = build_embedding_figure(
+                    coords=coords,
+                    labels=labels,
+                    title=f"{title_prefix}, layer {layer_idx}",
+                    x_label=x_label,
+                    y_label=y_label,
+                    hover_text=hover_text,
+                )
+                st.plotly_chart(fig, width="stretch")
 
-    total_samples = sum(coords.shape[0] for _, coords, _, _ in plots)
-    st.success(f"Loaded {total_samples} samples across {len(plots)} layer(s)")
+        total_samples = sum(coords.shape[0] for _, coords, _, _ in plots)
+        st.success(f"Loaded {total_samples} samples across {len(plots)} layer(s)")
+    finally:
+        progress.empty()
 
 
 def render_load_compare_tab(model_name: str) -> None:
