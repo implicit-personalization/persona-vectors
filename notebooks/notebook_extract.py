@@ -9,7 +9,11 @@ from tqdm.auto import tqdm
 from src.activation_io import save_per_question_vectors
 from src.activations import extract_activations
 from src.environment import get_artifacts_dir, load_env, set_seed
-from src.prompt_format import format_messages
+from src.prompt_format import (
+    format_biography_prompt,
+    format_messages,
+    format_templated_prompt,
+)
 from src.synth_persona_io import QAPair, SynthPersonaDataset
 
 console = Console()
@@ -106,6 +110,7 @@ def extract_variant_activations(
         model_name=model_name,
         prompt_variant=prompt_variant,
         persona_id=persona_id,
+        persona_name=persona.name,
         per_question_vectors=all_hs,
         questions=all_questions,
     )
@@ -116,8 +121,12 @@ def extract_variant_activations(
 
 # %% Extract activations for different prompt variants
 variants = [
-    ("templated", persona.templated_prompt, "templated prompt"),
-    ("biography", persona.biography_md, "biography prompt"),
+    (
+        "templated",
+        format_templated_prompt(persona.templated_prompt),
+        "templated prompt",
+    ),
+    ("biography", format_biography_prompt(persona.biography_md), "biography prompt"),
 ]
 
 for variant_name, system_prompt, label in variants:

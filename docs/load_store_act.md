@@ -28,11 +28,11 @@ By saving activations to disk:
 
 ```bash
 artifacts/activations/
-└── google/gemma-2-2b-it/                 # model_name
+└── google__gemma-2-2b-it/                # model_name with / -> __
     └── templated/                        # prompt_variant
         └── persona_001/                  # persona_id
             ├── activations.safetensors   # (n_questions, n_layers, d_model)
-            └── metadata.json             # {"questions": [...]}
+            └── metadata.json             # {"persona_id", "persona_name", "questions"}
 ```
 
 | Component        | Description                                                 |
@@ -65,7 +65,7 @@ The function automatically:
 
 - Creates the directory structure if needed
 - Saves activations as efficient `.safetensors` file
-- Saves metadata (questions) in JSON for reference
+- Saves metadata (persona info + questions) in JSON for reference
 
 ---
 
@@ -93,4 +93,4 @@ vectors, questions = load_per_question_vectors(
 
 - **activations.safetensors**: Efficient binary format using PyTorch's safetensors,
   supports memory-mapped loading for large datasets
-- **metadata.json**: Human-readable JSON with question strings for reference
+- **metadata.json**: Human-readable JSON with persona metadata and question strings
