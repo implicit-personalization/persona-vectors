@@ -91,6 +91,7 @@ def run_extraction(
             model_name=model_name,
             prompt_variant=variant,
             persona_id=persona.id,
+            persona_name=persona.name,
             per_question_vectors=per_question_vectors,
             questions=questions,
         )

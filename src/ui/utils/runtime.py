@@ -3,11 +3,15 @@ import streamlit as st
 from nnsight import LanguageModel
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=30)
 def list_remote_models() -> list[str]:
     """Return the NDIF language models that are currently running."""
 
-    status = nnsight.ndif_status()
+    try:
+        status = nnsight.ndif_status()
+    except Exception:
+        return []
+
     model_names: list[str] = []
 
     for entry in status.values():
@@ -26,6 +30,13 @@ def list_remote_models() -> list[str]:
             model_names.append(repo_id)
 
     return sorted(dict.fromkeys(model_names))
+
+
+@st.cache_resource(show_spinner=False)
+def cached_model(model_name: str, remote: bool) -> LanguageModel:
+    """Load an nnsight model with resource caching."""
+
+    return load_model(model_name=model_name, remote=remote)
 
 
 def load_model(model_name: str, remote: bool) -> LanguageModel:

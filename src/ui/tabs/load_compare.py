@@ -1,0 +1,226 @@
+import streamlit as st
+
+from src.analysis import build_embedding_figure, project_pca, project_umap
+from src.environment import get_artifacts_dir
+from src.plots import plot_multiple_layer_similarities
+from src.ui.utils.artifacts import (
+    artifact_persona_options,
+    list_available_layers,
+    load_cosine_traces,
+    load_embedding_samples,
+)
+from src.ui.utils.helpers import (
+    ANALYSIS_MODES,
+    PROMPT_VARIANTS,
+    persona_display_label,
+    prompt_variant_label,
+)
+
+
+def _select_artifact_personas(
+    artifacts_root: str,
+    model_name: str,
+    variants: list[str],
+) -> tuple[list[str], dict[str, str]]:
+    persona_options, persona_names = artifact_persona_options(
+        artifacts_root,
+        model_name,
+        variants,
+    )
+    if not persona_options:
+        st.info("No personas found for this model. Run extraction first.")
+        return [], persona_names
+
+    persona_ids = st.multiselect(
+        "Personas",
+        options=persona_options,
+        default=persona_options[:1] if len(persona_options) > 1 else persona_options,
+        format_func=lambda persona_id: persona_display_label(
+            persona_id, persona_names.get(persona_id)
+        ),
+        key=f"load_personas_{'_'.join(variants)}",
+    )
+    return persona_ids, persona_names
+
+
+def _render_cosine_similarity(
+    artifacts_root: str,
+    model_name: str,
+) -> None:
+    col1, col2 = st.columns(2)
+    with col1:
+        variant_a = st.selectbox(
+            "Variant A",
+            options=PROMPT_VARIANTS,
+            index=0,
+            format_func=prompt_variant_label,
+            key="load_variant_a_select",
+        )
+    with col2:
+        variant_b = st.selectbox(
+            "Variant B",
+            options=PROMPT_VARIANTS,
+            index=1,
+            format_func=prompt_variant_label,
+            key="load_variant_b_select",
+        )
+
+    if variant_a == variant_b:
+        st.warning("Choose two different variants to compare.")
+        return
+
+    persona_ids, _ = _select_artifact_personas(
+        artifacts_root,
+        model_name,
+        [variant_a, variant_b],
+    )
+    if not persona_ids:
+        return
+
+    if not st.button("Load and compare"):
+        return
+
+    traces, loaded_names, errors = load_cosine_traces(
+        artifacts_root,
+        model_name,
+        persona_ids,
+        variant_a,
+        variant_b,
+    )
+
+    if errors:
+        for err in errors:
+            st.error(f"Failed to load vectors: {err}")
+    if not traces:
+        st.error("No personas loaded successfully")
+        return
+
+    display_traces = [
+        (
+            persona_display_label(persona_id, loaded_names.get(persona_id)),
+            short,
+            long,
+        )
+        for persona_id, short, long in traces
+    ]
+    fig = plot_multiple_layer_similarities(
+        display_traces,
+        title=f"{prompt_variant_label(variant_a)} vs {prompt_variant_label(variant_b)}",
+        show=False,
+    )
+    st.plotly_chart(fig, width="stretch")
+    shape_msgs = ", ".join(
+        f"{persona_display_label(t[0], loaded_names.get(t[0]))}={tuple(t[1].shape)}"
+        for t in traces
+    )
+    st.success(f"Loaded: {shape_msgs}")
+
+
+def _render_embedding_analysis(
+    artifacts_root: str,
+    model_name: str,
+    analysis_mode: str,
+) -> None:
+    selected_variant = st.selectbox(
+        "Variant",
+        options=PROMPT_VARIANTS,
+        format_func=prompt_variant_label,
+        key="load_variant_select",
+    )
+
+    persona_ids, persona_names = _select_artifact_personas(
+        artifacts_root,
+        model_name,
+        [selected_variant],
+    )
+    if not persona_ids:
+        return
+
+    layer_options = list_available_layers(
+        artifacts_root,
+        model_name,
+        [selected_variant],
+        persona_ids,
+    )
+    if not layer_options:
+        st.info("Select personas with saved activations to enable layer analysis.")
+        return
+
+    selected_layers = st.multiselect(
+        "Layers",
+        options=layer_options,
+        default=layer_options[: min(3, len(layer_options))],
+        key=f"load_layers_{selected_variant}",
+    )
+    if not selected_layers:
+        st.info("Select at least one layer.")
+        return
+
+    if not st.button("Load and compare"):
+        return
+
+    project_fn = project_pca if analysis_mode == "PCA" else project_umap
+    plots, errors = load_embedding_samples(
+        artifacts_root,
+        model_name,
+        persona_ids,
+        selected_variant,
+        selected_layers,
+        project_fn,
+        persona_names,
+    )
+
+    if errors:
+        for err in errors:
+            st.error(f"Failed to load vectors: {err}")
+    if not plots:
+        st.error("No samples loaded successfully")
+        return
+
+    if analysis_mode == "PCA":
+        title_prefix, x_label, y_label = "PCA", "PC1", "PC2"
+    else:
+        title_prefix, x_label, y_label = "UMAP", "UMAP 1", "UMAP 2"
+
+    cols = st.columns(2)
+    for idx, (layer_idx, coords, labels, hover_text) in enumerate(plots):
+        with cols[idx % 2]:
+            fig = build_embedding_figure(
+                coords=coords,
+                labels=labels,
+                title=f"{title_prefix}, layer {layer_idx}",
+                x_label=x_label,
+                y_label=y_label,
+                hover_text=hover_text,
+            )
+            st.plotly_chart(fig, width="stretch")
+
+    total_samples = sum(coords.shape[0] for _, coords, _, _ in plots)
+    st.success(f"Loaded {total_samples} samples across {len(plots)} layer(s)")
+
+
+def render_load_compare_tab(model_name: str) -> None:
+    """Render the load-and-compare tab."""
+
+    st.subheader("Load + Compare")
+    st.caption(
+        "Load saved vectors and compare layer-wise cosine similarity or 2D embeddings."
+    )
+
+    artifacts_root = st.text_input(
+        "Artifacts root",
+        value=str(get_artifacts_dir() / "activations"),
+    )
+
+    analysis_mode = st.radio(
+        "Analysis type",
+        options=ANALYSIS_MODES,
+        horizontal=True,
+        key="load_analysis_mode",
+    )
+
+    if analysis_mode == "Cosine similarity":
+        _render_cosine_similarity(artifacts_root, model_name)
+        return
+
+    _render_embedding_analysis(artifacts_root, model_name, analysis_mode)
