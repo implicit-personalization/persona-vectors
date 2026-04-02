@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import torch
+from nnterp import StandardizedTransformer
 
 from src.activation_io import save_per_question_vectors
 from src.activations import extract_activations
@@ -48,14 +49,18 @@ def _prepare_inputs(
 
 
 def run_extraction(
-    model,
+    model: StandardizedTransformer,
     model_name: str,
     persona: PersonaData,
     qa_pairs: list[QAPair],
     variants: list[str],
     remote: bool,
 ) -> list[VariantExtractionResult]:
-    """Run activation extraction and save outputs for selected variants."""
+    """Run activation extraction and save outputs for selected variants.
+
+    Args:
+        model: Loaded standardized nnterp model.
+    """
     if not qa_pairs:
         raise ValueError("No QA pairs selected for extraction")
 

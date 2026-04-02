@@ -1,6 +1,6 @@
 import nnsight
 import streamlit as st
-from nnsight import LanguageModel
+from nnterp import StandardizedTransformer
 
 
 @st.cache_data(show_spinner=False, ttl=30)
@@ -17,7 +17,7 @@ def list_remote_models() -> list[str]:
     for entry in status.values():
         if not isinstance(entry, dict):
             continue
-        if entry.get("model_class") != "LanguageModel":
+        if entry.get("model_class") not in {"LanguageModel", "StandardizedTransformer"}:
             continue
 
         state = entry.get("state")
@@ -33,14 +33,12 @@ def list_remote_models() -> list[str]:
 
 
 @st.cache_resource(show_spinner=False)
-def cached_model(model_name: str, remote: bool) -> LanguageModel:
-    """Load an nnsight model with resource caching."""
+def cached_model(model_name: str, remote: bool) -> StandardizedTransformer:
+    """Load and cache a standardized nnterp model.
 
-    return load_model(model_name=model_name, remote=remote)
+    Streamlit reruns this app on every interaction, so caching keeps one loaded
+    model instance per ``(model_name, remote)`` instead of reloading weights on
+    every widget change.
+    """
 
-
-def load_model(model_name: str, remote: bool) -> LanguageModel:
-    """Load an nnsight model for local or remote tracing."""
-    if remote:
-        return LanguageModel(model_name)
-    return LanguageModel(model_name, dtype="auto", device_map="auto", dispatch=True)
+    return StandardizedTransformer(model_name, remote=remote)

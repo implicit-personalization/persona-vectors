@@ -1,7 +1,7 @@
 # %% Imports
 import nnsight
 import torch
-from nnsight import LanguageModel
+from nnterp import StandardizedTransformer
 from rich.console import Console
 from rich.table import Table
 from tqdm.auto import tqdm
@@ -35,14 +35,15 @@ if REMOTE:
     # print(nnsight.ndif_status())
     # print(nnsight.ndif.compare())
     print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
-    model = LanguageModel(MODEL_NAME)
+    model = StandardizedTransformer(MODEL_NAME, remote=True)
 else:
-    model = LanguageModel(MODEL_NAME, dtype="auto", device_map="auto", dispatch=True)
+    model = StandardizedTransformer(MODEL_NAME)
 
 tokenizer = model.tokenizer
 
-NUM_LAYERS = model.config.num_hidden_layers
-D_MODEL = model.config.hidden_size
+# NOTE: This is much cleaner with nnterp
+NUM_LAYERS = model.num_layers
+D_MODEL = model.hidden_size
 
 model_table = Table(title="Model Config")
 model_table.add_column("Property", style="cyan")
