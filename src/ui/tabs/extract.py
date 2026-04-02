@@ -1,9 +1,20 @@
 import streamlit as st
 
 from src.ui.utils.datasets import load_dataset
-from src.ui.utils.helpers import PROMPT_VARIANTS, persona_label, prompt_variant_label
+from src.ui.utils.helpers import (
+    PROMPT_VARIANTS,
+    persona_label,
+    prompt_variant_label,
+    widget_key,
+)
 from src.ui.utils.extraction import run_extraction
 from src.ui.utils.runtime import cached_model
+
+
+def _extract_widget_key(
+    model_name: str, remote: bool, dataset_source: str, suffix: str
+) -> str:
+    return widget_key("extract", str(remote), model_name, dataset_source, suffix)
 
 
 def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> None:
@@ -16,13 +27,13 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
         st.file_uploader(
             "personas.jsonl",
             type=["jsonl"],
-            key="personas_file",
+            key="extract__personas_file",
             help="Expected fields: id, persona, templated_prompt, biography_md",
         )
         st.file_uploader(
             "qa.jsonl",
             type=["jsonl"],
-            key="qa_file",
+            key="extract__qa_file",
             help="Expected fields: id, qid, type, question, answer, difficulty",
         )
 
@@ -31,7 +42,7 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
         options=PROMPT_VARIANTS,
         default=PROMPT_VARIANTS,
         format_func=prompt_variant_label,
-        key="extract_prompt_variants",
+        key=_extract_widget_key(model_name, remote, dataset_source, "prompt_variants"),
     )
     if not selected_variants:
         st.info("Select at least one prompt variant.")
@@ -46,14 +57,14 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
 
     personas = list(dataset)
     if not personas:
-        st.error("No personas found in selected dataset")
+        st.error("No personas found in the selected dataset.")
         return
 
     selected_persona = st.selectbox(
         "Persona",
         options=personas,
         format_func=persona_label,
-        key="extract_persona_select",
+        key=_extract_widget_key(model_name, remote, dataset_source, "persona_select"),
     )
 
     qa_filter_type: str | None
@@ -65,55 +76,49 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
             "QA type",
             options=["all", "explicit", "implicit"],
             index=0,
-            key="extract_qa_type_select",
+            key=_extract_widget_key(
+                model_name, remote, dataset_source, "qa_type_select"
+            ),
         )
-        if qa_type_select == "explicit":
-            qa_filter_type = "explicit"
-        elif qa_type_select == "implicit":
-            qa_filter_type = "implicit"
-        else:
-            qa_filter_type = None
+        qa_filter_type = (
+            qa_type_select if qa_type_select in ("explicit", "implicit") else None
+        )
     with col2:
         difficulty_values = st.multiselect(
             "Difficulty",
             options=[1, 2, 3],
             default=[1, 2, 3],
-            key="extract_difficulty_select",
+            key=_extract_widget_key(
+                model_name, remote, dataset_source, "difficulty_select"
+            ),
         )
         qa_filter_difficulty = difficulty_values if difficulty_values else None
     with col3:
-        total_matching = len(
-            dataset.get_qa(
-                persona_id=selected_persona.id,
-                type=qa_filter_type,
-                difficulty=qa_filter_difficulty,
-            )
+        all_qa_pairs = dataset.get_qa(
+            persona_id=selected_persona.id,
+            type=qa_filter_type,
+            difficulty=qa_filter_difficulty,
         )
-        if total_matching == 0:
-            st.warning("No QA pairs match current filters. Update filters to continue.")
+        if not all_qa_pairs:
+            st.warning(
+                "No QA pairs match the current filters. Update filters to continue."
+            )
             return
         max_questions = st.slider(
             "Max questions",
             min_value=1,
-            max_value=total_matching,
-            value=total_matching,
-            key="extract_max_questions",
+            max_value=len(all_qa_pairs),
+            value=len(all_qa_pairs),
+            key=_extract_widget_key(
+                model_name, remote, dataset_source, "max_questions"
+            ),
         )
 
     run_clicked = st.button("Run extraction", type="primary")
     if not run_clicked:
         return
 
-    qa_pairs = dataset.get_qa(
-        persona_id=selected_persona.id,
-        type=qa_filter_type,
-        difficulty=qa_filter_difficulty,
-    )
-    qa_pairs = qa_pairs[: int(max_questions)]
-
-    if not qa_pairs:
-        st.error("No QA pairs match current filters")
-        return
+    qa_pairs = all_qa_pairs[:max_questions]
 
     status_box = st.empty()
     status_box.info("Extraction in progress...")
@@ -143,7 +148,7 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
 
         progress.progress(1.0, text="Extraction complete")
     except Exception as exc:
-        st.error(f"Extraction failed: {exc}")
+        st.error(f"Extraction failed: `{exc}`")
         return
     finally:
         progress.empty()

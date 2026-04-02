@@ -1,6 +1,10 @@
+import logging
+
 import nnsight
 import streamlit as st
 from nnterp import StandardizedTransformer
+
+logger = logging.getLogger(__name__)
 
 
 @st.cache_data(show_spinner=False, ttl=30)
@@ -10,6 +14,7 @@ def list_remote_models() -> list[str]:
     try:
         status = nnsight.ndif_status()
     except Exception:
+        logger.warning("Failed to fetch NDIF status", exc_info=True)
         return []
 
     model_names: list[str] = []
@@ -29,10 +34,10 @@ def list_remote_models() -> list[str]:
         if isinstance(repo_id, str):
             model_names.append(repo_id)
 
-    return sorted(dict.fromkeys(model_names))
+    return sorted(set(model_names))
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner=False, max_entries=1)
 def cached_model(model_name: str, remote: bool) -> StandardizedTransformer:
     """Load and cache a standardized nnterp model.
 

@@ -1,9 +1,13 @@
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
+import streamlit as st
 import torch
 
 from src.activation_io import load_activation_metadata, load_per_question_vectors
+
+logger = logging.getLogger(__name__)
 
 
 def model_dir_name(model_name: str) -> str:
@@ -17,16 +21,25 @@ def list_available_personas(
     model_name: str,
     variants: list[str],
 ) -> list[str]:
-    """List persona ids with saved activations for the given model and variants."""
+    """List persona ids available for every requested variant."""
 
-    persona_ids: set[str] = set()
+    shared_personas: set[str] | None = None
     root = Path(artifacts_root)
     for variant in variants:
         model_dir = root / model_dir_name(model_name) / variant
         if not model_dir.exists():
-            continue
-        persona_ids.update(d.name for d in model_dir.iterdir() if d.is_dir())
-    return sorted(persona_ids)
+            return []
+
+        variant_personas = {d.name for d in model_dir.iterdir() if d.is_dir()}
+        if shared_personas is None:
+            shared_personas = variant_personas
+        else:
+            shared_personas &= variant_personas
+
+        if not shared_personas:
+            return []
+
+    return sorted(shared_personas or set())
 
 
 def load_persona_names(
@@ -48,6 +61,7 @@ def load_persona_names(
                     persona_id=persona_id,
                 )
             except Exception:
+                logger.debug("Failed to load metadata for persona %s variant %s", persona_id, variant, exc_info=True)
                 continue
 
             persona_name = metadata.get("persona_name")
@@ -75,15 +89,16 @@ def artifact_persona_options(
     return persona_options, persona_names
 
 
+@st.cache_data(show_spinner=False)
 def list_available_layers(
-    artifacts_root: str | Path,
+    artifacts_root: str,
     model_name: str,
     variants: list[str],
     persona_ids: list[str],
 ) -> list[int]:
-    """List layer indices present in any matching saved activation file."""
+    """List layer indices shared by all matching saved activation files."""
 
-    layers: set[int] = set()
+    shared_layers: set[int] | None = None
     for variant in variants:
         for persona_id in persona_ids:
             try:
@@ -94,9 +109,16 @@ def list_available_layers(
                     persona_id=persona_id,
                 )
             except Exception:
+                logger.debug("Failed to load vectors for persona %s variant %s", persona_id, variant, exc_info=True)
                 continue
-            layers.update(range(vectors.shape[1]))
-    return sorted(layers)
+
+            layers = set(range(vectors.shape[1]))
+            if shared_layers is None:
+                shared_layers = layers
+            else:
+                shared_layers &= layers
+
+    return sorted(shared_layers or set())
 
 
 def load_cosine_traces(
@@ -179,7 +201,11 @@ def load_embedding_samples(
         hover_text: list[str] = []
 
         for persona_id, vectors in vectors_by_persona.items():
-            layer_vectors = vectors[:, int(layer_idx), :]
+            if layer_idx >= vectors.shape[1]:
+                errors.append(f"{persona_id} / {variant}: missing layer {layer_idx}")
+                continue
+
+            layer_vectors = vectors[:, layer_idx, :]
             samples.append(layer_vectors)
             labels.extend([persona_id] * layer_vectors.shape[0])
             display_name = persona_names.get(persona_id) or persona_id
@@ -191,27 +217,19 @@ def load_embedding_samples(
             )
 
         if not samples:
-            if progress_fn is not None:
-                progress_fn(idx, total_layers, len(plots))
-            continue
-
-        all_samples = torch.cat(samples, dim=0)
-        if all_samples.shape[0] < 2:
-            errors.append(
-                f"Layer {layer_idx}: need at least 2 samples for {variant} analysis"
-            )
-            if progress_fn is not None:
-                progress_fn(idx, total_layers, len(plots))
-            continue
-
-        try:
-            coords = project_fn(all_samples)
-        except Exception as exc:
-            errors.append(f"Layer {layer_idx}: {exc}")
-            if progress_fn is not None:
-                progress_fn(idx, total_layers, len(plots))
-            continue
-        plots.append((int(layer_idx), coords, labels, hover_text))
+            errors.append(f"Layer {layer_idx}: no selected personas have this layer")
+        else:
+            all_samples = torch.cat(samples, dim=0)
+            if all_samples.shape[0] < 2:
+                errors.append(
+                    f"Layer {layer_idx}: need at least 2 samples after filtering selected personas"
+                )
+            else:
+                try:
+                    coords = project_fn(all_samples)
+                    plots.append((layer_idx, coords, labels, hover_text))
+                except Exception as exc:
+                    errors.append(f"Layer {layer_idx}: {exc}")
 
         if progress_fn is not None:
             progress_fn(idx, total_layers, len(plots))

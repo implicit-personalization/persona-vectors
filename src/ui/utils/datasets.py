@@ -6,6 +6,7 @@ import streamlit as st
 
 from src.synth_persona_io import SynthPersonaDataset
 
+from .helpers import DATASET_SOURCES
 from .local_dataset import LocalPersonaDataset
 
 
@@ -27,7 +28,10 @@ def _upload_cache_dir() -> Path:
 def _uploaded_file_to_temp_path(uploaded_file: Any, stem: str) -> Path:
     suffix = Path(uploaded_file.name).suffix or ".jsonl"
     temp_path = _upload_cache_dir() / f"{stem}{suffix}"
-    temp_path.write_bytes(uploaded_file.getvalue())
+    data = uploaded_file.getvalue()
+    if temp_path.exists() and temp_path.stat().st_size == len(data):
+        return temp_path
+    temp_path.write_bytes(data)
     return temp_path
 
 
@@ -36,11 +40,11 @@ def load_dataset(
 ) -> tuple[SynthPersonaDataset | LocalPersonaDataset, str]:
     """Load the selected dataset source for the UI."""
 
-    if dataset_source == "HuggingFace: synth-persona":
+    if dataset_source == DATASET_SOURCES[0]:
         return cached_hf_dataset(), "Loaded HF dataset"
 
-    personas_file = st.session_state.get("personas_file")
-    qa_file = st.session_state.get("qa_file")
+    personas_file = st.session_state.get("extract__personas_file")
+    qa_file = st.session_state.get("extract__qa_file")
     if personas_file is None or qa_file is None:
         raise ValueError("Upload both personas.jsonl and qa.jsonl files")
 

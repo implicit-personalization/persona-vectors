@@ -10,10 +10,12 @@ from src.ui.utils.artifacts import (
     load_embedding_samples,
 )
 from src.ui.utils.helpers import (
+    ANALYSIS_LABELS,
     ANALYSIS_MODES,
     PROMPT_VARIANTS,
     persona_display_label,
     prompt_variant_label,
+    widget_key,
 )
 
 
@@ -28,7 +30,12 @@ def _select_artifact_personas(
         variants,
     )
     if not persona_options:
-        st.info("No personas found for this model. Run extraction first.")
+        if len(variants) > 1:
+            st.info(
+                "No personas have saved activations for all selected variants. Run extraction for both variants first."
+            )
+        else:
+            st.info("No personas found for this model. Run extraction first.")
         return [], persona_names
 
     persona_ids = st.multiselect(
@@ -38,7 +45,7 @@ def _select_artifact_personas(
         format_func=lambda persona_id: persona_display_label(
             persona_id, persona_names.get(persona_id)
         ),
-        key=f"load_personas_{'_'.join(variants)}",
+        key=widget_key("load", "personas", model_name, *variants),
     )
     return persona_ids, persona_names
 
@@ -54,15 +61,15 @@ def _render_cosine_similarity(
             options=PROMPT_VARIANTS,
             index=0,
             format_func=prompt_variant_label,
-            key="load_variant_a_select",
+            key=widget_key("load", "variant_a"),
         )
     with col2:
         variant_b = st.selectbox(
             "Variant B",
             options=PROMPT_VARIANTS,
-            index=1,
+            index=min(1, len(PROMPT_VARIANTS) - 1),
             format_func=prompt_variant_label,
-            key="load_variant_b_select",
+            key=widget_key("load", "variant_b"),
         )
 
     if variant_a == variant_b:
@@ -90,9 +97,9 @@ def _render_cosine_similarity(
 
     if errors:
         for err in errors:
-            st.error(f"Failed to load vectors: {err}")
+            st.error(f"Failed to load vectors: `{err}`")
     if not traces:
-        st.error("No personas loaded successfully")
+        st.error("No personas loaded successfully.")
         return
 
     display_traces = [
@@ -125,7 +132,7 @@ def _render_embedding_analysis(
         "Variant",
         options=PROMPT_VARIANTS,
         format_func=prompt_variant_label,
-        key="load_variant_select",
+        key=widget_key("load", "variant"),
     )
 
     persona_ids, persona_names = _select_artifact_personas(
@@ -143,14 +150,23 @@ def _render_embedding_analysis(
         persona_ids,
     )
     if not layer_options:
-        st.info("Select personas with saved activations to enable layer analysis.")
+        st.info(
+            "No shared layers are available for the selected personas. Try fewer personas or a different variant."
+        )
         return
 
+    persona_key = "_".join(sorted(persona_ids))
+    layer_key = widget_key("load", "layers", model_name, selected_variant, persona_key)
+    default_layers = [
+        l
+        for l in st.session_state.get(layer_key, layer_options[:3])
+        if l in layer_options
+    ] or layer_options[:3]
     selected_layers = st.multiselect(
         "Layers",
         options=layer_options,
-        default=layer_options[: min(3, len(layer_options))],
-        key=f"load_layers_{selected_variant}",
+        default=default_layers,
+        key=layer_key,
     )
     if not selected_layers:
         st.info("Select at least one layer.")
@@ -183,15 +199,20 @@ def _render_embedding_analysis(
 
         if errors:
             for err in errors:
-                st.error(f"Failed to load vectors: {err}")
+                if (
+                    "missing layer" in err
+                    or "no selected personas have this layer" in err
+                ):
+                    st.warning(f"Skipping unavailable data: `{err}`")
+                else:
+                    st.error(f"Failed to load vectors: `{err}`")
         if not plots:
-            st.error("No samples loaded successfully")
+            st.warning(
+                "No projections could be built for the current persona/layer selection."
+            )
             return
 
-        if analysis_mode == "PCA":
-            title_prefix, x_label, y_label = "PCA", "PC1", "PC2"
-        else:
-            title_prefix, x_label, y_label = "UMAP", "UMAP 1", "UMAP 2"
+        title_prefix, x_label, y_label = ANALYSIS_LABELS[analysis_mode]
 
         cols = st.columns(2)
         for idx, (layer_idx, coords, labels, hover_text) in enumerate(plots):
@@ -229,7 +250,7 @@ def render_load_compare_tab(model_name: str) -> None:
         "Analysis type",
         options=ANALYSIS_MODES,
         horizontal=True,
-        key="load_analysis_mode",
+        key=widget_key("load", "analysis_mode"),
     )
 
     if analysis_mode == "Cosine similarity":

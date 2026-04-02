@@ -1,7 +1,12 @@
+import gc
+import logging
 from dataclasses import dataclass
 
 import torch
+
 from nnterp import StandardizedTransformer
+
+logger = logging.getLogger(__name__)
 
 from src.activation_io import save_per_question_vectors
 from src.activations import extract_activations
@@ -24,10 +29,22 @@ class VariantExtractionResult:
 
 
 def _prepare_inputs(
-    tokenizer,
+    tokenizer: object,
     system_prompt: str,
     qa_pairs: list[QAPair],
 ) -> tuple[list[str], list[torch.Tensor], list[str]]:
+    """Format QA pairs into tokenized prompts with answer-token masks.
+
+    Args:
+        tokenizer: HuggingFace-compatible tokenizer from the model.
+        system_prompt: System prompt to prepend to each conversation.
+        qa_pairs: List of question-answer pairs to format.
+
+    Returns:
+        A tuple of (full_texts, token_masks, questions) where full_texts are
+        the rendered prompt strings, token_masks are boolean tensors marking
+        answer tokens, and questions are the raw question strings.
+    """
     full_texts: list[str] = []
     token_masks: list[torch.Tensor] = []
     questions: list[str] = []
@@ -60,6 +77,17 @@ def run_extraction(
 
     Args:
         model: Loaded standardized nnterp model.
+        model_name: HuggingFace model identifier used for artifact paths.
+        persona: The persona whose QA pairs are being extracted.
+        qa_pairs: Question-answer pairs to run extraction on.
+        variants: Prompt variants to extract (e.g. ``"templated"``, ``"biography"``).
+        remote: Whether to execute on NDIF.
+
+    Returns:
+        A list of extraction results, one per variant.
+
+    Raises:
+        ValueError: If ``qa_pairs`` is empty or an unsupported variant is given.
     """
     if not qa_pairs:
         raise ValueError("No QA pairs selected for extraction")
@@ -110,5 +138,13 @@ def run_extraction(
                 d_model=per_question_vectors.shape[2],
             )
         )
+
+        # Free activation tensors between variants to keep memory bounded.
+        del per_question_vectors, full_texts, token_masks
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+            torch.mps.empty_cache()
 
     return results

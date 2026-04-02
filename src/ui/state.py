@@ -1,10 +1,12 @@
 import streamlit as st
 
+_CHAT_STATE_PREFIX = "chat_state::"
+
 
 def chat_session_key(model_name: str, remote: bool, dataset_source: str) -> str:
     """Build the session-state key for a chat context."""
 
-    return f"chat_state::{remote}::{model_name}::{dataset_source}"
+    return f"{_CHAT_STATE_PREFIX}{remote}::{model_name}::{dataset_source}"
 
 
 def _default_chat_state() -> dict[str, object]:
@@ -12,9 +14,22 @@ def _default_chat_state() -> dict[str, object]:
         "messages": [],
         "persona_id": None,
         "prompt_mode": "empty",
-        "max_new_tokens": 256,
         "past_key_values": None,
     }
+
+
+def _evict_inactive_kv_caches(active_key: str) -> None:
+    """Drop past_key_values from every chat context except the active one."""
+
+    for key in st.session_state:
+        if (
+            isinstance(key, str)
+            and key.startswith(_CHAT_STATE_PREFIX)
+            and key != active_key
+        ):
+            state = st.session_state[key]
+            if isinstance(state, dict) and state.get("past_key_values") is not None:
+                state["past_key_values"] = None
 
 
 def get_chat_state(
@@ -27,6 +42,10 @@ def get_chat_state(
     if state is None:
         state = _default_chat_state()
         st.session_state[key] = state
+    else:
+        for default_key, default_value in _default_chat_state().items():
+            state.setdefault(default_key, default_value)
+    _evict_inactive_kv_caches(key)
     return state
 
 

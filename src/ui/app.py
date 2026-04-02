@@ -1,5 +1,4 @@
 import streamlit as st
-import torch
 
 from src.environment import load_env, set_seed
 from src.ui.tabs.chat import render_chat_tab
@@ -15,7 +14,7 @@ REMOTE_DEFAULT_MODEL = "google/gemma-2-9b-it"
 def _sidebar_model_controls() -> tuple[bool, str]:
     with st.sidebar:
         st.header("Settings")
-        remote = st.toggle("Remote (NDIF)", value=True)
+        remote = st.toggle("Remote (NDIF)", value=False)
 
         if remote:
             remote_models = list_remote_models()
@@ -53,10 +52,16 @@ def _sidebar_shared_controls() -> tuple[bool, str, str]:
 
 def main() -> None:
     load_env()
+
+    # Deferred: importing torch is slow; keep it after load_env so the
+    # Streamlit page config renders immediately.
+    import torch
+
     torch.set_grad_enabled(False)
+
     set_seed(1337)
 
-    st.set_page_config(page_title="Persona Vectors", page_icon="🧭", layout="wide")
+    st.set_page_config(page_title="Persona Vectors", layout="wide")
     st.title("Persona Vectors Monitor")
 
     remote, model_name, dataset_source = _sidebar_shared_controls()
