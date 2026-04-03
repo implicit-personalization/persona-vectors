@@ -96,9 +96,9 @@ def main() -> None:
 
         render_extract_tab(remote, model_name, dataset_source)
     elif active_tab == "Compare":
-        from src.ui.tabs.load_compare import render_load_compare_tab
+        from src.ui.tabs.compare import render_compare_tab
 
-        render_load_compare_tab(model_name)
+        render_compare_tab(model_name)
     else:
         from src.ui.tabs.chat import render_chat_tab
 

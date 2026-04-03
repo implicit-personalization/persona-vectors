@@ -1,7 +1,4 @@
-import json
-
 import streamlit as st
-import streamlit.components.v1 as components
 
 from src.ui.state import chat_session_key, get_chat_state, reset_chat_state
 from src.ui.utils.chat import ChatReply, generate_chat_reply, resolve_system_prompt
@@ -26,54 +23,26 @@ def _render_chat_message(message: dict[str, str]) -> None:
         st.markdown(message["content"])
 
 
-def _mark_chat_started(chat_started_key: str) -> None:
-    st.session_state[chat_started_key] = True
-
-
 def _clear_chat_ui_state(*keys: str) -> None:
     for key in keys:
         st.session_state.pop(key, None)
 
 
-def _dataset_caption(dataset_source: str, dataset_status: str) -> str:
-    return dataset_status
-
-
-def _render_copy_button(prompt_text: str, button_key: str) -> None:
-    button_id = f"copy-prompt-{button_key}"
-    button_label = "Copy prompt"
-    components.html(
-        f"""
-        <button id={json.dumps(button_id)} style="
-            width: 100%;
-            padding: 0.4rem 0.75rem;
-            border-radius: 0.5rem;
-            border: 1px solid rgba(49, 51, 63, 0.14);
-            background: #f8f9fa;
-            color: #1f2937;
-            font: inherit;
-            cursor: pointer;
-        ">{button_label}</button>
-        <script>
-        const button = document.getElementById({json.dumps(button_id)});
-        const promptText = {json.dumps(prompt_text)};
-        const defaultLabel = {json.dumps(button_label)};
-        button.addEventListener("click", async () => {{
-          try {{
-            await navigator.clipboard.writeText(promptText);
-            button.textContent = "Copied";
-          }} catch (error) {{
-            button.textContent = "Copy failed";
-          }}
-          window.setTimeout(() => {{ button.textContent = defaultLabel; }}, 1200);
-        }});
-        </script>
-        """,
-        height=42,
-    )
+def _generation_dict(gen_kwargs: dict, advanced_generation: bool) -> dict[str, object]:
+    return {
+        "max_new_tokens": int(gen_kwargs["max_new_tokens"]),
+        "advanced_generation": bool(advanced_generation),
+        "use_sampling": bool(gen_kwargs["do_sample"]),
+        "temperature": float(gen_kwargs["temperature"]),
+        "top_p": float(gen_kwargs["top_p"]),
+        "top_k": int(gen_kwargs["top_k"]),
+        "repetition_penalty": float(gen_kwargs["repetition_penalty"]),
+        "seed": gen_kwargs["seed"],
+    }
 
 
 # ── Compare mode helpers ───────────────────────────────────────────────────────
+
 
 def _panel_state(panel_key: str) -> dict:
     """Get or initialise compare-panel chat state stored in session_state."""
@@ -91,6 +60,11 @@ def _render_compare_panel(
     side: str,
     context_key: str,
     personas: list,
+    remote: bool,
+    model_name: str,
+    dataset_source: str,
+    gen_kwargs: dict,
+    advanced_generation: bool,
 ) -> dict:
     """Render persona/prompt controls + chat log for one compare panel.
 
@@ -139,7 +113,9 @@ def _render_compare_panel(
         )
 
     # ── System prompt ────────────────────────────────────────────────────────
-    active_system_prompt = resolve_system_prompt(persona=selected_persona, mode=prompt_mode)
+    active_system_prompt = resolve_system_prompt(
+        persona=selected_persona, mode=prompt_mode
+    )
     custom_prompt_key = widget_key(panel_key, "custom_prompt")
     if prompt_mode != "empty":
         if custom_prompt_key not in st.session_state:
@@ -155,20 +131,50 @@ def _render_compare_panel(
                 or None
             )
 
-    # ── Reset button ─────────────────────────────────────────────────────────
-    if st.button("Reset", key=widget_key(panel_key, "reset"), use_container_width=True):
-        state["messages"] = []
-        state["past_key_values"] = None
-        _clear_chat_ui_state(
-            widget_key(panel_key, "custom_prompt"),
-            widget_key(panel_key, "show_all"),
-        )
-        st.rerun()
+    export_success_message: str | None = None
+    action_col1, action_col2 = st.columns(2)
+    with action_col1:
+        if st.button(
+            "Export chat",
+            key=widget_key(panel_key, "export_chat"),
+            use_container_width=True,
+        ):
+            export_path = save_chat_export(
+                model_name=model_name,
+                dataset_source=dataset_source,
+                persona_id=selected_persona.id,
+                persona_name=getattr(selected_persona, "name", None),
+                panel_label=side,
+                prompt_mode=prompt_mode,
+                system_prompt=active_system_prompt,
+                messages=state["messages"],
+                generation=_generation_dict(gen_kwargs, advanced_generation),
+            )
+            export_success_message = f"Saved chat export to {export_path}"
+    with action_col2:
+        if st.button(
+            "Reset chat",
+            key=widget_key(panel_key, "reset"),
+            use_container_width=True,
+            type="secondary",
+        ):
+            state["messages"] = []
+            state["past_key_values"] = None
+            _clear_chat_ui_state(
+                widget_key(panel_key, "custom_prompt"),
+                widget_key(panel_key, "show_all"),
+            )
+            st.rerun()
+
+    if export_success_message:
+        st.success(export_success_message)
 
     # ── Message history ──────────────────────────────────────────────────────
     show_all_key = widget_key(panel_key, "show_all")
     messages = state["messages"]
-    if len(messages) > _VISIBLE_MESSAGE_COUNT and not st.session_state.get(show_all_key, False):
+    if len(messages) > _VISIBLE_MESSAGE_COUNT and not st.session_state.get(
+        show_all_key, False
+    ):
         hidden_count = len(messages) - _VISIBLE_MESSAGE_COUNT
         if st.button(
             f"Show earlier ({hidden_count} hidden)",
@@ -191,6 +197,7 @@ def _render_compare_panel(
         "active_system_prompt": active_system_prompt,
         "selected_persona": selected_persona,
         "chat_log": chat_log,
+        "generation": gen_kwargs,
     }
 
 
@@ -198,16 +205,36 @@ def _render_compare_mode(
     remote: bool,
     model_name: str,
     context_key: str,
+    dataset_source: str,
     personas: list,
     gen_kwargs: dict,
+    advanced_generation: bool,
 ) -> None:
     """Render the full side-by-side comparison UI."""
     left_col, right_col = st.columns(2)
 
     with left_col:
-        left = _render_compare_panel("left", context_key, personas)
+        left = _render_compare_panel(
+            "left",
+            context_key,
+            personas,
+            remote,
+            model_name,
+            dataset_source,
+            gen_kwargs,
+            advanced_generation,
+        )
     with right_col:
-        right = _render_compare_panel("right", context_key, personas)
+        right = _render_compare_panel(
+            "right",
+            context_key,
+            personas,
+            remote,
+            model_name,
+            dataset_source,
+            gen_kwargs,
+            advanced_generation,
+        )
 
     user_prompt = st.chat_input(
         "Ask both...",
@@ -219,7 +246,6 @@ def _render_compare_mode(
     model = cached_model(model_name=model_name, remote=remote)
     panels = [(left, left_col), (right, right_col)]
 
-    # Append user message to both panels and render it.
     for panel, col in panels:
         panel["state"]["messages"].append({"role": "user", "content": user_prompt})
         with col:
@@ -230,7 +256,9 @@ def _render_compare_mode(
     for panel, col in panels:
         messages = []
         if panel["active_system_prompt"]:
-            messages.append({"role": "system", "content": panel["active_system_prompt"]})
+            messages.append(
+                {"role": "system", "content": panel["active_system_prompt"]}
+            )
         messages.extend(panel["state"]["messages"])
 
         with col:
@@ -250,13 +278,16 @@ def _render_compare_mode(
                     continue
 
         panel["state"]["messages"].append({"role": "assistant", "content": reply.text})
-        panel["state"]["past_key_values"] = reply.past_key_values if not remote else None
+        panel["state"]["past_key_values"] = (
+            reply.past_key_values if not remote else None
+        )
         with col:
             with panel["chat_log"]:
                 _render_chat_message({"role": "assistant", "content": reply.text})
 
 
 # ── Main tab entry point ───────────────────────────────────────────────────────
+
 
 def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     """Render the chat tab."""
@@ -267,7 +298,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     chat_state = get_chat_state(model_name, remote, dataset_source)
     try:
         dataset, dataset_status = load_dataset(dataset_source)
-        st.caption(_dataset_caption(dataset_source, dataset_status))
+        st.caption(dataset_status)
     except Exception as exc:
         st.error(f"Could not load data: {exc}")
         st.info("Check the selected dataset source or upload both JSONL files.")
@@ -279,22 +310,27 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         st.info("Try a different dataset source or upload a non-empty personas file.")
         return
 
-    # ── Generation settings (shared for both single and compare modes) ────────
-    advanced_generation = st.toggle(
-        "Advanced generation",
-        value=False,
-        key=widget_key(context_key, "advanced_generation"),
-    )
-
-    if advanced_generation:
-        max_new_tokens = st.slider(
-            "Max new tokens",
-            min_value=16,
-            max_value=512,
-            value=256,
-            step=16,
-            key=widget_key(context_key, "max_new_tokens"),
-        )
+    # ── Generation settings ───────────────────────────────────────────────────
+    with st.expander("Advanced", expanded=False):
+        config_col1, config_col2 = st.columns([2, 1])
+        with config_col1:
+            max_new_tokens = st.slider(
+                "Max new tokens",
+                min_value=16,
+                max_value=512,
+                value=256,
+                step=16,
+                key=widget_key(context_key, "max_new_tokens"),
+            )
+        with config_col2:
+            repetition_penalty = st.slider(
+                "Repetition penalty",
+                min_value=0.5,
+                max_value=2.0,
+                value=1.0,
+                step=0.05,
+                key=widget_key(context_key, "repetition_penalty"),
+            )
 
         use_sampling = st.checkbox(
             "Random sampling",
@@ -335,51 +371,42 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 key=widget_key(context_key, "top_k"),
             )
 
-        config_col1, config_col2 = st.columns([2, 1])
-        with config_col1:
-            repetition_penalty = st.slider(
-                "Repetition penalty",
-                min_value=0.5,
-                max_value=2.0,
-                value=1.0,
-                step=0.05,
-                key=widget_key(context_key, "repetition_penalty"),
-            )
-        with config_col2:
-            seed_disabled = sampling_disabled or remote
-            seed_enabled = st.checkbox(
-                "Fix seed",
-                value=False,
-                disabled=seed_disabled,
-                key=widget_key(context_key, "seed_enabled"),
-            )
-            if seed_enabled:
-                seed = int(
-                    st.number_input(
-                        "Seed",
-                        min_value=0,
-                        max_value=2_147_483_647,
-                        value=0,
-                        step=1,
-                        disabled=seed_disabled,
-                        key=widget_key(context_key, "seed"),
-                    )
+        seed_disabled = sampling_disabled or remote
+        seed_enabled = st.checkbox(
+            "Fix seed",
+            value=False,
+            disabled=seed_disabled,
+            key=widget_key(context_key, "seed_enabled"),
+        )
+        if seed_enabled:
+            seed = int(
+                st.number_input(
+                    "Seed",
+                    min_value=0,
+                    max_value=2_147_483_647,
+                    value=0,
+                    step=1,
+                    disabled=seed_disabled,
+                    key=widget_key(context_key, "seed"),
                 )
-            else:
-                seed = None
+            )
+        else:
+            seed = None
 
         if remote:
             st.caption("Seed is local-only and disabled for remote runs.")
-    else:
-        max_new_tokens = 256
-        use_sampling = False
-        temperature = 1.0
-        top_p = 1.0
-        top_k = 50
-        repetition_penalty = 1.0
-        seed = None
 
-    do_sample = bool(advanced_generation and use_sampling)
+    advanced_generation = (
+        max_new_tokens != 256
+        or use_sampling
+        or temperature != 1.0
+        or top_p != 1.0
+        or top_k != 50
+        or repetition_penalty != 1.0
+        or seed is not None
+    )
+
+    do_sample = bool(use_sampling)
     generation_seed = seed if do_sample and seed is not None and not remote else None
     gen_kwargs = dict(
         max_new_tokens=int(max_new_tokens),
@@ -400,7 +427,15 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     )
 
     if compare_mode:
-        _render_compare_mode(remote, model_name, context_key, personas, gen_kwargs)
+        _render_compare_mode(
+            remote,
+            model_name,
+            context_key,
+            dataset_source,
+            personas,
+            gen_kwargs,
+            advanced_generation,
+        )
         return
 
     # ── Single-chat mode ──────────────────────────────────────────────────────
@@ -436,19 +471,20 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     )
 
     chat_input_key = widget_key(context_key, "chat_input")
-    chat_started_key = widget_key(context_key, "chat_started")
     show_all_key = widget_key(context_key, "show_all_messages")
     custom_prompt_key = widget_key(context_key, "custom_system_prompt")
     export_success_message: str | None = None
 
-    action_col1, action_col2, action_col3 = st.columns(3)
+    action_col1, action_col2 = st.columns(2)
     with action_col1:
-        if active_system_prompt:
-            _render_copy_button(
-                active_system_prompt, widget_key(context_key, "copy_prompt")
+        if st.button("Reset chat", use_container_width=True, type="secondary"):
+            reset_chat_state(model_name, remote, dataset_source)
+            _clear_chat_ui_state(
+                chat_input_key,
+                show_all_key,
+                custom_prompt_key,
             )
-        else:
-            st.button("Copy prompt", disabled=True, use_container_width=True)
+            st.rerun()
     with action_col2:
         if st.button("Export chat", use_container_width=True):
             export_path = save_chat_export(
@@ -459,28 +495,9 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 prompt_mode=prompt_mode,
                 system_prompt=active_system_prompt,
                 messages=chat_state["messages"],
-                generation={
-                    "max_new_tokens": int(max_new_tokens),
-                    "advanced_generation": bool(advanced_generation),
-                    "use_sampling": bool(use_sampling),
-                    "temperature": float(temperature),
-                    "top_p": float(top_p),
-                    "top_k": int(top_k),
-                    "repetition_penalty": float(repetition_penalty),
-                    "seed": seed,
-                },
+                generation=_generation_dict(gen_kwargs, advanced_generation),
             )
             export_success_message = f"Saved chat export to {export_path}"
-    with action_col3:
-        if st.button("Reset chat", use_container_width=True):
-            reset_chat_state(model_name, remote, dataset_source)
-            _clear_chat_ui_state(
-                chat_input_key,
-                chat_started_key,
-                show_all_key,
-                custom_prompt_key,
-            )
-            st.rerun()
 
     if export_success_message:
         st.success(export_success_message)
@@ -496,7 +513,6 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         reset_chat_state(model_name, remote, dataset_source)
         _clear_chat_ui_state(
             chat_input_key,
-            chat_started_key,
             show_all_key,
             custom_prompt_key,
         )
@@ -543,18 +559,12 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     user_prompt = st.chat_input(
         "Ask something...",
         key=chat_input_key,
-        on_submit=_mark_chat_started,
-        args=(chat_started_key,),
     )
 
     if not user_prompt:
         return
 
-    st.session_state[chat_started_key] = True
-
     chat_state["messages"].append({"role": "user", "content": user_prompt})
-    with chat_log:
-        _render_chat_message(chat_state["messages"][-1])
 
     messages = []
     if active_system_prompt:
@@ -589,21 +599,6 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         prompt_mode=prompt_mode,
         system_prompt=active_system_prompt,
         messages=chat_state["messages"],
-        generation={
-            "max_new_tokens": int(max_new_tokens),
-            "advanced_generation": bool(advanced_generation),
-            "use_sampling": bool(use_sampling),
-            "temperature": float(temperature),
-            "top_p": float(top_p),
-            "top_k": int(top_k),
-            "repetition_penalty": float(repetition_penalty),
-            "seed": generation_seed,
-        },
+        generation=_generation_dict(gen_kwargs, advanced_generation),
     )
-
-    with chat_log:
-        _render_chat_message(chat_state["messages"][-1])
-        with st.expander("Generation details", expanded=False):
-            st.caption(
-                f"{reply.output_tokens} output tokens, {reply.prompt_tokens} prompt tokens."
-            )
+    st.rerun()

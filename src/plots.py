@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import plotly.graph_objects as go
 import torch
 import torch.nn.functional as F
@@ -8,6 +10,22 @@ def _plots_dir():
     path = get_artifacts_dir() / "plots"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def save_plot_html(fig: go.Figure, filename: str) -> Path:
+    """Save a Plotly figure as an HTML artifact."""
+
+    output_path = _plots_dir() / f"{filename}.html"
+    fig.write_html(str(output_path))
+    return output_path
+
+
+def save_plot_png(fig: go.Figure, filename: str) -> Path:
+    """Save a Plotly figure as a PNG artifact."""
+
+    output_path = _plots_dir() / f"{filename}.png"
+    fig.write_image(str(output_path))
+    return output_path
 
 
 def _add_similarity_traces(
@@ -62,8 +80,7 @@ def plot_layer_similarity(
     )
 
     if filename is not None:
-        output_path = _plots_dir() / f"{filename}.html"
-        fig.write_html(str(output_path))
+        output_path = save_plot_html(fig, filename)
         print(f"Plot saved to {output_path}")
 
     if show:
@@ -109,8 +126,7 @@ def plot_multiple_layer_similarities(
     )
 
     if filename is not None:
-        output_path = _plots_dir() / f"{filename}.html"
-        fig.write_html(str(output_path))
+        output_path = save_plot_html(fig, filename)
         print(f"Plot saved to {output_path}")
 
     if show:

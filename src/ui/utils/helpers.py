@@ -25,6 +25,20 @@ ANALYSIS_LABELS = {
     "UMAP": ("UMAP", "UMAP 1", "UMAP 2"),
 }
 
+ANALYSIS_HELP_TEXT = {
+    "Cosine similarity": "Compare layer-wise alignment between variants.",
+    "PCA": "Project the selected layers into a global 2D view.",
+    "UMAP": "Project the selected layers into a local-neighborhood 2D view.",
+}
+
+
+def slugify(value: str) -> str:
+    """Convert a string to a slug safe for filenames and URLs."""
+
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_") or "unknown"
+
 
 def widget_key(*parts: str) -> str:
     """Generate a namespaced Streamlit widget key from parts."""
