@@ -26,6 +26,7 @@ class VariantExtractionResult:
     n_questions: int
     n_layers: int
     d_model: int
+    persona_name: str = ""
 
 
 def _prepare_inputs(
@@ -136,6 +137,7 @@ def run_extraction(
                 n_questions=per_question_vectors.shape[0],
                 n_layers=per_question_vectors.shape[1],
                 d_model=per_question_vectors.shape[2],
+                persona_name=persona.name,
             )
         )
 

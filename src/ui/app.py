@@ -71,8 +71,8 @@ def _sidebar_controls() -> tuple[bool, str, str, str]:
     return remote, model_name, dataset_source, active_tab
 
 
-_TABS = ["Chat", "Extract", "Compare"]
-_TAB_ICONS = [":material/chat:", ":material/tune:", ":material/search:"]
+_TABS = ["Chat", "Compare", "Extract"]
+_TAB_ICONS = [":material/chat:", ":material/search:", ":material/tune:"]
 
 
 def main() -> None:
