@@ -3,20 +3,20 @@ import logging
 from dataclasses import dataclass
 
 import torch
-
 from nnterp import StandardizedTransformer
 
 logger = logging.getLogger(__name__)
 
+from persona_data.environment import get_artifacts_dir
+from persona_data.synth_persona import PersonaData, QAPair
+
 from src.activation_io import save_per_question_vectors
 from src.activations import extract_activations
-from src.environment import get_artifacts_dir
 from src.prompt_format import (
     format_biography_prompt,
     format_messages,
     format_templated_prompt,
 )
-from src.synth_persona_io import PersonaData, QAPair
 
 
 @dataclass

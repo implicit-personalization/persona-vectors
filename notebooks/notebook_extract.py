@@ -2,19 +2,19 @@
 import nnsight
 import torch
 from nnterp import StandardizedTransformer
+from persona_data.environment import get_artifacts_dir, load_env, set_seed
+from persona_data.synth_persona import QAPair, SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 from tqdm.auto import tqdm
 
 from src.activation_io import save_per_question_vectors
 from src.activations import extract_activations
-from src.environment import get_artifacts_dir, load_env, set_seed
 from src.prompt_format import (
     format_biography_prompt,
     format_messages,
     format_templated_prompt,
 )
-from src.synth_persona_io import QAPair, SynthPersonaDataset
 
 console = Console()
 

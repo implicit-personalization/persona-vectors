@@ -1,12 +1,12 @@
 # %% Imports
 import torch
+from persona_data.environment import get_artifacts_dir, load_env, set_seed
+from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
 from src.activation_io import load_per_question_vectors
-from src.environment import get_artifacts_dir, load_env, set_seed
 from src.steering import compute_steering_vector, save_steering_vector
-from src.synth_persona_io import SynthPersonaDataset
 
 console = Console()
 

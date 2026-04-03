@@ -1,6 +1,6 @@
 import streamlit as st
+from persona_data.environment import load_env, set_seed
 
-from src.environment import load_env, set_seed
 from src.ui.tabs.chat import render_chat_tab
 from src.ui.tabs.extract import render_extract_tab
 from src.ui.tabs.load_compare import render_load_compare_tab

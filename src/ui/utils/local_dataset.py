@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Literal
 
-from src.synth_persona_io import PersonaData, QAPair
+from persona_data.synth_persona import PersonaData, QAPair
 
 
 @dataclass

@@ -4,7 +4,7 @@ from typing import Any
 
 import streamlit as st
 
-from src.synth_persona_io import SynthPersonaDataset
+from persona_data.synth_persona import SynthPersonaDataset
 
 from .helpers import DATASET_SOURCES
 from .local_dataset import LocalPersonaDataset

@@ -19,7 +19,8 @@ def analyze_activations(cfg: AnalyzeConfig) -> None:
 
 
 def steer_activations(cfg: SteerConfig) -> None:
-    from src.environment import load_env
+    from persona_data.environment import load_env
+
     from src.steering import compute_steering_vector, save_steering_vector
 
     load_env()

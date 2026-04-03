@@ -1,7 +1,7 @@
 import streamlit as st
+from persona_data.environment import get_artifacts_dir
 
 from src.analysis import build_embedding_figure, project_pca, project_umap
-from src.environment import get_artifacts_dir
 from src.plots import plot_multiple_layer_similarities
 from src.ui.utils.artifacts import (
     artifact_persona_options,

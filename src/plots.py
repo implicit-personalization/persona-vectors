@@ -1,8 +1,7 @@
 import plotly.graph_objects as go
 import torch
 import torch.nn.functional as F
-
-from src.environment import get_artifacts_dir
+from persona_data.environment import get_artifacts_dir
 
 
 def _plots_dir():

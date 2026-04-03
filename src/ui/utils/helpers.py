@@ -1,4 +1,4 @@
-from src.synth_persona_io import PersonaData
+from persona_data.synth_persona import PersonaData
 
 # Variant key -> human-readable label mapping
 VARIANT_LABELS = {"empty": "None", "templated": "Template", "biography": "Biography"}

@@ -20,13 +20,13 @@ import json
 from pathlib import Path
 
 import torch
+from persona_data.environment import get_artifacts_dir
 from rich.console import Console
 from rich.table import Table
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 
 from src.activation_io import load_per_question_vectors
-from src.environment import get_artifacts_dir
 
 # Config
 STEER_LAYER = 20

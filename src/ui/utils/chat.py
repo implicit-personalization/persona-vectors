@@ -4,17 +4,17 @@ from dataclasses import dataclass
 from typing import Literal
 
 import torch
-
 from nnterp import StandardizedTransformer
 
 logger = logging.getLogger(__name__)
+
+from persona_data.synth_persona import PersonaData
 
 from src.prompt_format import (
     format_biography_prompt,
     format_templated_prompt,
     normalize_messages,
 )
-from src.synth_persona_io import PersonaData
 
 SystemPromptMode = Literal["empty", "templated", "biography"]
 
@@ -94,7 +94,9 @@ def _format_generation_prompt(
             add_generation_prompt=True,
         )
     except Exception:
-        logger.debug("Chat template failed on raw messages, trying normalized", exc_info=True)
+        logger.debug(
+            "Chat template failed on raw messages, trying normalized", exc_info=True
+        )
         normalized_messages = normalize_messages(messages)
 
         try:
@@ -104,7 +106,10 @@ def _format_generation_prompt(
                 add_generation_prompt=True,
             )
         except Exception:
-            logger.debug("Chat template failed on normalized messages, falling back to plain format", exc_info=True)
+            logger.debug(
+                "Chat template failed on normalized messages, falling back to plain format",
+                exc_info=True,
+            )
             prompt = _format_plain_messages(
                 normalized_messages,
                 add_generation_prompt=True,
@@ -123,9 +128,7 @@ def _seeded_rng(seed: int | None):
 
     cuda_ctx = torch.random.fork_rng(devices=range(torch.cuda.device_count()))
     mps_ctx = (
-        torch.random.fork_rng(
-            devices=range(1), device_type="mps"
-        )
+        torch.random.fork_rng(devices=range(1), device_type="mps")
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
         else nullcontext()
     )
