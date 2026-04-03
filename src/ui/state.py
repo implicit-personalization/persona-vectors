@@ -13,7 +13,7 @@ def _default_chat_state() -> dict[str, object]:
     return {
         "messages": [],
         "persona_id": None,
-        "prompt_mode": "empty",
+        "prompt_mode": "templated",
         "past_key_values": None,
     }
 

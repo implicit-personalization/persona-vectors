@@ -1,3 +1,7 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
+
 import streamlit as st
 
 from src.ui.state import chat_session_key, get_chat_state, reset_chat_state
@@ -14,6 +18,7 @@ from src.ui.utils.helpers import (
 from src.ui.utils.runtime import cached_model
 
 _VISIBLE_MESSAGE_COUNT = 5
+_model_lock = threading.Lock()
 
 
 def _render_chat_message(message: dict[str, str]) -> None:
@@ -197,8 +202,30 @@ def _render_compare_panel(
         "active_system_prompt": active_system_prompt,
         "selected_persona": selected_persona,
         "chat_log": chat_log,
-        "generation": gen_kwargs,
     }
+
+
+def _generate_for_panel(
+    panel: dict,
+    model,
+    remote: bool,
+    gen_kwargs: dict,
+) -> ChatReply:
+    """Run generate_chat_reply for one compare panel. Thread-safe."""
+    messages = []
+    if panel["active_system_prompt"]:
+        messages.append({"role": "system", "content": panel["active_system_prompt"]})
+    messages.extend(panel["state"]["messages"])
+
+    ctx = nullcontext() if remote else _model_lock
+    with ctx:
+        return generate_chat_reply(
+            model=model,
+            messages=messages,
+            remote=remote,
+            past_key_values=panel["state"]["past_key_values"],
+            **gen_kwargs,
+        )
 
 
 def _render_compare_mode(
@@ -252,38 +279,35 @@ def _render_compare_mode(
             with panel["chat_log"]:
                 _render_chat_message({"role": "user", "content": user_prompt})
 
-    # Generate responses sequentially, left then right.
-    for panel, col in panels:
-        messages = []
-        if panel["active_system_prompt"]:
-            messages.append(
-                {"role": "system", "content": panel["active_system_prompt"]}
-            )
-        messages.extend(panel["state"]["messages"])
-
-        with col:
-            with st.spinner("Generating..."):
+    # Generate both responses in parallel (remote: truly concurrent; local: serialised via lock).
+    with st.spinner("Generating..."):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(_generate_for_panel, panel, model, remote, gen_kwargs)
+                for panel, col in panels
+            ]
+            results = []
+            for future in futures:
                 try:
-                    reply: ChatReply = generate_chat_reply(
-                        model=model,
-                        messages=messages,
-                        remote=remote,
-                        past_key_values=panel["state"]["past_key_values"],
-                        **gen_kwargs,
-                    )
+                    results.append(future.result())
                 except Exception as exc:
-                    with panel["chat_log"]:
-                        st.error(f"Generation failed: {exc}")
-                    panel["state"]["messages"].pop()
-                    continue
+                    results.append(exc)
 
-        panel["state"]["messages"].append({"role": "assistant", "content": reply.text})
+    for (panel, col), result in zip(panels, results):
+        if isinstance(result, Exception):
+            with col:
+                with panel["chat_log"]:
+                    st.error(f"Generation failed: {result}")
+            panel["state"]["messages"].pop()
+            continue
+
+        panel["state"]["messages"].append({"role": "assistant", "content": result.text})
         panel["state"]["past_key_values"] = (
-            reply.past_key_values if not remote else None
+            result.past_key_values if not remote else None
         )
         with col:
             with panel["chat_log"]:
-                _render_chat_message({"role": "assistant", "content": reply.text})
+                _render_chat_message({"role": "assistant", "content": result.text})
 
 
 # ── Main tab entry point ───────────────────────────────────────────────────────
@@ -473,6 +497,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     chat_input_key = widget_key(context_key, "chat_input")
     show_all_key = widget_key(context_key, "show_all_messages")
     custom_prompt_key = widget_key(context_key, "custom_system_prompt")
+    pending_key = widget_key(context_key, "pending_prompt")
     export_success_message: str | None = None
 
     action_col1, action_col2 = st.columns(2)
@@ -483,6 +508,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 chat_input_key,
                 show_all_key,
                 custom_prompt_key,
+                pending_key,
             )
             st.rerun()
     with action_col2:
@@ -515,6 +541,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
             chat_input_key,
             show_all_key,
             custom_prompt_key,
+            pending_key,
         )
         if had_history:
             st.info("Chat history reset because the persona or system prompt changed.")
@@ -561,10 +588,15 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         key=chat_input_key,
     )
 
-    if not user_prompt:
-        return
+    # Pass 1: user submitted — append message and rerun so it renders before generation.
+    if user_prompt:
+        chat_state["messages"].append({"role": "user", "content": user_prompt})
+        st.session_state[pending_key] = True
+        st.rerun()
 
-    chat_state["messages"].append({"role": "user", "content": user_prompt})
+    # Pass 2: message is already rendered above; now run generation.
+    if not st.session_state.pop(pending_key, False):
+        return
 
     messages = []
     if active_system_prompt:
