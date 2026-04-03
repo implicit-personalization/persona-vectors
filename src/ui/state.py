@@ -3,10 +3,10 @@ import streamlit as st
 _CHAT_STATE_PREFIX = "chat_state::"
 
 
-def chat_session_key(model_name: str, remote: bool, dataset_source: str) -> str:
+def chat_session_key(model_name: str, dataset_source: str) -> str:
     """Build the session-state key for a chat context."""
 
-    return f"{_CHAT_STATE_PREFIX}{remote}::{model_name}::{dataset_source}"
+    return f"{_CHAT_STATE_PREFIX}{model_name}::{dataset_source}"
 
 
 def _default_chat_state() -> dict[str, object]:
@@ -37,7 +37,7 @@ def get_chat_state(
 ) -> dict[str, object]:
     """Return the mutable chat state for the active context."""
 
-    key = chat_session_key(model_name, remote, dataset_source)
+    key = chat_session_key(model_name, dataset_source)
     state = st.session_state.get(key)
     if state is None:
         state = _default_chat_state()
@@ -46,6 +46,8 @@ def get_chat_state(
         for default_key, default_value in _default_chat_state().items():
             state.setdefault(default_key, default_value)
     _evict_inactive_kv_caches(key)
+    if remote and state.get("past_key_values") is not None:
+        state["past_key_values"] = None
     return state
 
 

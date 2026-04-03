@@ -22,5 +22,15 @@ dependencies = [
     "transformers>=5.2.0",
 ]
 
+[tool.isort]
+profile = "black"
+known_first_party = ["src"]
+
 [tool.uv.sources]
 persona-data = { git = "ssh://git@github.com/implicit-personalization/persona-data.git" }
+
+[dependency-groups]
+dev = [
+    "black>=26.3.1",
+    "isort>=8.0.1",
+]

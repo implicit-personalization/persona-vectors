@@ -61,7 +61,12 @@ def load_persona_names(
                     persona_id=persona_id,
                 )
             except Exception:
-                logger.debug("Failed to load metadata for persona %s variant %s", persona_id, variant, exc_info=True)
+                logger.debug(
+                    "Failed to load metadata for persona %s variant %s",
+                    persona_id,
+                    variant,
+                    exc_info=True,
+                )
                 continue
 
             persona_name = metadata.get("persona_name")
@@ -109,7 +114,12 @@ def list_available_layers(
                     persona_id=persona_id,
                 )
             except Exception:
-                logger.debug("Failed to load vectors for persona %s variant %s", persona_id, variant, exc_info=True)
+                logger.debug(
+                    "Failed to load vectors for persona %s variant %s",
+                    persona_id,
+                    variant,
+                    exc_info=True,
+                )
                 continue
 
             layers = set(range(vectors.shape[1]))

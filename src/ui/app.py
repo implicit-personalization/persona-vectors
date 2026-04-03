@@ -1,20 +1,38 @@
 import streamlit as st
 from persona_data.environment import load_env, set_seed
 
-from src.ui.tabs.chat import render_chat_tab
-from src.ui.tabs.extract import render_extract_tab
-from src.ui.tabs.load_compare import render_load_compare_tab
 from src.ui.utils.helpers import DATASET_SOURCES
-from src.ui.utils.runtime import list_remote_models
 
 DEFAULT_MODEL = "google/gemma-2-2b-it"
 REMOTE_DEFAULT_MODEL = "google/gemma-2-9b-it"
 
 
-def _sidebar_model_controls() -> tuple[bool, str]:
+def _sidebar_controls() -> tuple[bool, str, str, str]:
+    from src.ui.utils.runtime import list_remote_models
+
     with st.sidebar:
-        st.header("Settings")
-        remote = st.toggle("Remote (NDIF)", value=False)
+        st.markdown("# Persona UI")
+        st.caption("Chat, extract, and compare persona runs.")
+
+        if "sidebar__active_tab" not in st.session_state:
+            st.session_state["sidebar__active_tab"] = _TABS[0]
+
+        active_tab = st.session_state["sidebar__active_tab"]
+        for tab_name, icon in zip(_TABS, _TAB_ICONS, strict=True):
+            is_selected = tab_name == active_tab
+            if st.button(
+                tab_name,
+                key=f"sidebar__tab__{tab_name.lower()}",
+                use_container_width=True,
+                type="primary" if is_selected else "secondary",
+                icon=icon,
+            ):
+                st.session_state["sidebar__active_tab"] = tab_name
+                st.rerun()
+
+        st.divider()
+        st.caption("Runtime")
+        remote = st.toggle("Remote (NDIF)", value=False, key="sidebar__remote")
 
         if remote:
             remote_models = list_remote_models()
@@ -25,32 +43,41 @@ def _sidebar_model_controls() -> tuple[bool, str]:
                     else remote_models[0]
                 )
                 model_name = st.selectbox(
-                    "Remote model",
+                    "Model",
                     options=remote_models,
                     index=remote_models.index(default_model),
+                    key="sidebar__remote_model",
+                    help="Running NDIF model.",
                 )
-                st.caption("Using running NDIF models.")
             else:
                 st.error("No running NDIF models found.")
                 model_name = REMOTE_DEFAULT_MODEL
         else:
-            model_name = st.text_input("HuggingFace model", value=DEFAULT_MODEL)
+            model_name = st.text_input(
+                "Model",
+                value=DEFAULT_MODEL,
+                key="sidebar__local_model",
+                help="Local model id or path.",
+            )
 
-    return remote, model_name
+        st.caption("Data")
+        dataset_source = st.selectbox(
+            "Source",
+            DATASET_SOURCES,
+            key="sidebar__dataset_source",
+            help="Dataset for Chat and Extract.",
+        )
+
+    return remote, model_name, dataset_source, active_tab
 
 
-def _sidebar_shared_controls() -> tuple[bool, str, str]:
-    remote, model_name = _sidebar_model_controls()
-
-    with st.sidebar:
-        st.divider()
-        st.subheader("Data")
-        dataset_source = st.selectbox("Dataset source", DATASET_SOURCES)
-
-    return remote, model_name, dataset_source
+_TABS = ["Chat", "Extract", "Compare"]
+_TAB_ICONS = [":material/chat:", ":material/tune:", ":material/search:"]
 
 
 def main() -> None:
+    """Run the Streamlit app."""
+
     load_env()
 
     # Deferred: importing torch is slow; keep it after load_env so the
@@ -61,17 +88,20 @@ def main() -> None:
 
     set_seed(1337)
 
-    st.set_page_config(page_title="Persona Vectors", layout="wide")
-    st.title("Persona Vectors Monitor")
+    st.set_page_config(page_title="Persona UI", layout="wide")
+    remote, model_name, dataset_source, active_tab = _sidebar_controls()
 
-    remote, model_name, dataset_source = _sidebar_shared_controls()
+    if active_tab == "Extract":
+        from src.ui.tabs.extract import render_extract_tab
 
-    tab_extract, tab_load, tab_chat = st.tabs(["Extract", "Load + Compare", "Chat"])
-    with tab_extract:
         render_extract_tab(remote, model_name, dataset_source)
-    with tab_load:
+    elif active_tab == "Compare":
+        from src.ui.tabs.load_compare import render_load_compare_tab
+
         render_load_compare_tab(model_name)
-    with tab_chat:
+    else:
+        from src.ui.tabs.chat import render_chat_tab
+
         render_chat_tab(remote, model_name, dataset_source)
 
 

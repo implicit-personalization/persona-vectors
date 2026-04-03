@@ -35,7 +35,7 @@ def _select_artifact_personas(
                 "No personas have saved activations for all selected variants. Run extraction for both variants first."
             )
         else:
-            st.info("No personas found for this model. Run extraction first.")
+            st.info("No personas found for this model yet. Run extraction first.")
         return [], persona_names
 
     persona_ids = st.multiselect(
@@ -100,6 +100,9 @@ def _render_cosine_similarity(
             st.error(f"Failed to load vectors: `{err}`")
     if not traces:
         st.error("No personas loaded successfully.")
+        st.info(
+            "Check that extraction has been run for both variants and selected personas."
+        )
         return
 
     display_traces = [
@@ -116,11 +119,7 @@ def _render_cosine_similarity(
         show=False,
     )
     st.plotly_chart(fig, width="stretch")
-    shape_msgs = ", ".join(
-        f"{persona_display_label(t[0], loaded_names.get(t[0]))}={tuple(t[1].shape)}"
-        for t in traces
-    )
-    st.success(f"Loaded: {shape_msgs}")
+    st.success(f"Loaded {len(traces)} personas for cosine comparison.")
 
 
 def _render_embedding_analysis(
@@ -158,9 +157,9 @@ def _render_embedding_analysis(
     persona_key = "_".join(sorted(persona_ids))
     layer_key = widget_key("load", "layers", model_name, selected_variant, persona_key)
     default_layers = [
-        l
-        for l in st.session_state.get(layer_key, layer_options[:3])
-        if l in layer_options
+        layer
+        for layer in st.session_state.get(layer_key, layer_options[:3])
+        if layer in layer_options
     ] or layer_options[:3]
     selected_layers = st.multiselect(
         "Layers",
@@ -210,6 +209,7 @@ def _render_embedding_analysis(
             st.warning(
                 "No projections could be built for the current persona/layer selection."
             )
+            st.info("Try fewer personas, fewer layers, or a different variant.")
             return
 
         title_prefix, x_label, y_label = ANALYSIS_LABELS[analysis_mode]
@@ -228,7 +228,7 @@ def _render_embedding_analysis(
                 st.plotly_chart(fig, width="stretch")
 
         total_samples = sum(coords.shape[0] for _, coords, _, _ in plots)
-        st.success(f"Loaded {total_samples} samples across {len(plots)} layer(s)")
+        st.success(f"Loaded {total_samples} samples across {len(plots)} layers.")
     finally:
         progress.empty()
 
@@ -236,15 +236,13 @@ def _render_embedding_analysis(
 def render_load_compare_tab(model_name: str) -> None:
     """Render the load-and-compare tab."""
 
-    st.subheader("Load + Compare")
-    st.caption(
-        "Load saved vectors and compare layer-wise cosine similarity or 2D embeddings."
-    )
+    st.title("Compare")
 
-    artifacts_root = st.text_input(
-        "Artifacts root",
-        value=str(get_artifacts_dir() / "activations"),
-    )
+    with st.expander("Advanced", expanded=False):
+        artifacts_root = st.text_input(
+            "Artifacts root",
+            value=str(get_artifacts_dir() / "activations"),
+        )
 
     analysis_mode = st.radio(
         "Analysis type",

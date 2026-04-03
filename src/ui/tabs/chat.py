@@ -1,7 +1,11 @@
+import json
+
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.ui.state import chat_session_key, get_chat_state, reset_chat_state
 from src.ui.utils.chat import ChatReply, generate_chat_reply, resolve_system_prompt
+from src.ui.utils.chat_export import save_chat_export
 from src.ui.utils.datasets import load_dataset
 from src.ui.utils.helpers import (
     MODE_LABEL_TO_KEY,
@@ -12,6 +16,8 @@ from src.ui.utils.helpers import (
 )
 from src.ui.utils.runtime import cached_model
 
+_VISIBLE_MESSAGE_COUNT = 5
+
 
 def _render_chat_message(message: dict[str, str]) -> None:
     if not message.get("content"):
@@ -20,20 +26,8 @@ def _render_chat_message(message: dict[str, str]) -> None:
         st.markdown(message["content"])
 
 
-def _chat_widget_key(context_key: str, suffix: str) -> str:
-    return widget_key(context_key, suffix)
-
-
-def _set_pending_chat_prompt(prompt_key: str, prompt: str) -> None:
-    st.session_state[prompt_key] = prompt
-
-
 def _mark_chat_started(chat_started_key: str) -> None:
     st.session_state[chat_started_key] = True
-
-
-def _consume_pending_chat_prompt(prompt_key: str) -> str | None:
-    return st.session_state.pop(prompt_key, None)
 
 
 def _clear_chat_ui_state(*keys: str) -> None:
@@ -41,63 +35,67 @@ def _clear_chat_ui_state(*keys: str) -> None:
         st.session_state.pop(key, None)
 
 
-def _render_chat_suggestions(
-    dataset: object,
-    selected_persona_id: str,
-    context_key: str,
-    pending_prompt_key: str,
-) -> None:
-    """Render clickable question suggestions for the selected persona."""
+def _dataset_caption(dataset_source: str, dataset_status: str) -> str:
+    return dataset_status
 
-    explicit_pairs = dataset.get_qa(selected_persona_id, type="explicit")
-    implicit_pairs = dataset.get_qa(selected_persona_id, type="implicit")
 
-    if not explicit_pairs and not implicit_pairs:
-        return
-
-    eq_col, iq_col = st.columns(2)
-    with eq_col:
-        st.caption("Explicit")
-        if explicit_pairs:
-            st.button(
-                explicit_pairs[0].question,
-                key=_chat_widget_key(context_key, "suggest_explicit"),
-                on_click=_set_pending_chat_prompt,
-                args=(pending_prompt_key, explicit_pairs[0].question),
-            )
-    with iq_col:
-        st.caption("Implicit")
-        if implicit_pairs:
-            st.button(
-                implicit_pairs[0].question,
-                key=_chat_widget_key(context_key, "suggest_implicit"),
-                on_click=_set_pending_chat_prompt,
-                args=(pending_prompt_key, implicit_pairs[0].question),
-            )
+def _render_copy_button(prompt_text: str, button_key: str) -> None:
+    button_id = f"copy-prompt-{button_key}"
+    button_label = "Copy prompt"
+    components.html(
+        f"""
+        <button id={json.dumps(button_id)} style="
+            width: 100%;
+            padding: 0.4rem 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(49, 51, 63, 0.14);
+            background: #f8f9fa;
+            color: #1f2937;
+            font: inherit;
+            cursor: pointer;
+        ">{button_label}</button>
+        <script>
+        const button = document.getElementById({json.dumps(button_id)});
+        const promptText = {json.dumps(prompt_text)};
+        const defaultLabel = {json.dumps(button_label)};
+        button.addEventListener("click", async () => {{
+          try {{
+            await navigator.clipboard.writeText(promptText);
+            button.textContent = "Copied";
+          }} catch (error) {{
+            button.textContent = "Copy failed";
+          }}
+          window.setTimeout(() => {{ button.textContent = defaultLabel; }}, 1200);
+        }});
+        </script>
+        """,
+        height=42,
+    )
 
 
 def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
     """Render the chat tab."""
 
-    st.subheader("Chat")
-    st.caption(
-        "Multi-turn chat with model generation and persona-based system prompts."
-    )
+    st.title("Chat")
 
+    context_key = chat_session_key(model_name, dataset_source)
+    chat_state = get_chat_state(model_name, remote, dataset_source)
     try:
         dataset, dataset_status = load_dataset(dataset_source)
-        st.success(dataset_status)
+        st.caption(_dataset_caption(dataset_source, dataset_status))
     except Exception as exc:
-        st.warning(str(exc))
+        st.error(f"Could not load data: {exc}")
+        st.info("Check the selected dataset source or upload both JSONL files.")
         return
 
     personas = list(dataset)
-    if not personas:
-        st.error("No personas found in the selected dataset.")
-        return
+    persona_select_key = widget_key(context_key, "persona_select")
+    prompt_mode_select_key = widget_key(context_key, "system_prompt_select")
 
-    context_key = chat_session_key(model_name, remote, dataset_source)
-    chat_state = get_chat_state(model_name, remote, dataset_source)
+    if not personas:
+        st.warning("No personas found in the selected dataset.")
+        st.info("Try a different dataset source or upload a non-empty personas file.")
+        return
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -111,42 +109,38 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
             options=personas,
             index=selected_index,
             format_func=persona_label,
-            key=_chat_widget_key(context_key, "persona_select"),
+            key=persona_select_key,
         )
     with col2:
         current_mode_label = VARIANT_LABELS.get(chat_state["prompt_mode"], "None")
         prompt_mode_label = st.selectbox(
-            "System prompt",
+            "Prompt",
             options=MODE_LABELS,
             index=MODE_LABELS.index(current_mode_label),
-            key=_chat_widget_key(context_key, "system_prompt_select"),
+            key=prompt_mode_select_key,
         )
         prompt_mode = MODE_LABEL_TO_KEY[prompt_mode_label]
-
-    max_new_tokens = st.slider(
-        "Max new tokens",
-        min_value=16,
-        max_value=512,
-        value=256,
-        step=16,
-        key=_chat_widget_key(context_key, "max_new_tokens"),
-    )
 
     advanced_generation = st.toggle(
         "Advanced generation",
         value=False,
-        key=_chat_widget_key(context_key, "advanced_generation"),
+        key=widget_key(context_key, "advanced_generation"),
     )
 
     if advanced_generation:
+        max_new_tokens = st.slider(
+            "Max new tokens",
+            min_value=16,
+            max_value=512,
+            value=256,
+            step=16,
+            key=widget_key(context_key, "max_new_tokens"),
+        )
+
         use_sampling = st.checkbox(
             "Random sampling",
             value=False,
-            key=_chat_widget_key(context_key, "use_sampling"),
-        )
-
-        st.caption(
-            "Temperature, top-p, and top-k only apply when random sampling is on."
+            key=widget_key(context_key, "use_sampling"),
         )
 
         sampling_disabled = not use_sampling
@@ -159,7 +153,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 value=1.0,
                 step=0.01,
                 disabled=sampling_disabled,
-                key=_chat_widget_key(context_key, "temperature"),
+                key=widget_key(context_key, "temperature"),
             )
         with sampling_col2:
             top_p = st.slider(
@@ -169,7 +163,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 value=1.0,
                 step=0.01,
                 disabled=sampling_disabled,
-                key=_chat_widget_key(context_key, "top_p"),
+                key=widget_key(context_key, "top_p"),
             )
         with sampling_col3:
             top_k = st.slider(
@@ -179,7 +173,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 value=50,
                 step=1,
                 disabled=sampling_disabled,
-                key=_chat_widget_key(context_key, "top_k"),
+                key=widget_key(context_key, "top_k"),
             )
 
         config_col1, config_col2 = st.columns([2, 1])
@@ -190,7 +184,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 max_value=2.0,
                 value=1.0,
                 step=0.05,
-                key=_chat_widget_key(context_key, "repetition_penalty"),
+                key=widget_key(context_key, "repetition_penalty"),
             )
         with config_col2:
             seed_disabled = sampling_disabled or remote
@@ -198,7 +192,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                 "Fix seed",
                 value=False,
                 disabled=seed_disabled,
-                key=_chat_widget_key(context_key, "seed_enabled"),
+                key=widget_key(context_key, "seed_enabled"),
             )
             if seed_enabled:
                 seed = int(
@@ -209,7 +203,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
                         value=0,
                         step=1,
                         disabled=seed_disabled,
-                        key=_chat_widget_key(context_key, "seed"),
+                        key=widget_key(context_key, "seed"),
                     )
                 )
             else:
@@ -218,6 +212,7 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         if remote:
             st.caption("Seed is local-only and disabled for remote runs.")
     else:
+        max_new_tokens = 256
         use_sampling = False
         temperature = 1.0
         top_p = 1.0
@@ -230,6 +225,56 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         mode=prompt_mode,
     )
 
+    chat_input_key = widget_key(context_key, "chat_input")
+    chat_started_key = widget_key(context_key, "chat_started")
+    show_all_key = widget_key(context_key, "show_all_messages")
+    custom_prompt_key = widget_key(context_key, "custom_system_prompt")
+    export_success_message: str | None = None
+
+    action_col1, action_col2, action_col3 = st.columns(3)
+    with action_col1:
+        if active_system_prompt:
+            _render_copy_button(
+                active_system_prompt, widget_key(context_key, "copy_prompt")
+            )
+        else:
+            st.button("Copy prompt", disabled=True, use_container_width=True)
+    with action_col2:
+        if st.button("Export chat", use_container_width=True):
+            export_path = save_chat_export(
+                model_name=model_name,
+                dataset_source=dataset_source,
+                persona_id=selected_persona.id,
+                persona_name=getattr(selected_persona, "name", None),
+                prompt_mode=prompt_mode,
+                system_prompt=active_system_prompt,
+                messages=chat_state["messages"],
+                generation={
+                    "max_new_tokens": int(max_new_tokens),
+                    "advanced_generation": bool(advanced_generation),
+                    "use_sampling": bool(use_sampling),
+                    "temperature": float(temperature),
+                    "top_p": float(top_p),
+                    "top_k": int(top_k),
+                    "repetition_penalty": float(repetition_penalty),
+                    "seed": seed,
+                },
+            )
+            export_success_message = f"Saved chat export to {export_path}"
+    with action_col3:
+        if st.button("Reset chat", use_container_width=True):
+            reset_chat_state(model_name, remote, dataset_source)
+            _clear_chat_ui_state(
+                chat_input_key,
+                chat_started_key,
+                show_all_key,
+                custom_prompt_key,
+            )
+            st.rerun()
+
+    if export_success_message:
+        st.success(export_success_message)
+
     changed_context = (
         chat_state["persona_id"] != selected_persona.id
         or chat_state["prompt_mode"] != prompt_mode
@@ -240,58 +285,57 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
         chat_state["prompt_mode"] = prompt_mode
         reset_chat_state(model_name, remote, dataset_source)
         _clear_chat_ui_state(
-            _chat_widget_key(context_key, "pending_prompt"),
-            _chat_widget_key(context_key, "chat_input"),
-            _chat_widget_key(context_key, "chat_started"),
+            chat_input_key,
+            chat_started_key,
+            show_all_key,
+            custom_prompt_key,
         )
         if had_history:
             st.info("Chat history reset because the persona or system prompt changed.")
 
-    with st.expander("Active system prompt"):
-        st.code(active_system_prompt or "", language="text")
-
-    if st.button("Reset chat"):
-        reset_chat_state(model_name, remote, dataset_source)
-        _clear_chat_ui_state(
-            _chat_widget_key(context_key, "pending_prompt"),
-            _chat_widget_key(context_key, "chat_input"),
-            _chat_widget_key(context_key, "chat_started"),
-        )
-        st.rerun()
-
-    pending_prompt_key = _chat_widget_key(context_key, "pending_prompt")
-    chat_input_key = _chat_widget_key(context_key, "chat_input")
-    chat_started_key = _chat_widget_key(context_key, "chat_started")
-
     chat_log = st.container()
 
     with chat_log:
-        for message in chat_state["messages"]:
+        # System prompt as first item in conversation — collapsed by default, editable.
+        if prompt_mode != "empty":
+            if custom_prompt_key not in st.session_state:
+                st.session_state[custom_prompt_key] = active_system_prompt
+            with st.expander("Edit prompt", expanded=False):
+                active_system_prompt = (
+                    st.text_area(
+                        "Prompt",
+                        key=custom_prompt_key,
+                        height=200,
+                        label_visibility="collapsed",
+                    )
+                    or None
+                )
+
+        # Collapse older messages, show only the most recent ones.
+        messages = chat_state["messages"]
+        if len(messages) > _VISIBLE_MESSAGE_COUNT and not st.session_state.get(
+            show_all_key, False
+        ):
+            hidden_count = len(messages) - _VISIBLE_MESSAGE_COUNT
+            if st.button(
+                f"Show earlier messages ({hidden_count} hidden)",
+                key=widget_key(context_key, "show_all_btn"),
+            ):
+                st.session_state[show_all_key] = True
+                st.rerun()
+            visible_messages = messages[-_VISIBLE_MESSAGE_COUNT:]
+        else:
+            visible_messages = messages
+
+        for message in visible_messages:
             _render_chat_message(message)
 
-        # Show suggestions only before the conversation starts.
-        show_suggestions = not (
-            chat_state["messages"]
-            or st.session_state.get(chat_started_key)
-            or pending_prompt_key in st.session_state
-        )
-        if show_suggestions:
-            _render_chat_suggestions(
-                dataset=dataset,
-                selected_persona_id=selected_persona.id,
-                context_key=context_key,
-                pending_prompt_key=pending_prompt_key,
-            )
-
-    # Keep the input at the bottom so the conversation and suggestions render above it.
     user_prompt = st.chat_input(
         "Ask something...",
         key=chat_input_key,
         on_submit=_mark_chat_started,
         args=(chat_started_key,),
     )
-    if not user_prompt:
-        user_prompt = _consume_pending_chat_prompt(pending_prompt_key)
 
     if not user_prompt:
         return
@@ -329,14 +373,37 @@ def render_chat_tab(remote: bool, model_name: str, dataset_source: str) -> None:
             )
         except Exception as exc:
             with chat_log:
-                st.error(f"Chat generation failed: `{exc}`")
+                st.error(f"Could not generate a reply: {exc}")
+                st.info("Try a shorter prompt, reset the chat, or switch personas.")
             chat_state["messages"].pop()
             return
 
     chat_state["messages"].append({"role": "assistant", "content": reply.text})
     chat_state["past_key_values"] = reply.past_key_values if not remote else None
+
+    export_path = save_chat_export(
+        model_name=model_name,
+        dataset_source=dataset_source,
+        persona_id=selected_persona.id,
+        persona_name=getattr(selected_persona, "name", None),
+        prompt_mode=prompt_mode,
+        system_prompt=active_system_prompt,
+        messages=chat_state["messages"],
+        generation={
+            "max_new_tokens": int(max_new_tokens),
+            "advanced_generation": bool(advanced_generation),
+            "use_sampling": bool(use_sampling),
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "top_k": int(top_k),
+            "repetition_penalty": float(repetition_penalty),
+            "seed": generation_seed,
+        },
+    )
+
     with chat_log:
         _render_chat_message(chat_state["messages"][-1])
-        st.caption(
-            f"Generated {reply.output_tokens} tokens from {reply.prompt_tokens} prompt tokens."
-        )
+        with st.expander("Generation details", expanded=False):
+            st.caption(
+                f"{reply.output_tokens} output tokens, {reply.prompt_tokens} prompt tokens."
+            )

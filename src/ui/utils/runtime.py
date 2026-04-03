@@ -1,8 +1,6 @@
 import logging
 
-import nnsight
 import streamlit as st
-from nnterp import StandardizedTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +8,8 @@ logger = logging.getLogger(__name__)
 @st.cache_data(show_spinner=False, ttl=30)
 def list_remote_models() -> list[str]:
     """Return the NDIF language models that are currently running."""
+
+    import nnsight
 
     try:
         status = nnsight.ndif_status()
@@ -38,12 +38,14 @@ def list_remote_models() -> list[str]:
 
 
 @st.cache_resource(show_spinner=False, max_entries=1)
-def cached_model(model_name: str, remote: bool) -> StandardizedTransformer:
+def cached_model(model_name: str, remote: bool):
     """Load and cache a standardized nnterp model.
 
     Streamlit reruns this app on every interaction, so caching keeps one loaded
     model instance per ``(model_name, remote)`` instead of reloading weights on
     every widget change.
     """
+
+    from nnterp import StandardizedTransformer
 
     return StandardizedTransformer(model_name, remote=remote)

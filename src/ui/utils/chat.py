@@ -16,7 +16,9 @@ from src.prompt_format import (
     normalize_messages,
 )
 
-SystemPromptMode = Literal["empty", "templated", "biography"]
+SystemPromptMode = Literal["empty", "templated", "biography", "custom"]
+
+_CUSTOM_PROMPT_DEFAULT = "You are a helpful assistant."
 
 
 @dataclass
@@ -48,6 +50,8 @@ def resolve_system_prompt(
         return format_templated_prompt(persona.templated_prompt)
     if mode == "biography":
         return format_biography_prompt(persona.biography_md)
+    if mode == "custom":
+        return _CUSTOM_PROMPT_DEFAULT
     return ""
 
 

@@ -1,7 +1,12 @@
 from persona_data.synth_persona import PersonaData
 
 # Variant key -> human-readable label mapping
-VARIANT_LABELS = {"empty": "None", "templated": "Template", "biography": "Biography"}
+VARIANT_LABELS = {
+    "empty": "None",
+    "templated": "Template",
+    "biography": "Biography",
+    "custom": "Custom",
+}
 
 # Variants that correspond to actual system prompts (excludes "empty")
 PROMPT_VARIANTS = ["templated", "biography"]

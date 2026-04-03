@@ -1,13 +1,13 @@
 import streamlit as st
 
 from src.ui.utils.datasets import load_dataset
+from src.ui.utils.extraction import run_extraction
 from src.ui.utils.helpers import (
     PROMPT_VARIANTS,
     persona_label,
     prompt_variant_label,
     widget_key,
 )
-from src.ui.utils.extraction import run_extraction
 from src.ui.utils.runtime import cached_model
 
 
@@ -17,13 +17,10 @@ def _extract_widget_key(
     return widget_key("extract", str(remote), model_name, dataset_source, suffix)
 
 
-def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> None:
-    """Render the extraction tab."""
+def _render_local_dataset_uploads() -> None:
+    """Render file inputs for local dataset uploads."""
 
-    st.subheader("Extraction")
-    st.caption("Run persona-vector extraction using existing src/ modules.")
-
-    if dataset_source == "Local JSONL upload":
+    with st.expander("Local dataset upload", expanded=True):
         st.file_uploader(
             "personas.jsonl",
             type=["jsonl"],
@@ -36,6 +33,15 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
             key="extract__qa_file",
             help="Expected fields: id, qid, type, question, answer, difficulty",
         )
+
+
+def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> None:
+    """Render the extraction tab."""
+
+    st.title("Extract")
+
+    if dataset_source == "Local JSONL upload":
+        _render_local_dataset_uploads()
 
     selected_variants = st.multiselect(
         "Prompt variants",
@@ -50,14 +56,20 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
 
     try:
         dataset, dataset_status = load_dataset(dataset_source)
-        st.success(dataset_status)
+        st.caption(dataset_status)
     except Exception as exc:
-        st.warning(str(exc))
+        st.error(f"Could not load data: {exc}")
+        st.info(
+            "Upload both JSONL files or switch to the built-in SynthPersona source."
+        )
         return
 
     personas = list(dataset)
     if not personas:
-        st.error("No personas found in the selected dataset.")
+        st.warning("No personas found in the selected dataset.")
+        st.info(
+            "Try another dataset source or check that the personas file is not empty."
+        )
         return
 
     selected_persona = st.selectbox(
@@ -66,6 +78,8 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
         format_func=persona_label,
         key=_extract_widget_key(model_name, remote, dataset_source, "persona_select"),
     )
+
+    st.caption("Filters")
 
     qa_filter_type: str | None
     qa_filter_difficulty: list[int] | None
@@ -93,17 +107,18 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
             ),
         )
         qa_filter_difficulty = difficulty_values if difficulty_values else None
+
+    all_qa_pairs = dataset.get_qa(
+        persona_id=selected_persona.id,
+        type=qa_filter_type,
+        difficulty=qa_filter_difficulty,
+    )
+    if not all_qa_pairs:
+        st.warning("No QA pairs match the current filters.")
+        st.info("Widen the filters or reset them to continue.")
+        return
+
     with col3:
-        all_qa_pairs = dataset.get_qa(
-            persona_id=selected_persona.id,
-            type=qa_filter_type,
-            difficulty=qa_filter_difficulty,
-        )
-        if not all_qa_pairs:
-            st.warning(
-                "No QA pairs match the current filters. Update filters to continue."
-            )
-            return
         max_questions = st.slider(
             "Max questions",
             min_value=1,
@@ -148,7 +163,7 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
 
         progress.progress(1.0, text="Extraction complete")
     except Exception as exc:
-        st.error(f"Extraction failed: `{exc}`")
+        st.error(f"Extraction failed: {exc}")
         return
     finally:
         progress.empty()
@@ -158,6 +173,6 @@ def render_extract_tab(remote: bool, model_name: str, dataset_source: str) -> No
 
     for result in results:
         st.markdown(
-            f"- `{result.variant}`: `{result.output_dir}` | "
-            f"shape=({result.n_questions}, {result.n_layers}, {result.d_model})"
+            f"- {prompt_variant_label(result.variant)}: {result.n_questions} questions, "
+            f"{result.n_layers} layers, {result.d_model} hidden size"
         )

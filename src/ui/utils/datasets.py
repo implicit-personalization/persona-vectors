@@ -3,7 +3,6 @@ from tempfile import mkdtemp
 from typing import Any
 
 import streamlit as st
-
 from persona_data.synth_persona import SynthPersonaDataset
 
 from .helpers import DATASET_SOURCES
@@ -41,7 +40,7 @@ def load_dataset(
     """Load the selected dataset source for the UI."""
 
     if dataset_source == DATASET_SOURCES[0]:
-        return cached_hf_dataset(), "Loaded HF dataset"
+        return cached_hf_dataset(), "SynthPersona"
 
     personas_file = st.session_state.get("extract__personas_file")
     qa_file = st.session_state.get("extract__qa_file")
@@ -52,5 +51,5 @@ def load_dataset(
     qa_path = _uploaded_file_to_temp_path(qa_file, stem="qa")
     return (
         LocalPersonaDataset(personas_path=personas_path, qa_path=qa_path),
-        "Loaded local dataset",
+        "Local upload",
     )
