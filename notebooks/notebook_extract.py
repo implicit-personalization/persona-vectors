@@ -1,25 +1,26 @@
-# %% Imports
 import nnsight
 import torch
+from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
-from persona_data.environment import get_artifacts_dir, load_env, set_seed
+from persona_data.environment import get_artifacts_dir, set_seed
+from persona_data.prompts import (
+    format_biography_prompt,
+    format_messages,
+    format_templated_prompt,
+)
 from persona_data.synth_persona import QAPair, SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 from tqdm.auto import tqdm
 
-from src.activation_io import save_per_question_vectors
-from src.activations import extract_activations
-from src.prompt_format import (
-    format_biography_prompt,
-    format_messages,
-    format_templated_prompt,
-)
+from persona_vectors.activation_io import save_per_question_vectors
+from persona_vectors.activations import extract_activations
 
 console = Console()
 
 # %% Setup code
-load_env()  # Load .env (NDIF_API_KEY, HF_HOME, etc.) before anything else
+# Load .env (NDIF_API_KEY, HF_HOME, etc.) before anything else
+load_dotenv()
 torch.set_grad_enabled(False)
 set_seed(1337)
 
@@ -35,7 +36,9 @@ if REMOTE:
     # print(nnsight.ndif_status())
     # print(nnsight.ndif.compare())
     print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
-    model = StandardizedTransformer(MODEL_NAME, remote=True)
+    # HACK: For now do it like this becuase of the bug
+    # model = StandardizedTransformer(MODEL_NAME, remote=True)
+    model = StandardizedTransformer(MODEL_NAME)
 else:
     model = StandardizedTransformer(MODEL_NAME)
 

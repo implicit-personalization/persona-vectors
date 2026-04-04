@@ -1,19 +1,18 @@
-# %% Imports
 import torch
-from persona_data.environment import get_artifacts_dir, load_env, set_seed
+from dotenv import load_dotenv
+from persona_data.environment import get_artifacts_dir
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from src.activation_io import load_per_question_vectors
-from src.steering import compute_steering_vector, save_steering_vector
+from persona_vectors.activation_io import load_per_question_vectors
+from persona_vectors.steering import compute_steering_vector, save_steering_vector
 
 console = Console()
 
 # %% Setup code
-load_env()
+load_dotenv()
 torch.set_grad_enabled(False)
-set_seed(1337)
 
 # %% Configuration
 # Use 9b for remote (production), 2b for local testing

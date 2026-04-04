@@ -20,18 +20,24 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 ```
 persona-vectors/
 ├── notebooks/
-│   ├── notebook_extract.py      # Extract activations from model (miniaml PoC)
-│   └── notebook_load.py         # Load saved activations and recreate plots
-├── src/
-│   ├── activation_io.py        # Save/load activations
-│   ├── activations.py          # Core: extract_activations / masked_mean
-│   ├── synth_persona_io.py     # SynthPersona dataset loader
-│   ├── prompt_format.py        # Chat template formatting
-│   ├── plots.py                # Layer-wise similarity plots (Plotly)
-│   └── environment.py          # Seed and environment helpers
-├── artifacts/                  # Saved activations (gitignored)
-└── main.py                     # CLI entry point (WIP)
+│   ├── notebook_extract.py      # Extract activations from model (minimal PoC)
+│   ├── notebook_load.py         # Load saved activations and recreate plots
+│   └── notebook_steer.py        # Steering experiments
+├── src/persona_vectors/
+│   ├── activation_io.py         # Save/load activations
+│   ├── activations.py           # Core: extract_activations / masked_mean
+│   ├── prompt_format.py         # Chat template formatting
+│   ├── plots.py                 # Layer-wise similarity plots (Plotly)
+│   ├── steering.py              # Steering vector computation and application
+│   ├── analysis.py              # Difference vectors, cosine similarity, PCA
+│   └── parser.py                # CLI argument parsing
+├── artifacts/                   # Saved activations (gitignored)
+├── docs/                        # Reference documentation
+└── main.py                      # CLI entry point (WIP)
 ```
+
+Dataset loading (`SynthPersonaDataset`, `PersonaGuessDataset`) and environment
+helpers are provided by the sibling [persona-data](../persona-data) package.
 
 ## Installation
 

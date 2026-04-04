@@ -4,7 +4,7 @@ version = "0.1.0"
 # NOTE: To change description
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
     "persona-data",
     "huggingface-hub>=1.5.0",
@@ -15,7 +15,6 @@ dependencies = [
     "scikit-learn>=1.6.0",
     "python-dotenv>=1.2.2",
     "safetensors>=0.7.0",
-    "streamlit>=1.44.0",
     "umap-learn>=0.5.7",
     "torch>=2.10.0",
     "torchvision>=0.26.0",
@@ -23,15 +22,11 @@ dependencies = [
     "transformers>=5.2.0",
 ]
 
-[tool.isort]
-profile = "black"
-known_first_party = ["src"]
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12"]
+build-backend = "uv_build"
 
 [tool.uv.sources]
+# NOTE: Switch to git source after pushing
 persona-data = { git = "ssh://git@github.com/implicit-personalization/persona-data.git" }
-
-[dependency-groups]
-dev = [
-    "black>=26.3.1",
-    "isort>=8.0.1",
-]
+# persona-data = { path = "../persona-data", editable = true }

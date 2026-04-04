@@ -1,7 +1,12 @@
 #!/usr/bin/env python
 from pathlib import Path
 
-from src.parser import AnalyzeConfig, ExtractConfig, SteerConfig, build_parser
+from persona_vectors.parser import (
+    AnalyzeConfig,
+    ExtractConfig,
+    SteerConfig,
+    build_parser,
+)
 
 
 def extract_activations(cfg: ExtractConfig) -> None:
@@ -19,11 +24,11 @@ def analyze_activations(cfg: AnalyzeConfig) -> None:
 
 
 def steer_activations(cfg: SteerConfig) -> None:
-    from persona_data.environment import load_env
+    from dotenv import load_dotenv
 
-    from src.steering import compute_steering_vector, save_steering_vector
+    from persona_vectors.steering import compute_steering_vector, save_steering_vector
 
-    load_env()
+    load_dotenv(Path(__file__).parent / ".env")
 
     sv_dict = compute_steering_vector(
         persona_id=cfg.persona_id,

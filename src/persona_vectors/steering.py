@@ -26,7 +26,7 @@ from rich.table import Table
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 
-from src.activation_io import load_per_question_vectors
+from persona_vectors.activation_io import load_per_question_vectors
 
 # Config
 STEER_LAYER = 20
