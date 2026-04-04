@@ -1,16 +1,10 @@
 import nnsight
 import torch
-
-
-def _get_hidden_states(layer_output):
-    """Return the hidden-state tensor from a layer output."""
-    if isinstance(layer_output, tuple):
-        return layer_output[0]
-    return layer_output
+from nnterp import StandardizedTransformer
 
 
 def extract_activations(
-    model,
+    model: StandardizedTransformer,
     full_texts: list[str],
     token_masks: list[torch.Tensor],
     remote: bool = False,
@@ -18,15 +12,13 @@ def extract_activations(
     """Run forward passes and return mean hidden states over masked tokens per layer.
 
     Args:
-        model: The nnsight LanguageModel.
+        model: The standardized nnterp model.
         full_texts: List of full formatted prompt+response strings, one per sample.
         token_masks: List of boolean masks over the full (unpadded) token sequence per
             sample. True values are averaged. Each mask should match the length of the
             tokenized full_texts[i] without padding.
         remote: If True, execute the trace on NDIF's remote servers instead of locally.
             Requires NDIF_API_KEY to be set (via .env or environment variable).
-            When using remote=True, instantiate the model without device_map/dtype so
-            it loads on the meta device (no local GPU needed).
     """
 
     if len(full_texts) != len(token_masks):
@@ -42,14 +34,14 @@ def extract_activations(
 
             for text, mask in zip(full_texts, masks):
                 saved_hs: list[torch.Tensor] = []
-                # Compute the masked mean inside the trace so only (n_layer ,d_model)
+                # Compute the masked mean inside the trace so only (n_layer, d_model)
                 with model.trace(text):
-                    for layer in model.model.layers:
+                    for layer_idx in range(model.num_layers):
+                        hidden_states = model.layers_output[layer_idx]
+                        mask_on_device = mask.to(device=hidden_states.device)
                         # Take the mean over the masked tokens
                         # from (batch, seq_len, d_model) -> with batch = 1
-                        # -> stripping batch dimension which intentinally will always be one
-                        hidden_states = _get_hidden_states(layer.output)
-                        mask_on_device = mask.to(device=hidden_states.device)
+                        # -> stripping batch dimension which intentionally will always be one
                         layer_mean = (
                             hidden_states[:, mask_on_device, :]
                             .squeeze(dim=0)

@@ -8,7 +8,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.steering import STEER_LAYER
+from persona_vectors.steering import STEER_LAYER
 
 # ── Configs ──────────────────────────────────────────────────────────────────
 

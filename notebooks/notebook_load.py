@@ -1,19 +1,18 @@
-# %% Imports
 import torch
+from dotenv import load_dotenv
+from persona_data.environment import get_artifacts_dir
+from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from src.activation_io import load_per_question_vectors
-from src.environment import get_artifacts_dir, load_env, set_seed
-from src.plots import plot_layer_similarity
-from src.synth_persona_io import SynthPersonaDataset
+from persona_vectors.activation_io import load_per_question_vectors
+from persona_vectors.plots import plot_layer_similarity
 
 console = Console()
 
 # %% Setup code
-load_env()
+load_dotenv()
 torch.set_grad_enabled(False)
-set_seed(1337)
 
 # %% Configuration
 # Use 9b for remote (production), 2b for local testing
