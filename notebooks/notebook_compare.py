@@ -1,11 +1,10 @@
 import torch
 from dotenv import load_dotenv
-from persona_data.environment import get_artifacts_dir
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.activation_io import load_per_question_vectors
+from persona_vectors.artifacts import ActivationStore
 from persona_vectors.plots import plot_layer_similarity
 
 console = Console()
@@ -33,18 +32,12 @@ dataset_table.add_row("Age", str(first_persona.persona["age"]))
 console.print(dataset_table)
 
 persona = first_persona
-ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
+acts = ActivationStore(MODEL_NAME)
 
 # %% Load activations and use stored metadata
 results = {}
 for variant in ["templated", "biography"]:
-    per_question_activations, _ = load_per_question_vectors(
-        root_dir=ACTIVATIONS_DIR,
-        model_name=MODEL_NAME,
-        prompt_variant=variant,
-        persona_id=persona.id,
-    )
-
+    per_question_activations, _ = acts.load(variant, persona.id)
     results[variant] = per_question_activations.mean(dim=0)
 
 short_hidden_states = results["templated"]

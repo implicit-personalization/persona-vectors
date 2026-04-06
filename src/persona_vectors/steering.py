@@ -20,13 +20,12 @@ import json
 from pathlib import Path
 
 import torch
-from persona_data.environment import get_artifacts_dir
 from rich.console import Console
 from rich.table import Table
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 
-from persona_vectors.activation_io import load_per_question_vectors
+from persona_vectors.artifacts import ActivationStore
 
 # Config
 STEER_LAYER = 20
@@ -57,32 +56,21 @@ def compute_steering_vector(
     Returns:
         Dict with steering_vector, suggested_alpha, and metadata.
     """
-    if activations_dir is None:
-        activations_dir = get_artifacts_dir() / "activations"
+    store = ActivationStore(model_name, activations_dir)
 
     if verbose:
         print(f"\nLoading activations for {persona_id}...")
 
     # Load both positive (biography) and negative (templated) activations
     try:
-        pos_activations, pos_questions = load_per_question_vectors(
-            root_dir=activations_dir,
-            model_name=model_name,
-            prompt_variant="biography",
-            persona_id=persona_id,
-        )
+        pos_activations, pos_questions = store.load("biography", persona_id)
     except FileNotFoundError:
         if verbose:
             print("✗ Biography activations not found. Run extraction first.")
         return {}
 
     try:
-        neg_activations, neg_questions = load_per_question_vectors(
-            root_dir=activations_dir,
-            model_name=model_name,
-            prompt_variant="templated",
-            persona_id=persona_id,
-        )
+        neg_activations, neg_questions = store.load("templated", persona_id)
     except FileNotFoundError:
         if verbose:
             print("✗ Templated activations not found. Run extraction first.")

@@ -6,7 +6,6 @@ from typing import Callable
 
 import torch
 from nnterp import StandardizedTransformer
-from persona_data.environment import get_artifacts_dir
 from persona_data.prompts import (
     format_biography_prompt,
     format_messages,
@@ -14,8 +13,8 @@ from persona_data.prompts import (
 )
 from persona_data.synth_persona import PersonaData, QAPair
 
-from persona_vectors.activation_io import save_per_question_vectors
 from persona_vectors.activations import extract_activations
+from persona_vectors.artifacts import ActivationStore
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +63,7 @@ def run_extraction(
     qa_pairs: list[QAPair],
     variants: list[str],
     remote: bool = False,
+    on_status: Callable | None = None,
 ) -> list[ExtractionResult]:
     """Extract and save per-question activation vectors for each prompt variant.
 
@@ -74,6 +74,8 @@ def run_extraction(
         qa_pairs: Question-answer pairs to run extraction on.
         variants: Prompt variants to extract (``"templated"`` or ``"biography"``).
         remote: Whether to execute on NDIF.
+        on_status: Forwarded to extract_activations. Called on each NDIF status
+            update with (job_id, status_name, description).
 
     Returns:
         One ExtractionResult per variant.
@@ -83,7 +85,7 @@ def run_extraction(
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")
 
-    activations_dir = get_artifacts_dir() / "activations"
+    store = ActivationStore(model_name)
     results = []
 
     for variant in variants:
@@ -93,17 +95,11 @@ def run_extraction(
             qa_pairs=qa_pairs,
         )
 
-        vectors = extract_activations(model, full_texts, token_masks, remote=remote)
-
-        artifact_dir = save_per_question_vectors(
-            root_dir=activations_dir,
-            model_name=model_name,
-            prompt_variant=variant,
-            persona_id=persona.id,
-            persona_name=persona.name,
-            per_question_vectors=vectors,
-            questions=questions,
+        vectors = extract_activations(
+            model, full_texts, token_masks, remote=remote, on_status=on_status
         )
+
+        artifact_dir = store.save(variant, persona.id, persona.name, vectors, questions)
 
         results.append(
             ExtractionResult(

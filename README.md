@@ -21,15 +21,15 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 persona-vectors/
 ├── notebooks/
 │   ├── notebook_extract.py      # Extract activations from model (minimal PoC)
-│   ├── notebook_load.py         # Load saved activations and recreate plots
+│   ├── notebook_compare.py      # Use ActivationStore to load saved activations and compare variants
 │   └── notebook_steer.py        # Steering experiments
 ├── src/persona_vectors/
-│   ├── activation_io.py         # Save/load activations
-│   ├── activations.py           # Core: extract_activations / masked_mean
-│   ├── prompt_format.py         # Chat template formatting
+│   ├── artifacts.py             # ActivationStore: save/load/query activation artifacts
+│   ├── activations.py           # Core: extract_activations (nnsight forward passes)
+│   ├── extraction.py            # Orchestration: run_extraction per variant
 │   ├── plots.py                 # Layer-wise similarity plots (Plotly)
 │   ├── steering.py              # Steering vector computation and application
-│   ├── analysis.py              # Difference vectors, cosine similarity, PCA
+│   ├── analysis.py              # PCA/UMAP projections and embedding figures
 │   └── parser.py                # CLI argument parsing
 ├── artifacts/                   # Saved activations (gitignored)
 ├── docs/                        # Reference documentation
@@ -56,7 +56,7 @@ cp .env.example .env
 uv run python -m notebooks.notebook_extract
 
 # Load saved activations / analyze
-uv run python -m notebooks.notebook_load
+uv run python -m notebooks.notebook_compare
 ```
 
 ## Streamlit App
@@ -84,7 +84,7 @@ The app includes:
 3. Save them to disk
 4. Mask and average the selected token spans
 
-`notebook_load.py` is the simpler "load from disk and analyze" example.
+`notebook_compare.py` loads saved activations via `ActivationStore` and compares variants.
 
 ### Saved Format
 

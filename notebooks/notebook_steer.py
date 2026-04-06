@@ -1,11 +1,10 @@
 import torch
 from dotenv import load_dotenv
-from persona_data.environment import get_artifacts_dir
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.activation_io import load_per_question_vectors
+from persona_vectors.artifacts import ActivationStore
 from persona_vectors.steering import compute_steering_vector, save_steering_vector
 
 console = Console()
@@ -34,18 +33,12 @@ dataset_table.add_row("Age", str(first_persona.persona["age"]))
 console.print(dataset_table)
 
 persona = first_persona
-ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
+store = ActivationStore(MODEL_NAME)
 
 # %% Load activations for both variants
 results = {}
 for variant in ["templated", "biography"]:
-    per_question_activations, _ = load_per_question_vectors(
-        root_dir=ACTIVATIONS_DIR,
-        model_name=MODEL_NAME,
-        prompt_variant=variant,
-        persona_id=persona.id,
-    )
-
+    per_question_activations, _ = store.load(variant, persona.id)
     results[variant] = per_question_activations
 
 print(f"Biography activations shape: {results['biography'].shape}")
@@ -56,7 +49,6 @@ sv_dict = compute_steering_vector(
     persona_id=persona.id,
     model_name=MODEL_NAME,
     layer_idx=STEER_LAYER,
-    activations_dir=ACTIVATIONS_DIR,
 )
 
 # %% Inspect steering vector
@@ -69,5 +61,5 @@ if sv_dict:
 
 # %% Save steering vector as safetensors
 if sv_dict:
-    out_dir = get_artifacts_dir() / "vectors" / persona.id
+    out_dir = store.root_dir.parent / "vectors" / persona.id
     save_steering_vector(sv_dict, out_dir)
