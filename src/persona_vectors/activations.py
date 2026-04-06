@@ -34,13 +34,13 @@ def extract_activations(
 
             for text, mask in zip(full_texts, masks):
                 saved_hs: list[torch.Tensor] = []
-                # Compute the masked mean inside the trace so only (n_layer, d_model)
+                # Compute the masked mean inside the trace so only (num_layers, hidden_size)
                 with model.trace(text):
                     for layer_idx in range(model.num_layers):
                         hidden_states = model.layers_output[layer_idx]
                         mask_on_device = mask.to(device=hidden_states.device)
                         # Take the mean over the masked tokens
-                        # from (batch, seq_len, d_model) -> with batch = 1
+                        # from (batch, seq_len, hidden_size) -> with batch = 1
                         # -> stripping batch dimension which intentionally will always be one
                         layer_mean = (
                             hidden_states[:, mask_on_device, :]
@@ -53,5 +53,5 @@ def extract_activations(
 
                 all_hs.append(per_text_hs)
 
-    # Shape: (n_text, n_layers, d_model)
+    # Shape: (n_text, num_layers, hidden_size)
     return torch.stack(all_hs, dim=0)

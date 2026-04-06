@@ -1,20 +1,12 @@
-import nnsight
 import torch
 from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
-from persona_data.environment import get_artifacts_dir, set_seed
-from persona_data.prompts import (
-    format_biography_prompt,
-    format_messages,
-    format_templated_prompt,
-)
-from persona_data.synth_persona import QAPair, SynthPersonaDataset
+from persona_data.environment import set_seed
+from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
-from tqdm.auto import tqdm
 
-from persona_vectors.activation_io import save_per_question_vectors
-from persona_vectors.activations import extract_activations
+from persona_vectors.extraction import SUPPORTED_VARIANTS, run_extraction
 
 console = Console()
 
@@ -32,6 +24,8 @@ MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 
 print(f"Loading {MODEL_NAME}...")
 if REMOTE:
+    import nnsight
+
     # Meta device — no weights downloaded locally; execution happens on NDIF servers.
     # print(nnsight.ndif_status())
     # print(nnsight.ndif.compare())
@@ -70,79 +64,20 @@ console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
 persona = first_persona
-# qa_pairs = dataset.get_qa(persona.id)[:2] # for short example
+# qa_pairs = dataset.get_qa(persona.id)[:2]  # for short example
 qa_pairs = dataset.get_qa(persona.id)
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
-# %% Options for activation extraction
-ACTIVATIONS_DIR = get_artifacts_dir() / "activations"
+# %% Extract activations for all prompt variants
+results = run_extraction(
+    model=model,
+    model_name=MODEL_NAME,
+    persona=persona,
+    qa_pairs=qa_pairs,
+    variants=SUPPORTED_VARIANTS,
+    remote=REMOTE,
+)
 
-
-def extract_variant_activations(
-    model,
-    model_name: str,
-    persona_id: str,
-    prompt_variant: str,
-    system_prompt: str,
-    qa_pairs: list[QAPair],
-    label: str,
-    remote: bool = False,
-):
-    """Extract masked mean activations and store lightweight metadata."""
-    full_texts: list[str] = []
-    token_masks: list[torch.Tensor] = []
-    all_questions: list[str] = []
-
-    for qa in tqdm(qa_pairs, desc=label):
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": qa.question},
-            {"role": "assistant", "content": qa.answer},
-        ]
-        full_prompt, answer_start = format_messages(messages, tokenizer)
-        seq_len = tokenizer(full_prompt, return_tensors="pt").input_ids.shape[1]
-
-        full_texts.append(full_prompt)
-        token_masks.append(torch.arange(seq_len) >= answer_start)
-        all_questions.append(qa.question)
-
-    all_hs = extract_activations(model, full_texts, token_masks, remote=remote)
-
-    artifact_dir = save_per_question_vectors(
-        root_dir=ACTIVATIONS_DIR,
-        model_name=model_name,
-        prompt_variant=prompt_variant,
-        persona_id=persona_id,
-        persona_name=persona.name,
-        per_question_vectors=all_hs,
-        questions=all_questions,
-    )
-    print(
-        f"Saved {prompt_variant} activations to {artifact_dir} ({len(qa_pairs)} examples)"
-    )
-
-
-# %% Extract activations for different prompt variants
-variants = [
-    (
-        "templated",
-        format_templated_prompt(persona.templated_prompt),
-        "templated prompt",
-    ),
-    ("biography", format_biography_prompt(persona.biography_md), "biography prompt"),
-]
-
-for variant_name, system_prompt, label in variants:
-    extract_variant_activations(
-        model,
-        MODEL_NAME,
-        persona.id,
-        variant_name,
-        system_prompt,
-        qa_pairs,
-        label,
-        remote=REMOTE,
-    )
-
-print("Extraction complete!")
+for r in results:
+    print(f"Saved {r.variant} activations to {r.output_dir} ({r.n_questions} examples)")

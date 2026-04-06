@@ -106,16 +106,16 @@ def compute_steering_vector(
         if pos_questions[i] != neg_questions[i]:
             print(f"⚠ Warning: Question mismatch at index {i}")
 
-        # pos_act shape: [n_layers, d_model] (already masked mean over response tokens)
+        # pos_act shape: [num_layers, hidden_size] (already masked mean over response tokens)
         # Extract the layer we care about
-        pos_mean = pos_act[layer_idx, :]  # [d_model]
-        neg_mean = neg_act[layer_idx, :]  # [d_model]
+        pos_mean = pos_act[layer_idx, :]  # [hidden_size]
+        neg_mean = neg_act[layer_idx, :]  # [hidden_size]
 
         pos_vectors.append(pos_mean)
         neg_vectors.append(neg_mean)
 
     # Compute steering vector
-    pos_stack = torch.stack(pos_vectors)  # [n_questions, d_model]
+    pos_stack = torch.stack(pos_vectors)  # [n_questions, hidden_size]
     neg_stack = torch.stack(neg_vectors)
 
     mean_pos = pos_stack.mean(dim=0)

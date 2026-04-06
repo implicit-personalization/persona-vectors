@@ -10,10 +10,36 @@ from persona_vectors.parser import (
 
 
 def extract_activations(cfg: ExtractConfig) -> None:
-    # TODO: Load model and dataset based on cfg.
-    # TODO: Collect activations.
-    # TODO: Save activations to disk.
-    raise NotImplementedError("Extraction not implemented yet")
+    import logging
+
+    from dotenv import load_dotenv
+    from nnterp import StandardizedTransformer
+    from persona_data.synth_persona import SynthPersonaDataset
+
+    from persona_vectors.extraction import run_extraction
+
+    load_dotenv()
+    logger = logging.getLogger(__name__)
+
+    model = StandardizedTransformer(cfg.model)
+    dataset = SynthPersonaDataset()
+    personas = (
+        [p for p in dataset if p.id == cfg.persona_id]
+        if cfg.persona_id
+        else list(dataset)
+    )
+
+    for persona in personas:
+        results = run_extraction(
+            model=model,
+            model_name=cfg.model,
+            persona=persona,
+            qa_pairs=dataset.get_qa(persona.id),
+            variants=cfg.variants,
+            remote=cfg.remote,
+        )
+        for r in results:
+            logger.info("Saved %s/%s → %s", r.persona_name, r.variant, r.output_dir)
 
 
 def analyze_activations(cfg: AnalyzeConfig) -> None:
@@ -49,11 +75,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "extract":
-        # NOTE: Load the data using the utilities in other files
-        # args.input ...
         cfg = ExtractConfig(
             model=args.model,
-            output_dir=args.out,
+            variants=args.variants,
+            persona_id=args.persona_id,
+            remote=args.remote,
         )
         extract_activations(cfg)
     elif args.command == "analyze":

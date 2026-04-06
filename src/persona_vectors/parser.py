@@ -8,16 +8,18 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
+from persona_vectors.extraction import SUPPORTED_VARIANTS
 from persona_vectors.steering import STEER_LAYER
 
 # ── Configs ──────────────────────────────────────────────────────────────────
 
 
-# NOTE: This is just a possible template
 @dataclass
 class ExtractConfig:
     model: str
-    output_dir: str
+    variants: list[str]
+    persona_id: str | None = None
+    remote: bool = False
 
 
 @dataclass
@@ -41,9 +43,20 @@ class SteerConfig:
 
 def build_extract_parser(subparsers) -> None:
     extract = subparsers.add_parser("extract", help="Extract model activations")
-    extract.add_argument("--model", required=True, help="Model name or path")
-    extract.add_argument("--input", required=True, help="Input data path")
-    extract.add_argument("--out", required=True, help="Output directory")
+    extract.add_argument("--model", required=True, help="HuggingFace model ID")
+    extract.add_argument(
+        "--variants",
+        nargs="+",
+        default=list(SUPPORTED_VARIANTS),
+        choices=SUPPORTED_VARIANTS,
+        help="Prompt variants to extract (default: all)",
+    )
+    extract.add_argument(
+        "--persona-id", default=None, help="Extract only this persona (default: all)"
+    )
+    extract.add_argument(
+        "--remote", action="store_true", help="Execute on NDIF remote servers"
+    )
 
 
 def build_analyze_parser(subparsers) -> None:

@@ -59,8 +59,8 @@ def plot_layer_similarity(
     """Plot cosine similarity between two sets of activation across layers.
 
     Args:
-        short: (L, d_model) tensor of activations for the first prompt.
-        long: (L, d_model) tensor of activations for the second prompt.
+        short: (L, hidden_size) tensor of activations for the first prompt.
+        long: (L, hidden_size) tensor of activations for the second prompt.
         title: Plot title.
         filename: If provided, save an interactive HTML file as
             <artifacts_dir>/plots/<filename>.html.
@@ -99,7 +99,7 @@ def plot_multiple_layer_similarities(
 
     Args:
         traces: List of (label, short, long) tuples. Each label is used for the
-            legend entry; short and long are (L, d_model) tensors as in
+            legend entry; short and long are (L, hidden_size) tensors as in
             plot_layer_similarity.
         title: Plot title.
         filename: If provided, save an interactive HTML file.

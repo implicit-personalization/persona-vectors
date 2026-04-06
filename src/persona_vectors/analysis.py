@@ -7,13 +7,13 @@ def project_pca(samples: torch.Tensor) -> torch.Tensor:
     """Project samples to 2D using PCA.
 
     Args:
-        samples: Tensor with shape (n_samples, d_model).
+        samples: Tensor with shape (n_samples, hidden_size).
 
     Returns:
         Tensor with shape (n_samples, 2).
     """
     if samples.ndim != 2:
-        raise ValueError("samples must have shape (n_samples, d_model)")
+        raise ValueError("samples must have shape (n_samples, hidden_size)")
 
     embedding = PCA(n_components=2).fit_transform(samples.float().cpu().numpy())
     return torch.from_numpy(embedding)
@@ -23,13 +23,13 @@ def project_umap(samples: torch.Tensor) -> torch.Tensor:
     """Project samples to 2D using UMAP.
 
     Args:
-        samples: Tensor with shape (n_samples, d_model).
+        samples: Tensor with shape (n_samples, hidden_size).
 
     Returns:
         Tensor with shape (n_samples, 2).
     """
     if samples.ndim != 2:
-        raise ValueError("samples must have shape (n_samples, d_model)")
+        raise ValueError("samples must have shape (n_samples, hidden_size)")
 
     try:
         import umap

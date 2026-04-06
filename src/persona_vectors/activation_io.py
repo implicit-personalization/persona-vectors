@@ -5,7 +5,7 @@ import torch
 from safetensors.torch import load_file, save_file
 
 
-def _model_dir_name(model_name: str) -> str:
+def model_dir_name(model_name: str) -> str:
     return model_name.replace("/", "__")
 
 
@@ -15,7 +15,7 @@ def build_activation_path(
     prompt_variant: str,
     persona_id: str,
 ) -> Path:
-    return Path(root_dir) / _model_dir_name(model_name) / prompt_variant / persona_id
+    return Path(root_dir) / model_dir_name(model_name) / prompt_variant / persona_id
 
 
 def save_per_question_vectors(
@@ -29,7 +29,7 @@ def save_per_question_vectors(
 ) -> Path:
     if per_question_vectors.ndim != 3:
         raise ValueError(
-            "per_question_vectors must have shape (n_questions, n_layers, d_model)"
+            "per_question_vectors must have shape (n_questions, num_layers, hidden_size)"
         )
 
     if len(questions) != per_question_vectors.shape[0]:
