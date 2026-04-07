@@ -58,8 +58,7 @@ print(f"Hidden state shape: {short_hidden_states.shape}")
 # long = long - long.mean(dim=1, keepdim=True)
 
 fig = plot_layer_similarity(
-    short_hidden_states,
-    long_hidden_states,
+    [(None, short_hidden_states, long_hidden_states)],
     title=f"Templated vs Biography — {persona.name}",
     show=True,
 )

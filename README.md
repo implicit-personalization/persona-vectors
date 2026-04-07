@@ -24,9 +24,9 @@ persona-vectors/
 │   ├── notebook_compare.py      # Use ActivationStore to load saved activations and compare variants
 │   └── notebook_steer.py        # Steering experiments
 ├── src/persona_vectors/
-│   ├── artifacts.py             # ActivationStore: save/load/query activation artifacts
+│   ├── artifacts.py             # ActivationStore and artifact path helpers
 │   ├── activations.py           # Core: extract_activations (nnsight forward passes)
-│   ├── extraction.py            # Orchestration: run_extraction per variant
+│   ├── extraction.py            # Orchestration: build_extraction_plan + run_extraction
 │   ├── plots.py                 # Layer-wise similarity plots (Plotly)
 │   ├── steering.py              # Steering vector computation and application
 │   ├── analysis.py              # PCA/UMAP projections and embedding figures
@@ -61,17 +61,7 @@ uv run python -m notebooks.notebook_compare
 
 ## Streamlit App
 
-A web UI for interactive persona vector extraction and analysis:
-
-```bash
-PYTHONPATH=. streamlit run src/ui/app.py
-```
-
-The app includes:
-
-- extraction from HuggingFace or uploaded local JSONL datasets
-- layer-wise cosine similarity, PCA, and UMAP views over saved activations
-- a chat tab with persona-based system prompts
+The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 
 ## How It Works
 

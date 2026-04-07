@@ -40,8 +40,10 @@ The root directory defaults to `$ARTIFACTS_DIR/activations` (falls back to
 
 ## ActivationStore
 
-All artifact I/O goes through `ActivationStore`, which binds a `model_name` and
+Save/load goes through `ActivationStore`, which binds a `model_name` and
 `root_dir` together so they don't need to be repeated at every call site.
+Query helpers like `list_personas`, `list_layers`, and `load_mean_activations`
+are top-level functions in `persona_vectors.artifacts`.
 
 ```python
 from persona_vectors.artifacts import ActivationStore
@@ -76,22 +78,24 @@ vectors, questions = store.load("templated", persona.id)
 ### Query available data
 
 ```python
+from persona_vectors.artifacts import list_layers, list_personas, load_persona_names, load_mean_activations
+
 # Persona ids present for every requested variant
-persona_ids = store.list_personas(["templated", "biography"])
+persona_ids = list_personas(store.root_dir, store.model_name, ["templated", "biography"])
 
 # Layer indices shared across all variant/persona combinations
-layers = store.list_layers(["templated"], persona_ids)
+layers = list_layers(store.root_dir, store.model_name, ["templated"], persona_ids)
 
 # Display names from saved metadata
-names = store.load_persona_names(["templated"], persona_ids)
+names = load_persona_names(store.root_dir, store.model_name, ["templated"], persona_ids)
 # {"persona_001": "Alice", ...}
 ```
 
 ### Load mean activations for cosine comparison
 
 ```python
-traces, names, errors = store.load_mean_activations(
-    persona_ids, variant_a="templated", variant_b="biography"
+traces, names, errors = load_mean_activations(
+    store.root_dir, store.model_name, persona_ids, variant_a="templated", variant_b="biography"
 )
 # traces: list of (persona_id, mean_vectors_a, mean_vectors_b)
 ```
@@ -109,12 +113,11 @@ traces, names, errors = store.load_mean_activations(
 ## Utility functions
 
 ```python
-from persona_vectors.artifacts import model_dir_name, slugify
+from persona_vectors.artifacts import model_dir_name
 
 model_dir_name("google/gemma-2-2b-it")  # "google__gemma-2-2b-it"
-slugify("My Persona Name!")              # "my_persona_name"
 ```
 
 `model_dir_name` maps model identifiers to filesystem-safe directory names (preserves
-case and hyphens, replaces `/` with `__`). `slugify` lowercases and replaces
-non-alphanumeric characters with `_`, used for export filenames.
+case and hyphens, replaces `/` with `__`). UI/export filename slugging now lives in
+`persona-ui/utils/helpers.py`.

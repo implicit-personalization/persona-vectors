@@ -2,14 +2,14 @@
 
 Compute persona steering vectors from pre-extracted activations and apply them
 to steer model behavior toward a specific persona.
-Core module: `src/steering.py`
+Core module: `src/persona_vectors/steering.py`
 
 ---
 
 ## Pipeline
 
 ```
-Extract Activations (notebook_extract.py) → Compute Steering Vector → Save → Apply
+Extract Activations (`notebook_extract.py`) → Compute Steering Vector → Save → Apply
 ```
 
 Steering reuses the activations extracted by `notebook_extract.py`. No
@@ -20,7 +20,7 @@ re-extraction is needed.
 ## Quick Start
 
 ```python
-from src.steering import compute_steering_vector, save_steering_vector
+from persona_vectors.steering import compute_steering_vector, save_steering_vector
 
 sv_dict = compute_steering_vector(
     persona_id="0023952f-142e-434b-82e2-7a7451b7c55f",
@@ -90,7 +90,7 @@ save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
 ### load_steering_vector()
 
 ```python
-from src.steering import load_steering_vector
+from persona_vectors.steering import load_steering_vector
 
 sv_dict = load_steering_vector("artifacts/vectors/my_persona")
 sv = sv_dict["steering_vector"]  # [1, 1, d_model]

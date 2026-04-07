@@ -8,7 +8,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from persona_vectors.extraction import SUPPORTED_VARIANTS
+from persona_vectors.artifacts import SUPPORTED_VARIANTS
 from persona_vectors.steering import STEER_LAYER
 
 # ── Configs ──────────────────────────────────────────────────────────────────

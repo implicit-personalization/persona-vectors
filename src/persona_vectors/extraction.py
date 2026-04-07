@@ -14,7 +14,7 @@ from persona_data.prompts import (
 from persona_data.synth_persona import PersonaData, QAPair
 
 from persona_vectors.activations import extract_activations
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import SUPPORTED_VARIANTS, ActivationStore
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +22,6 @@ _VARIANT_PROMPTS: dict[str, Callable[[PersonaData], str]] = {
     "templated": lambda p: format_templated_prompt(p.templated_prompt),
     "biography": lambda p: format_biography_prompt(p.biography_md),
 }
-
-SUPPORTED_VARIANTS: tuple[str, ...] = tuple(_VARIANT_PROMPTS)
 
 
 @dataclass

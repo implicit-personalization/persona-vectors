@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from persona_vectors.parser import (
     AnalyzeConfig,
     ExtractConfig,
@@ -12,7 +14,6 @@ from persona_vectors.parser import (
 def extract_activations(cfg: ExtractConfig) -> None:
     import logging
 
-    from dotenv import load_dotenv
     from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
@@ -28,13 +29,15 @@ def extract_activations(cfg: ExtractConfig) -> None:
         if cfg.persona_id
         else list(dataset)
     )
-
     for persona in personas:
+        qa_pairs = list(dataset.get_qa(persona.id))
+        if not qa_pairs:
+            continue
         results = run_extraction(
             model=model,
             model_name=cfg.model,
             persona=persona,
-            qa_pairs=dataset.get_qa(persona.id),
+            qa_pairs=qa_pairs,
             variants=cfg.variants,
             remote=cfg.remote,
         )
@@ -50,11 +53,7 @@ def analyze_activations(cfg: AnalyzeConfig) -> None:
 
 
 def steer_activations(cfg: SteerConfig) -> None:
-    from dotenv import load_dotenv
-
     from persona_vectors.steering import compute_steering_vector, save_steering_vector
-
-    load_dotenv(Path(__file__).parent / ".env")
 
     sv_dict = compute_steering_vector(
         persona_id=cfg.persona_id,
@@ -71,8 +70,10 @@ def steer_activations(cfg: SteerConfig) -> None:
 
 
 def main() -> None:
+
     parser = build_parser()
     args = parser.parse_args()
+    load_dotenv()
 
     if args.command == "extract":
         cfg = ExtractConfig(

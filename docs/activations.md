@@ -1,7 +1,7 @@
 # Activation Extraction
 
 Extract hidden state activations from language models at specific token positions.
-Core module: `src/activations.py`
+Core module: `src/persona_vectors/activations.py`
 
 ---
 
@@ -16,7 +16,7 @@ Dataset → Format Prompts → Extract Activations → Save → Analyze/Compare
 ## Quick Start
 
 ```python
-from src.activations import extract_activations
+from persona_vectors.activations import extract_activations
 
 # Extract activations for response tokens only
 activations = extract_activations(
@@ -35,7 +35,7 @@ activations = extract_activations(
 Core function that runs the model forward pass and computes masked mean activations.
 
 ```python
-from src.activations import extract_activations
+from persona_vectors.activations import extract_activations
 
 activations = extract_activations(
     model,
@@ -58,11 +58,11 @@ the mean activation. Typically, you want **response tokens only** (not the promp
 
 ### Using format_messages()
 
-Use `prompt_format.format_messages()` to get the response start index, then build
+Use `persona_data.prompts.format_messages()` to get the response start index, then build
 a mask for response tokens only:
 
 ```python
-from src.prompt_format import format_messages
+from persona_data.prompts import format_messages
 
 full_prompt, response_start_idx = format_messages(messages, tokenizer)
 input_ids = tokenizer(full_prompt, return_tensors="pt").input_ids[0]

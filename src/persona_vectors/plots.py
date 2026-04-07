@@ -50,59 +50,20 @@ def _add_similarity_traces(
 
 
 def plot_layer_similarity(
-    short: torch.Tensor,
-    long: torch.Tensor,
-    title: str = "Layer-wise Activation Similarity",
-    filename: str | None = None,
-    show: bool = False,
-) -> go.Figure:
-    """Plot cosine similarity between two sets of activation across layers.
-
-    Args:
-        short: (L, hidden_size) tensor of activations for the first prompt.
-        long: (L, hidden_size) tensor of activations for the second prompt.
-        title: Plot title.
-        filename: If provided, save an interactive HTML file as
-            <artifacts_dir>/plots/<filename>.html.
-        show: If True, open the plot in the browser.
-
-    Returns:
-        The Plotly figure object.
-    """
-    fig = go.Figure()
-    _add_similarity_traces(fig, short, long)
-    fig.update_layout(
-        title=title,
-        xaxis_title="Layer",
-        yaxis_title="Cosine similarity",
-        hovermode="x",
-        template="plotly_white",
-    )
-
-    if filename is not None:
-        output_path = save_plot_html(fig, filename)
-        print(f"Plot saved to {output_path}")
-
-    if show:
-        fig.show()
-
-    return fig
-
-
-def plot_multiple_layer_similarities(
     traces: list[tuple[str, torch.Tensor, torch.Tensor]],
     title: str = "Layer-wise Activation Similarity",
     filename: str | None = None,
     show: bool = False,
 ) -> go.Figure:
-    """Plot cosine similarity across layers for multiple personas on one figure.
+    """Plot cosine similarity across layers for one or more (label, short, long) pairs.
 
     Args:
         traces: List of (label, short, long) tuples. Each label is used for the
-            legend entry; short and long are (L, hidden_size) tensors as in
-            plot_layer_similarity.
+            legend entry; short and long are (L, hidden_size) tensors.
+            Pass a single-element list for a single-trace plot.
         title: Plot title.
-        filename: If provided, save an interactive HTML file.
+        filename: If provided, save an interactive HTML file as
+            <artifacts_dir>/plots/<filename>.html.
         show: If True, open the plot in the browser.
 
     Returns:

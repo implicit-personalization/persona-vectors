@@ -6,7 +6,8 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.extraction import SUPPORTED_VARIANTS, run_extraction
+from persona_vectors.artifacts import SUPPORTED_VARIANTS
+from persona_vectors.extraction import run_extraction
 
 console = Console()
 
