@@ -56,6 +56,8 @@ class ActivationStore:
         artifact_dir = self._path(prompt_variant, persona_id)
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
+        n_questions, num_layers, hidden_size = per_question_vectors.shape
+
         save_file(
             {"per_question_vectors": per_question_vectors.detach().cpu()},
             str(artifact_dir / "activations.safetensors"),
@@ -66,6 +68,9 @@ class ActivationStore:
                     "persona_id": persona_id,
                     "persona_name": persona_name,
                     "questions": questions,
+                    "n_questions": n_questions,
+                    "num_layers": num_layers,
+                    "hidden_size": hidden_size,
                 },
                 indent=2,
             )
@@ -79,9 +84,32 @@ class ActivationStore:
     ) -> tuple[torch.Tensor, list[str]]:
         """Load per-question vectors and questions. Returns (vectors, questions)."""
         artifact_dir = self._path(prompt_variant, persona_id)
-        tensors = load_file(str(artifact_dir / "activations.safetensors"))
-        metadata = json.loads((artifact_dir / "metadata.json").read_text())
-        return tensors["per_question_vectors"], metadata["questions"]
+        tensor_path = artifact_dir / "activations.safetensors"
+        metadata_path = artifact_dir / "metadata.json"
+
+        if not tensor_path.exists():
+            raise FileNotFoundError(tensor_path)
+        if not metadata_path.exists():
+            raise FileNotFoundError(metadata_path)
+
+        tensors = load_file(str(tensor_path))
+        if "per_question_vectors" not in tensors:
+            raise KeyError("Missing per_question_vectors in activations file")
+
+        vectors = tensors["per_question_vectors"]
+        if vectors.ndim != 3:
+            raise ValueError(
+                "per_question_vectors must have shape (n_questions, num_layers, hidden_size)"
+            )
+
+        metadata = json.loads(metadata_path.read_text())
+        questions = metadata.get("questions")
+        if not isinstance(questions, list):
+            raise ValueError("metadata questions must be a list")
+        if len(questions) != vectors.shape[0]:
+            raise ValueError("metadata questions length does not match tensor")
+
+        return vectors, questions
 
 
 def list_personas(
@@ -147,17 +175,24 @@ def list_layers(
 ) -> list[int]:
     """List layer indices shared by all matching saved activation files."""
 
-    store = ActivationStore(model_name, root_dir)
     shared_layers: set[int] | None = None
 
     for variant in variants:
         for persona_id in persona_ids:
             try:
-                vectors, _ = store.load(variant, persona_id)
-            except (FileNotFoundError, KeyError, OSError, ValueError):
+                metadata_path = (
+                    _artifact_path(root_dir, model_name, variant, persona_id)
+                    / "metadata.json"
+                )
+                metadata = json.loads(metadata_path.read_text())
+                num_layers = metadata["num_layers"]
+            except (FileNotFoundError, KeyError, TypeError, ValueError, OSError):
                 continue
 
-            layers = set(range(vectors.shape[1]))
+            if not isinstance(num_layers, int) or num_layers < 0:
+                continue
+
+            layers = set(range(num_layers))
             shared_layers = layers if shared_layers is None else shared_layers & layers
 
     return sorted(shared_layers or set())

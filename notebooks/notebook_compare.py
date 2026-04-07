@@ -15,8 +15,8 @@ torch.set_grad_enabled(False)
 
 # %% Configuration
 # Use 9b for remote (production), 2b for local testing
-# REMOTE = False
-REMOTE = True
+REMOTE = False
+# REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 
 # %% Load dataset
