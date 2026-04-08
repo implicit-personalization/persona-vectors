@@ -19,8 +19,8 @@ set_seed(1337)
 
 # %% Setting up the model
 # Use 9b for remote (production), 2b for local testing
-REMOTE = False
-# REMOTE = True
+# REMOTE = False
+REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 
 print(f"Loading {MODEL_NAME}...")
@@ -65,8 +65,8 @@ console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
 persona = first_persona
-qa_pairs = dataset.get_qa(persona.id)[:2]  # for short example
-# qa_pairs = dataset.get_qa(persona.id)
+# qa_pairs = dataset.get_qa(persona.id)[:2]  # for short example
+qa_pairs = dataset.get_qa(persona.id)
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 

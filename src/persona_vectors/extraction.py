@@ -6,22 +6,13 @@ from typing import Callable
 
 import torch
 from nnterp import StandardizedTransformer
-from persona_data.prompts import (
-    format_biography_prompt,
-    format_messages,
-    format_templated_prompt,
-)
+from persona_data.prompts import format_messages, format_roleplay_prompt
 from persona_data.synth_persona import PersonaData, QAPair
 
 from persona_vectors.activations import extract_activations
 from persona_vectors.artifacts import SUPPORTED_VARIANTS, ActivationStore
 
 logger = logging.getLogger(__name__)
-
-_VARIANT_PROMPTS: dict[str, Callable[[PersonaData], str]] = {
-    "templated": lambda p: format_templated_prompt(p.templated_prompt),
-    "biography": lambda p: format_biography_prompt(p.biography_md),
-}
 
 
 @dataclass
@@ -59,7 +50,7 @@ def run_extraction(
     model_name: str,
     persona: PersonaData,
     qa_pairs: list[QAPair],
-    variants: list[str],
+    variants: tuple[str, ...],
     remote: bool = False,
     on_status: Callable | None = None,
 ) -> list[ExtractionResult]:
@@ -89,7 +80,7 @@ def run_extraction(
     for variant in variants:
         full_texts, token_masks, questions = _prepare_inputs(
             tokenizer=model.tokenizer,
-            system_prompt=_VARIANT_PROMPTS[variant](persona),
+            system_prompt=format_roleplay_prompt(getattr(persona, f"{variant}_view")),
             qa_pairs=qa_pairs,
         )
 
