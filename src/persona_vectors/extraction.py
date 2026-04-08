@@ -6,7 +6,12 @@ from typing import Callable
 
 import torch
 from nnterp import StandardizedTransformer
-from persona_data.prompts import format_messages, format_roleplay_prompt
+from persona_data.prompts import (
+    format_mc_question,
+    format_messages,
+    format_roleplay_prompt,
+    mc_correct_letter,
+)
 from persona_data.synth_persona import PersonaData, QAPair
 
 from persona_vectors.activations import extract_activations
@@ -30,10 +35,16 @@ def _prepare_inputs(
 ) -> tuple[list[str], list[torch.Tensor], list[str]]:
     full_texts, token_masks, questions = [], [], []
     for qa in qa_pairs:
+        if qa.answer_format == "choice" and qa.correct_choice_index is not None:
+            user_content = format_mc_question(qa)
+            answer_content = mc_correct_letter(qa)
+        else:
+            user_content = qa.question
+            answer_content = qa.answer
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": qa.question},
-            {"role": "assistant", "content": qa.answer},
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": answer_content},
         ]
         full_prompt, answer_start = format_messages(messages, tokenizer)
         seq_len = tokenizer(full_prompt, return_tensors="pt").input_ids.shape[1]
@@ -80,7 +91,10 @@ def run_extraction(
     for variant in variants:
         full_texts, token_masks, questions = _prepare_inputs(
             tokenizer=model.tokenizer,
-            system_prompt=format_roleplay_prompt(getattr(persona, f"{variant}_view")),
+            system_prompt=format_roleplay_prompt(
+                getattr(persona, f"{variant}_view"),
+                mode="mc",
+            ),
             qa_pairs=qa_pairs,
         )
 
