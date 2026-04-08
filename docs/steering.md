@@ -78,7 +78,7 @@ Returns a dict with:
 
 ### save_steering_vector()
 
-Saves as safetensors + metadata.json:
+Saves a directory containing a safetensors file plus metadata:
 
 ```python
 save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
@@ -104,8 +104,10 @@ alpha = sv_dict["suggested_alpha"]
 ```
 artifacts/vectors/{persona_id}/
 ├── steering_vector.safetensors   # steering_vector tensor
-└── metadata.json                 # alpha, layer, model_id, n_qa_pairs
+└── metadata.json                 # suggested_alpha, layer, model_id, n_qa_pairs
 ```
+
+The `metadata.json` file also records `suggested_alpha`.
 
 ---
 

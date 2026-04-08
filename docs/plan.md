@@ -1,6 +1,7 @@
 # Plan
 
-This is a plan formed during the meeting, with some ideas and things to do.
+Historical notes and early implementation ideas. This is not the current API or
+project plan.
 
 ## Steps:
 
@@ -52,4 +53,4 @@ Average activation across all tokens in each of the responses
 2. [ ] Allow command-line arguments to pass different JSON files and read different formats from which we can have the system prompts, then run the rest.
 3. [ ] Extend to more questions instead of the default one.
 4. [ ] Extend to use the responses from Synth Persona and PersonaGuess without the need to regenerate the responses.
-5. [ ] Update the main script to use argparse with flags like --extract and --plot to create plots or save the extracted persona vector to disk in a specified directory.
+5. [ ] Update the main script to use argparse with flags like `--extract` and `--plot` to create plots or save the extracted persona vector to disk in a specified directory.

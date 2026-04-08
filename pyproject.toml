@@ -5,7 +5,7 @@ description = "Library for extracting and analyzing persona vectors"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "persona-data",
+    "persona-data>=0.1.0",
     "nnsight>=0.6.1",
     "nnterp>=1.3.0",
     "plotly>=6.6.0",
@@ -25,5 +25,6 @@ requires = ["uv_build>=0.11.3,<0.12"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
-persona-data = { path = "../persona-data", editable = true }
-# persona-data = { git = "ssh://git@github.com/implicit-personalization/persona-data.git" }  # use for release
+# Local development:
+# persona-data = { path = "../persona-data", editable = true }
+persona-data = { git = "https://github.com/implicit-personalization/persona-data" }

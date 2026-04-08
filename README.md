@@ -28,10 +28,9 @@ persona-vectors/
 ├── src/persona_vectors/
 │   ├── artifacts.py             # ActivationStore and artifact path helpers
 │   ├── activations.py           # Core: extract_activations (nnsight forward passes)
-│   ├── extraction.py            # Orchestration: build_extraction_plan + run_extraction
+│   ├── extraction.py            # Orchestration for extraction runs
 │   ├── plots.py                 # Layer-wise similarity plots (Plotly)
 │   ├── steering.py              # Steering vector computation and application
-│   ├── analysis.py              # PCA/UMAP projections and embedding figures
 │   └── parser.py                # CLI argument parsing
 ├── artifacts/                   # Saved activations (gitignored)
 ├── docs/                        # Reference documentation
@@ -41,8 +40,9 @@ persona-vectors/
 Dataset loading (`SynthPersonaDataset`, `PersonaGuessDataset`) and environment
 helpers are provided by the sibling [persona-data](../persona-data) package.
 
-Hack for now: clone `persona-data` into the parent directory of this repo so the
-relative path `../persona-data` resolves correctly.
+For local development, uncomment the `path` source in `persona-vectors/pyproject.toml`
+and keep `persona-data` checked out next to this repo. The committed config uses
+git so this package also installs cleanly in isolated environments.
 
 ## Installation
 
@@ -57,8 +57,11 @@ cp .env.example .env
 # Extract activations (run this first)
 uv run python -m notebooks.notebook_extract
 
-# Load saved activations / analyze
+# Load saved activations / compare variants
 uv run python -m notebooks.notebook_compare
+
+# Compute a steering vector from saved activations
+uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
 ```
 
 ## Streamlit App
@@ -78,6 +81,9 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 
 `notebook_compare.py` loads saved activations via `ActivationStore` and compares variants.
 
+`notebook_steer.py` loads saved activations and computes a steering vector for a
+selected persona.
+
 ### Saved Format
 
 Each extraction produces:
@@ -85,24 +91,26 @@ Each extraction produces:
 ```
 artifacts/activations/<model_dir>/<prompt_variant>/<persona_id>/
 ├── activations.safetensors   # Per-question hidden states
-└── metadata.json            # persona_id, persona_name, questions
+└── metadata.json            # persona_id, persona_name, questions, n_questions, num_layers, hidden_size
 ```
 
 `<model_dir>` is the model name with `/` replaced by `__`.
 
 The metadata stores the question text directly, so load-time analysis no longer needs
-to re-resolve qids from the dataset.
+to re-resolve qids from the dataset. It also stores tensor shape fields for validation
+at load time.
 
-## CLI (WIP)
+## CLI
 
-> The idea is to support something like this
+`extract` and `steer` are implemented. `analyze` is parsed but still raises
+`NotImplementedError`.
 
 ```bash
 # Extract activations
-python main.py extract --model google/gemma-2-2b-it --out ./activations
+python main.py extract --model google/gemma-2-2b-it
 
-# Analyze saved activations
-python main.py analyze --activations ./activations --out ./plots --similarity cosine
+# Analyze saved activations (not implemented yet)
+python main.py analyze --out ./plots --similarity cosine
 
 # Run steering (example)
 python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id 005e1868-4e17-47e3-94fa-0d20e8d93662

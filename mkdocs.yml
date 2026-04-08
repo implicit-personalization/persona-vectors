@@ -3,7 +3,31 @@ repo_url: https://github.com/implicit-personalization/persona-vectors
 docs_dir: docs
 theme:
   name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - content.code.copy
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+
 nav:
-  - Activations: activations.md
+  - Overview: index.md
+  - Activation Extraction: activations.md
   - Artifacts: artifacts.md
   - Steering: steering.md

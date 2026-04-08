@@ -30,7 +30,7 @@ artifacts/activations/
     └── templated/                        # prompt_variant
         └── persona_001/                  # persona_id
             ├── activations.safetensors   # tensor (n_questions, n_layers, d_model)
-            └── metadata.json             # {"persona_id", "persona_name", "questions"}
+            └── metadata.json             # persona_id, persona_name, questions, n_questions, num_layers, hidden_size
 ```
 
 The root directory defaults to `$ARTIFACTS_DIR/activations` (falls back to
@@ -106,7 +106,7 @@ traces, names, errors = load_mean_activations(
 
 - **activations.safetensors**: Efficient binary format using PyTorch's safetensors,
   supports memory-mapped loading for large datasets.
-- **metadata.json**: Human-readable JSON with persona metadata and question strings.
+- **metadata.json**: Human-readable JSON with persona metadata, questions, and tensor shape fields.
 
 ---
 
