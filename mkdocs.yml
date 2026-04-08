@@ -1,0 +1,9 @@
+site_name: persona-vectors
+repo_url: https://github.com/implicit-personalization/persona-vectors
+docs_dir: docs
+theme:
+  name: material
+nav:
+  - Activations: activations.md
+  - Artifacts: artifacts.md
+  - Steering: steering.md

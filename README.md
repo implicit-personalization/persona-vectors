@@ -1,5 +1,7 @@
 # Persona Vectors
 
+[![Docs](https://img.shields.io/badge/docs-view-purple?logo=github)](https://github.com/implicit-personalization/persona-vectors/tree/main/docs)
+
 Extract persona-aligned activation vectors from language models and experiment with activation steering.
 
 > [!WARNING]
