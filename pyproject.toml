@@ -24,7 +24,6 @@ dependencies = [
 requires = ["uv_build>=0.11.3,<0.12"]
 build-backend = "uv_build"
 
-[tool.uv.sources]
-# Local development:
+# # Local development:
+# [tool.uv.sources]
 # persona-data = { path = "../persona-data", editable = true }
-persona-data = { git = "https://github.com/implicit-personalization/persona-data" }

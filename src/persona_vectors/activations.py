@@ -63,30 +63,27 @@ def extract_activations(
     else:
         backend = None
 
-    with torch.no_grad():
-        with model.session(remote=remote, backend=backend):
-            all_hs: list[torch.Tensor] = nnsight.save([])
+    with torch.no_grad(), model.session(remote=remote, backend=backend):
+        all_hs: list[torch.Tensor] = nnsight.save([])
 
-            for text, mask in zip(full_texts, masks):
-                saved_hs: list[torch.Tensor] = []
-                # Compute the masked mean inside the trace so only (num_layers, hidden_size)
-                with model.trace(text):
-                    for layer_idx in range(model.num_layers):
-                        hidden_states = model.layers_output[layer_idx]
-                        mask_on_device = mask.to(device=hidden_states.device)
-                        # Take the mean over the masked tokens
-                        # from (batch, seq_len, hidden_size) -> with batch = 1
-                        # -> stripping batch dimension which intentionally will always be one
-                        layer_mean = (
-                            hidden_states[:, mask_on_device, :]
-                            .squeeze(dim=0)
-                            .mean(dim=0)
-                        )
-                        saved_hs.append(layer_mean.detach().cpu())
+        for text, mask in zip(full_texts, masks):
+            saved_hs: list[torch.Tensor] = []
+            # Compute the masked mean inside the trace so only (num_layers, hidden_size)
+            with model.trace(text):
+                for layer_idx in range(model.num_layers):
+                    hidden_states = model.layers_output[layer_idx]
+                    mask_on_device = mask.to(device=hidden_states.device)
+                    # Take the mean over the masked tokens
+                    # from (batch, seq_len, hidden_size) -> with batch = 1
+                    # -> stripping batch dimension which intentionally will always be one
+                    layer_mean = (
+                        hidden_states[:, mask_on_device, :].squeeze(dim=0).mean(dim=0)
+                    )
+                    saved_hs.append(layer_mean.detach().cpu())
 
-                    per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
+                per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
 
-                all_hs.append(per_text_hs)
+            all_hs.append(per_text_hs)
 
     # Shape: (n_text, num_layers, hidden_size)
     return torch.stack(all_hs, dim=0)
