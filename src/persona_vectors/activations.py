@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable
 
 import nnsight
 import torch
@@ -25,19 +25,22 @@ class _CallbackJobStatusDisplay(JobStatusDisplay):
 
 def extract_activations(
     model: StandardizedTransformer,
-    full_texts: list[str],
+    input_ids_list: list[torch.Tensor],
     token_masks: list[torch.Tensor],
     remote: bool = False,
-    on_status: Optional[Callable[[str, str, str], None]] = None,
+    on_status: Callable[[str, str, str], None] | None = None,
 ) -> torch.Tensor:
     """Run forward passes and return mean hidden states over masked tokens per layer.
 
     Args:
         model: The standardized nnterp model.
-        full_texts: List of full formatted prompt+response strings, one per sample.
-        token_masks: List of boolean masks over the full (unpadded) token sequence per
-            sample. True values are averaged. Each mask should match the length of the
-            tokenized full_texts[i] without padding.
+        input_ids_list: Pre-tokenized input id tensors, one 1-D tensor per sample.
+            Passing ids (rather than strings) avoids any re-tokenization by
+            nnsight so the masks always line up with what the model actually
+            sees on the forward pass.
+        token_masks: List of boolean masks over each sample's token sequence.
+            True values are averaged. ``token_masks[i]`` must match the length
+            of ``input_ids_list[i]``.
         remote: If True, execute the trace on NDIF's remote servers instead of locally.
             Requires NDIF_API_KEY to be set (via .env or environment variable).
         on_status: Optional callback ``(job_id, status_name, description) -> None``
@@ -46,12 +49,19 @@ def extract_activations(
             stdout. The normal terminal output from nnsight is still printed.
     """
 
-    if len(full_texts) != len(token_masks):
-        raise ValueError("full_texts and token_masks must have the same length")
+    if len(input_ids_list) != len(token_masks):
+        raise ValueError("input_ids_list and token_masks must have the same length")
 
     masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
     if not all(m.any() for m in masks):
         raise ValueError("token_mask selects zero tokens")
+    for ids, mask in zip(input_ids_list, masks):
+        if ids.ndim != 1:
+            raise ValueError(f"expected 1-D input ids, got shape {tuple(ids.shape)}")
+        if ids.shape[0] != mask.shape[0]:
+            raise ValueError(
+                f"input ids length {ids.shape[0]} does not match mask length {mask.shape[0]}"
+            )
 
     # Build an explicit backend when remote so we can inject a custom status display.
     if remote:
@@ -66,18 +76,19 @@ def extract_activations(
     with torch.no_grad(), model.session(remote=remote, backend=backend):
         all_hs: list[torch.Tensor] = nnsight.save([])
 
-        for text, mask in zip(full_texts, masks):
+        for ids, mask in zip(input_ids_list, masks):
             saved_hs: list[torch.Tensor] = []
-            # Compute the masked mean inside the trace so only (num_layers, hidden_size)
-            with model.trace(text):
+            # Pre-tokenized ids are passed straight through — no double-BOS.
+            with model.trace(ids.unsqueeze(0)):
+                # All layers live on the same device, so move the mask once.
+                mask_on_device = mask.to(device=model.layers_output[0].device)
                 for layer_idx in range(model.num_layers):
-                    hidden_states = model.layers_output[layer_idx]
-                    mask_on_device = mask.to(device=hidden_states.device)
-                    # Take the mean over the masked tokens
-                    # from (batch, seq_len, hidden_size) -> with batch = 1
-                    # -> stripping batch dimension which intentionally will always be one
-                    layer_mean = (
-                        hidden_states[:, mask_on_device, :].squeeze(dim=0).mean(dim=0)
+                    # Extract activations: (1, seq_len, hidden_size):
+                    #   remove batch dim: (seq_len, hidden_size)
+                    #   mask them: (num_masked, hidden_size)
+                    #   mean pool: (hidden_size,)
+                    layer_mean = model.layers_output[layer_idx][0, mask_on_device].mean(
+                        dim=0
                     )
                     saved_hs.append(layer_mean.detach().cpu())
 

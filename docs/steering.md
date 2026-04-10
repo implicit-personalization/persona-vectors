@@ -109,6 +109,10 @@ artifacts/vectors/{persona_id}/
 
 The `metadata.json` file also records `suggested_alpha`.
 
+If the input activations were extracted with a non-default masking strategy,
+that choice should be tracked in the extraction artifacts or run metadata before
+using the vectors for steering.
+
 ---
 
 ## Choosing a Layer

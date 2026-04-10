@@ -19,7 +19,6 @@ def extract_activations(cfg: ExtractConfig) -> None:
 
     from persona_vectors.extraction import run_extraction
 
-    load_dotenv()
     logger = logging.getLogger(__name__)
 
     model = StandardizedTransformer(cfg.model)
@@ -39,7 +38,9 @@ def extract_activations(cfg: ExtractConfig) -> None:
             persona=persona,
             qa_pairs=qa_pairs,
             variants=cfg.variants,
+            mask_strategy=cfg.mask_strategy,
             remote=cfg.remote,
+            verbose=cfg.verbose,
         )
         for r in results:
             logger.info("Saved %s/%s → %s", r.persona_name, r.variant, r.output_dir)
@@ -79,8 +80,10 @@ def main() -> None:
         cfg = ExtractConfig(
             model=args.model,
             variants=args.variants,
+            mask_strategy=args.mask_strategy,
             persona_id=args.persona_id,
             remote=args.remote,
+            verbose=args.verbose,
         )
         extract_activations(cfg)
     elif args.command == "analyze":

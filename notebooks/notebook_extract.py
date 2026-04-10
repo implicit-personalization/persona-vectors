@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.artifacts import SUPPORTED_VARIANTS
-from persona_vectors.extraction import run_extraction
+from persona_vectors.extraction import MaskStrategy, run_extraction
 
 console = Console()
 
@@ -65,8 +65,8 @@ console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
 persona = first_persona
-# qa_pairs = dataset.get_qa(persona.id)[:2]  # for short example
-qa_pairs = dataset.get_qa(persona.id)
+qa_pairs = dataset.get_qa(persona.id)  # full run
+# qa_pairs = dataset.get_qa(persona.id)[:2]
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
@@ -77,7 +77,9 @@ results = run_extraction(
     persona=persona,
     qa_pairs=qa_pairs,
     variants=SUPPORTED_VARIANTS,
+    mask_strategy=MaskStrategy.RESPONSE_FIRST,
     remote=REMOTE,
+    verbose=True,
 )
 
 for r in results:

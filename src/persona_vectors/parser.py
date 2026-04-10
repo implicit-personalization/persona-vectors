@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from persona_vectors.artifacts import SUPPORTED_VARIANTS
+from persona_vectors.extraction import MaskStrategy
 from persona_vectors.steering import STEER_LAYER
 
 # ── Configs ──────────────────────────────────────────────────────────────────
@@ -18,8 +19,10 @@ from persona_vectors.steering import STEER_LAYER
 class ExtractConfig:
     model: str
     variants: list[str]
+    mask_strategy: MaskStrategy
     persona_id: str | None = None
     remote: bool = False
+    verbose: bool = False
 
 
 @dataclass
@@ -52,10 +55,20 @@ def build_extract_parser(subparsers) -> None:
         help="Prompt variants to extract (default: all)",
     )
     extract.add_argument(
+        "--mask-strategy",
+        type=MaskStrategy,
+        choices=list(MaskStrategy),
+        default=MaskStrategy.RESPONSE_MEAN,
+        help="Which tokens to average (default: response_mean)",
+    )
+    extract.add_argument(
         "--persona-id", default=None, help="Extract only this persona (default: all)"
     )
     extract.add_argument(
         "--remote", action="store_true", help="Execute on NDIF remote servers"
+    )
+    extract.add_argument(
+        "--verbose", action="store_true", help="Print extraction previews"
     )
 
 

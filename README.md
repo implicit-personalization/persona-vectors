@@ -1,6 +1,6 @@
 # Persona Vectors
 
-[![Docs](https://img.shields.io/badge/docs-view-purple?logo=github)](https://github.com/implicit-personalization/persona-vectors/tree/main/docs)
+[![Docs](https://img.shields.io/badge/docs-view-purple?logo=github)](https://implicit-personalization.github.io/persona-vectors/)
 
 Extract persona-aligned activation vectors from language models and experiment with activation steering.
 
@@ -22,27 +22,26 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 ```
 persona-vectors/
 ├── notebooks/
-│   ├── notebook_extract.py      # Extract activations from model (minimal PoC)
-│   ├── notebook_compare.py      # Use ActivationStore to load saved activations and compare variants
+│   ├── notebook_extract.py      # Extraction pipeline (primary working script)
+│   ├── notebook_compare.py      # Load saved activations and compare variants
 │   └── notebook_steer.py        # Steering experiments
 ├── src/persona_vectors/
-│   ├── artifacts.py             # ActivationStore and artifact path helpers
-│   ├── activations.py           # Core: extract_activations (nnsight forward passes)
-│   ├── extraction.py            # Orchestration for extraction runs
-│   ├── plots.py                 # Layer-wise similarity plots (Plotly)
+│   ├── activations.py           # Core extraction helpers
+│   ├── analysis.py              # PCA / UMAP projections and scatter plots
+│   ├── artifacts.py             # Save/load/query activation artifact helpers
+│   ├── plots.py                 # Layer-wise cosine similarity plots
 │   ├── steering.py              # Steering vector computation and application
 │   └── parser.py                # CLI argument parsing
 ├── artifacts/                   # Saved activations (gitignored)
 ├── docs/                        # Reference documentation
-└── main.py                      # CLI entry point (WIP)
+└── main.py                      # CLI entry point
 ```
 
 Dataset loading (`SynthPersonaDataset`, `PersonaGuessDataset`) and environment
-helpers are provided by the sibling [persona-data](../persona-data) package.
+helpers come from the sibling [persona-data](../persona-data) package.
 
-For local development, uncomment the `path` source in `persona-vectors/pyproject.toml`
-and keep `persona-data` checked out next to this repo. The committed config uses
-git so this package also installs cleanly in isolated environments.
+For local development, uncomment the `path` source in `pyproject.toml` and keep
+`persona-data` checked out next to this repo.
 
 ## Installation
 
@@ -50,6 +49,8 @@ git so this package also installs cleanly in isolated environments.
 uv sync
 cp .env.example .env
 ```
+
+Python `>=3.12` is required.
 
 ## Quickstart
 
@@ -59,6 +60,9 @@ uv run python -m notebooks.notebook_extract
 
 # Load saved activations / compare variants
 uv run python -m notebooks.notebook_compare
+
+# Analyze saved activations (parsed, not implemented yet)
+uv run python main.py analyze --out ./plots --similarity cosine
 
 # Compute a steering vector from saved activations
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20

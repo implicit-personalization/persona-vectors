@@ -9,7 +9,8 @@ Extract persona-aligned activation vectors from language models and run activati
 Given a set of personas and evaluation questions:
 
 1. Format each persona as a system prompt (`templated` or `biography` variant)
-2. Extract hidden states at each layer over the response tokens
+2. Build token masks over the response span (or another chosen strategy)
+3. Extract hidden states at each layer over the masked tokens
 3. Average those hidden states across questions → **persona vector** per layer
 
 Vectors can then be compared across layers (cosine similarity) or used to steer model generation toward a specific persona.
@@ -17,12 +18,12 @@ Vectors can then be compared across layers (cosine similarity) or used to steer 
 ## Pipeline
 
 ```
-Dataset → Format Prompts → Extract Activations → Save → Analyze / Steer
+Dataset → Format Prompts → Build Token Masks → Extract Activations → Save → Analyze / Steer
 ```
 
 | Step | Doc |
 |---|---|
-| Extract hidden states from the model | [Activation Extraction](activations.md) |
+| Build token masks and extract hidden states from the model | [Activation Extraction](extraction.md) |
 | Save and load activation tensors | [Artifacts](artifacts.md) |
 | Compute and apply steering vectors | [Steering](steering.md) |
 
@@ -40,6 +41,9 @@ Set `NDIF_API_KEY` in `.env` if you want to use remote execution for large model
 ```bash
 # Extract activations (run this first)
 uv run python -m notebooks.notebook_extract
+
+# Same extraction flow with token-mask preview and a short sample run
+# (set verbose=True in the notebook)
 
 # Load saved activations and compare variants
 uv run python -m notebooks.notebook_compare
