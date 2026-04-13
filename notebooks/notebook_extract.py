@@ -77,7 +77,7 @@ results = run_extraction(
     persona=persona,
     qa_pairs=qa_pairs,
     variants=SUPPORTED_VARIANTS,
-    mask_strategy=MaskStrategy.RESPONSE_FIRST,
+    mask_strategy=MaskStrategy.PROMPT_LAST_SPECIAL,
     remote=REMOTE,
     verbose=True,
 )

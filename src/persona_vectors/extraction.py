@@ -33,6 +33,9 @@ class MaskStrategy(StrEnum):
     ``answer_start`` (the first response token in the tokenized full prompt).
     ``prompt_last`` is the token immediately before ``answer_start``, which is
     often a newline or chat-template delimiter rather than a visible word.
+    ``prompt_last_special`` walks backwards from ``answer_start`` to find the
+    last special token on the prompt side (e.g. ``<end_of_turn>``), which may
+    act as a summary position in the residual stream.
     """
 
     RESPONSE_MEAN = "response_mean"
@@ -40,6 +43,7 @@ class MaskStrategy(StrEnum):
     RESPONSE_LAST = "response_last"
     PROMPT_MEAN = "prompt_mean"
     PROMPT_LAST = "prompt_last"
+    PROMPT_LAST_SPECIAL = "prompt_last_special"
 
 
 @dataclass
@@ -83,7 +87,12 @@ def _build_messages(qa: QAPair, system_prompt: str) -> list[dict[str, str]]:
 
 
 def _build_mask(
-    seq_len: int, answer_start: int, answer_end: int, strategy: MaskStrategy
+    seq_len: int,
+    answer_start: int,
+    answer_end: int,
+    strategy: MaskStrategy,
+    input_ids: torch.Tensor | None = None,
+    special_ids: set[int] | None = None,
 ) -> torch.Tensor:
     """Return a boolean mask over ``seq_len`` tokens for the given strategy."""
     if answer_start <= 0 or answer_start >= seq_len:
@@ -105,6 +114,16 @@ def _build_mask(
     elif strategy is MaskStrategy.PROMPT_LAST:
         # This is the last prompt-side token before the assistant response.
         mask[answer_start - 1] = True
+    elif strategy is MaskStrategy.PROMPT_LAST_SPECIAL:
+        # Last special/delimiter token on the prompt side (e.g. <end_of_turn>).
+        # These tokens tend to act as "summary" positions in the residual stream.
+        assert input_ids is not None and special_ids is not None
+        idx = answer_start - 1
+        while idx >= 0 and int(input_ids[idx]) not in special_ids:
+            idx -= 1
+        if idx < 0:
+            raise ValueError("No special token found in prompt before answer_start")
+        mask[idx] = True
     else:
         raise AssertionError(f"Unhandled mask strategy: {strategy!r}")
     return mask
@@ -148,7 +167,14 @@ def prepare_inputs(
             full_prompt, return_tensors="pt", add_special_tokens=False
         ).input_ids[0]
         answer_end = _find_response_end(input_ids, answer_start, special_ids)
-        mask = _build_mask(input_ids.shape[0], answer_start, answer_end, mask_strategy)
+        mask = _build_mask(
+            input_ids.shape[0],
+            answer_start,
+            answer_end,
+            mask_strategy,
+            input_ids=input_ids,
+            special_ids=special_ids,
+        )
         prepared.append(
             PreparedInput(
                 question=qa.question,
@@ -178,10 +204,10 @@ def _render_sample(p: PreparedInput, tokenizer, max_tokens: int = 200) -> Text:
             rendered.append(" … ", style="dim")
             continue
         raw = tokens[idx].replace("▁", " ").replace("Ċ", "\n")
-        if ids[idx] in special_ids:
-            style = _SPECIAL_STYLE
-        elif p.token_mask[idx]:
+        if p.token_mask[idx]:
             style = _MASK_STYLE
+        elif ids[idx] in special_ids:
+            style = _SPECIAL_STYLE
         elif idx >= p.answer_start:
             style = _RESPONSE_STYLE
         else:
