@@ -302,9 +302,12 @@ def run_extraction(
     results: list[ExtractionResult] = []
 
     for variant in variants:
-        system_prompt = format_roleplay_prompt(
-            getattr(persona, f"{variant}_view"), mode="mc"
-        )
+        if variant == "baseline":
+            system_prompt = format_roleplay_prompt(mode="mc")
+        else:
+            system_prompt = format_roleplay_prompt(
+                getattr(persona, f"{variant}_view"), mode="mc"
+            )
         prepared = prepare_inputs(
             tokenizer=model.tokenizer,
             system_prompt=system_prompt,

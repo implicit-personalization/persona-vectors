@@ -25,7 +25,6 @@ from persona_vectors.artifacts import (
     model_dir_name,
 )
 from persona_vectors.extraction import ExtractionResult
-from persona_vectors.steering import load_steering_vector, save_steering_vector
 
 # ---------------------------------------------------------------------------
 # 1. Imports
@@ -198,7 +197,7 @@ except ValueError:
 print("✓ build_embedding_figure OK")
 
 # ---------------------------------------------------------------------------
-# 10. ExtractionResult dataclass
+# 9. ExtractionResult dataclass
 # ---------------------------------------------------------------------------
 
 result = ExtractionResult(

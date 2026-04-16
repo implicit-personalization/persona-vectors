@@ -70,7 +70,7 @@ qa_pairs = dataset.get_qa(persona.id)  # full run
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
-# %% Extract activations for all prompt variants
+# %% Extract activations for all prompt variants (including baseline with empty persona)
 results = run_extraction(
     model=model,
     model_name=MODEL_NAME,

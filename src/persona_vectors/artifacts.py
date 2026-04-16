@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 from safetensors.torch import load_file, save_file
 
-SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography")
+SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography", "baseline")
 
 
 def model_dir_name(model_name: str) -> str:
