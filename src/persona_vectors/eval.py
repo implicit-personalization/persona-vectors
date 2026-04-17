@@ -99,14 +99,17 @@ def score_choice_distribution(
         return_tensors="pt",
         add_special_tokens=False,
     ).input_ids[0]
+    steer_vec = None
+    if steering_vector is not None:
+        steer_vec = steering_vector.squeeze()
 
     with torch.no_grad(), model.trace(input_ids.unsqueeze(0), remote=remote):
-        if steering_vector is not None:
+        if steer_vec is not None:
             if steering_layer is None or steering_alpha is None:
                 raise ValueError("steering_layer and steering_alpha are required")
             model.steer(
                 layers=steering_layer,
-                steering_vector=steering_vector,
+                steering_vector=steer_vec,
                 factor=steering_alpha,
                 token_positions=prompt_len - 1,
             )
