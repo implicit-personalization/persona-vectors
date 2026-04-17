@@ -66,6 +66,7 @@ class PreparedInput:
             contribute to the averaged hidden state.
     """
 
+    qid: str
     question: str
     input_ids: torch.Tensor
     answer_start: int
@@ -177,6 +178,7 @@ def prepare_inputs(
         )
         prepared.append(
             PreparedInput(
+                qid=qa.qid,
                 question=qa.question,
                 input_ids=input_ids,
                 answer_start=answer_start,
@@ -337,6 +339,7 @@ def run_extraction(
             persona.name,
             vectors,
             [p.question for p in prepared],
+            qids=[p.qid for p in prepared],
         )
 
         results.append(

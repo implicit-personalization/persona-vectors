@@ -57,8 +57,16 @@ with tempfile.TemporaryDirectory() as tmp:
     store = ActivationStore(MODEL_NAME, root_dir=tmp)
     vectors = make_vectors()
     questions = [f"Q{i}" for i in range(N_QUESTIONS)]
+    qids = [f"qid-{i}" for i in range(N_QUESTIONS)]
 
-    saved_dir = store.save("templated", PERSONA_ID, PERSONA_NAME, vectors, questions)
+    saved_dir = store.save(
+        "templated",
+        PERSONA_ID,
+        PERSONA_NAME,
+        vectors,
+        questions,
+        qids=qids,
+    )
     assert saved_dir.exists(), "artifact dir not created"
     assert (saved_dir / "activations.safetensors").exists(), "tensors not saved"
     assert (saved_dir / "metadata.json").exists(), "metadata not saved"
@@ -69,6 +77,13 @@ with tempfile.TemporaryDirectory() as tmp:
         "tensor values changed after roundtrip"
     )
     assert loaded_questions == questions, "questions changed after roundtrip"
+
+    loaded_vectors_2, loaded_qids, loaded_questions_2 = store.load_records(
+        "templated", PERSONA_ID
+    )
+    assert loaded_vectors_2.shape == vectors.shape, "load_records shape mismatch"
+    assert loaded_qids == qids, "qids changed after roundtrip"
+    assert loaded_questions_2 == questions, "questions changed after load_records"
 
     print("✓ ActivationStore save/load roundtrip OK")
 

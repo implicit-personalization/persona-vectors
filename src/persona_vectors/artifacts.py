@@ -44,6 +44,7 @@ class ActivationStore:
         persona_name: str,
         per_question_vectors: torch.Tensor,
         questions: list[str],
+        qids: list[str] | None = None,
     ) -> Path:
         """Save per-question activation vectors and metadata. Returns the artifact directory."""
         if per_question_vectors.ndim != 3:
@@ -52,6 +53,8 @@ class ActivationStore:
             )
         if len(questions) != per_question_vectors.shape[0]:
             raise ValueError("number of questions must match first tensor dimension")
+        if qids is not None and len(qids) != per_question_vectors.shape[0]:
+            raise ValueError("number of qids must match first tensor dimension")
 
         artifact_dir = self._path(prompt_variant, persona_id)
         artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -62,19 +65,18 @@ class ActivationStore:
             {"per_question_vectors": per_question_vectors.detach().cpu()},
             str(artifact_dir / "activations.safetensors"),
         )
-        (artifact_dir / "metadata.json").write_text(
-            json.dumps(
-                {
-                    "persona_id": persona_id,
-                    "persona_name": persona_name,
-                    "questions": questions,
-                    "n_questions": n_questions,
-                    "num_layers": num_layers,
-                    "hidden_size": hidden_size,
-                },
-                indent=2,
-            )
-        )
+        metadata = {
+            "persona_id": persona_id,
+            "persona_name": persona_name,
+            "questions": questions,
+            "n_questions": n_questions,
+            "num_layers": num_layers,
+            "hidden_size": hidden_size,
+        }
+        if qids is not None:
+            metadata["qids"] = qids
+
+        (artifact_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
         return artifact_dir
 
     def load(
@@ -110,6 +112,47 @@ class ActivationStore:
             raise ValueError("metadata questions length does not match tensor")
 
         return vectors, questions
+
+    def load_records(
+        self,
+        prompt_variant: str,
+        persona_id: str,
+    ) -> tuple[torch.Tensor, list[str] | None, list[str]]:
+        """Load per-question vectors plus optional qids and questions."""
+        artifact_dir = self._path(prompt_variant, persona_id)
+        tensor_path = artifact_dir / "activations.safetensors"
+        metadata_path = artifact_dir / "metadata.json"
+
+        if not tensor_path.exists():
+            raise FileNotFoundError(tensor_path)
+        if not metadata_path.exists():
+            raise FileNotFoundError(metadata_path)
+
+        tensors = load_file(str(tensor_path))
+        if "per_question_vectors" not in tensors:
+            raise KeyError("Missing per_question_vectors in activations file")
+
+        vectors = tensors["per_question_vectors"]
+        if vectors.ndim != 3:
+            raise ValueError(
+                "per_question_vectors must have shape (n_questions, num_layers, hidden_size)"
+            )
+
+        metadata = json.loads(metadata_path.read_text())
+        questions = metadata.get("questions")
+        if not isinstance(questions, list):
+            raise ValueError("metadata questions must be a list")
+        if len(questions) != vectors.shape[0]:
+            raise ValueError("metadata questions length does not match tensor")
+
+        qids = metadata.get("qids")
+        if qids is not None:
+            if not isinstance(qids, list):
+                raise ValueError("metadata qids must be a list when present")
+            if len(qids) != vectors.shape[0]:
+                raise ValueError("metadata qids length does not match tensor")
+
+        return vectors, qids, questions
 
 
 def list_personas(

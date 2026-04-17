@@ -63,14 +63,18 @@ def compute_steering_vector(
 
     # Load both positive (biography) and negative (templated) activations
     try:
-        pos_activations, pos_questions = store.load("biography", persona_id)
+        pos_activations, pos_qids, pos_questions = store.load_records(
+            "biography", persona_id
+        )
     except FileNotFoundError:
         if verbose:
             print("✗ Biography activations not found. Run extraction first.")
         return {}
 
     try:
-        neg_activations, neg_questions = store.load("templated", persona_id)
+        neg_activations, neg_qids, neg_questions = store.load_records(
+            "templated", persona_id
+        )
     except FileNotFoundError:
         if verbose:
             print("✗ Templated activations not found. Run extraction first.")
@@ -90,7 +94,15 @@ def compute_steering_vector(
     for i, (pos_act, neg_act) in enumerate(
         tqdm(zip(pos_activations, neg_activations), disable=not verbose)
     ):
-        # Verify QA alignment by question text
+        if (
+            pos_qids is not None
+            and neg_qids is not None
+            and pos_qids[i] != neg_qids[i]
+        ):
+            raise ValueError(
+                f"QID mismatch at index {i}: {pos_qids[i]!r} vs {neg_qids[i]!r}"
+            )
+
         if pos_questions[i] != neg_questions[i]:
             print(f"⚠ Warning: Question mismatch at index {i}")
 
