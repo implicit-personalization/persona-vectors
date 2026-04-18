@@ -15,7 +15,11 @@ from pathlib import Path
 import torch
 
 import persona_vectors  # noqa: F401 – package-level import
-from persona_vectors.analysis import build_embedding_figure, project_pca
+from persona_vectors.analysis import (
+    build_embedding_figure,
+    pairwise_cosine_similarity,
+    project_pca,
+)
 from persona_vectors.artifacts import (
     ActivationStore,
     list_layers,
@@ -25,6 +29,7 @@ from persona_vectors.artifacts import (
     model_dir_name,
 )
 from persona_vectors.extraction import ExtractionResult
+from persona_vectors.plots import plot_similarity_matrix, plot_similarity_matrix_grid
 
 # ---------------------------------------------------------------------------
 # 1. Imports
@@ -197,7 +202,41 @@ except ValueError:
 print("✓ build_embedding_figure OK")
 
 # ---------------------------------------------------------------------------
-# 9. ExtractionResult dataclass
+# 9. pairwise_cosine_similarity
+# ---------------------------------------------------------------------------
+
+vectors = [torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0]), torch.tensor([1.0, 1.0])]
+similarity = pairwise_cosine_similarity(vectors)
+assert similarity.shape == (3, 3)
+assert torch.isclose(similarity[0, 0], torch.tensor(1.0))
+
+try:
+    pairwise_cosine_similarity([])
+    assert False, "expected ValueError for empty vectors"
+except ValueError:
+    pass
+
+print("✓ pairwise_cosine_similarity OK")
+
+# ---------------------------------------------------------------------------
+# 10. plot_similarity_matrix helpers
+# ---------------------------------------------------------------------------
+
+small_matrix = torch.tensor([[1.0, -0.25], [-0.25, 1.0]])
+single_fig = plot_similarity_matrix(small_matrix, ["A", "B"])
+assert len(single_fig.data) == 1
+
+grid_fig = plot_similarity_matrix_grid(
+    [small_matrix, small_matrix, small_matrix, small_matrix],
+    ["A", "B"],
+    ["L1", "L2", "L3", "L4"],
+)
+assert len(grid_fig.data) == 4
+
+print("✓ plot_similarity_matrix helpers OK")
+
+# ---------------------------------------------------------------------------
+# 11. ExtractionResult dataclass
 # ---------------------------------------------------------------------------
 
 result = ExtractionResult(

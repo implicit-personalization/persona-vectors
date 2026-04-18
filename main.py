@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 from persona_vectors.parser import (
     AnalyzeConfig,
@@ -28,7 +29,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
         if cfg.persona_id
         else list(dataset)
     )
-    for persona in personas:
+    for persona in tqdm(personas, position=0, desc="personas", unit="persona"):
         qa_pairs = list(dataset.get_qa(persona.id))
         if not qa_pairs:
             continue

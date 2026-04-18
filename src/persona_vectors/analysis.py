@@ -1,6 +1,20 @@
 import plotly.graph_objects as go
 import torch
+import torch.nn.functional as F
 from sklearn.decomposition import PCA
+
+
+def pairwise_cosine_similarity(vectors: list[torch.Tensor]) -> torch.Tensor:
+    """Compute pairwise cosine similarity between vectors."""
+
+    if not vectors:
+        raise ValueError("vectors must not be empty")
+    if any(vector.ndim != 1 for vector in vectors):
+        raise ValueError("vectors must be 1-D tensors")
+
+    stacked = torch.stack([vector.float() for vector in vectors])
+    normalized = F.normalize(stacked, dim=1)
+    return normalized @ normalized.T
 
 
 def project_pca(samples: torch.Tensor) -> torch.Tensor:
