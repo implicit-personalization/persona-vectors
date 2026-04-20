@@ -11,7 +11,7 @@ Given a set of personas and evaluation questions:
 1. Format each persona as a system prompt (`templated` or `biography` variant)
 2. Build token masks over the answer span (or another chosen strategy)
 3. Extract hidden states at each layer over the masked tokens
-3. Average those hidden states across questions → **persona vector** per layer
+4. Average those hidden states across questions → **persona vector** per layer
 
 Vectors can then be compared across layers (cosine similarity) or used to steer model generation toward a specific persona.
 

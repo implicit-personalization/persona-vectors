@@ -28,6 +28,6 @@ markdown_extensions:
 
 nav:
   - Overview: index.md
-  - Activation Extraction: activations.md
+  - Activation Extraction: extraction.md
   - Artifacts: artifacts.md
   - Steering: steering.md

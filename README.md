@@ -61,9 +61,6 @@ uv run python -m notebooks.notebook_extract
 # Load saved activations / compare variants
 uv run python -m notebooks.notebook_compare
 
-# Analyze saved activations (parsed, not implemented yet)
-uv run python main.py analyze --out ./plots --similarity cosine
-
 # Compute a steering vector from saved activations
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
 ```
@@ -74,7 +71,7 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 
 ## How It Works
 
-### Two Notebooks
+### Notebooks
 
 `notebook_extract.py` runs the full flow end to end:
 

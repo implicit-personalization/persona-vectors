@@ -9,8 +9,8 @@ from nnterp import StandardizedTransformer
 from persona_data.prompts import (
     format_mc_question,
     format_messages,
-    format_roleplay_prompt,
     mc_correct_letter,
+    system_prompt_for_variant,
 )
 from persona_data.synth_persona import PersonaData, QAPair
 from rich.console import Console
@@ -407,10 +407,7 @@ def run_extraction(
     results: list[ExtractionResult] = []
 
     for variant in variants:
-        if variant == "baseline":
-            system_prompt = format_roleplay_prompt()
-        else:
-            system_prompt = format_roleplay_prompt(getattr(persona, f"{variant}_view"))
+        system_prompt = system_prompt_for_variant(persona, variant)
         prepared = prepare_inputs(
             tokenizer=model.tokenizer,
             system_prompt=system_prompt,

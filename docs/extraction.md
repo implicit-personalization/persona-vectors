@@ -21,24 +21,34 @@ activations = extract_activations(
 
 ## Key Functions
 
-- `extract_activations()`: runs the forward pass and returns masked mean activations
-- `prepare_inputs()`: formats QA pairs and builds token masks
-- `MaskStrategy`: chooses which tokens to average
-- `run_extraction()`: full persona/variant extraction flow used by the CLI
+- `prepare_inputs()`: formats QA pairs and builds token masks, returning a list of `PreparedInput`
+- `extract_activations()`: runs the forward pass and returns the masked-mean hidden states
+- `run_extraction()`: full persona/variant flow used by the CLI and `notebook_extract.py`
+- `preview_prepared_inputs()`: pretty-prints prepared samples with masked tokens highlighted (useful when iterating on a new `MaskStrategy`)
+
+### `PreparedInput`
+
+Each element returned by `prepare_inputs()` bundles a formatted sample together with everything needed to line up masks with the tokenized prompt:
+
+- `question`, `prompt_text`: original question and fully rendered chat prompt
+- `input_ids`: 1-D token ids for the prompt (no added BOS; the chat template already includes it)
+- `token_mask`: boolean mask over `input_ids` — `True` values are averaged
+- `spans`: token + character ranges for the `template`, `question`, and `response` segments
+- `offset_mapping`: character offsets per token (used by the preview renderer)
 
 ## Masking
 
-The default strategy is `MaskStrategy.ANSWER_MEAN`, which averages only the assistant answer tokens.
+`MaskStrategy` selects which tokens contribute to the averaged hidden state. The default is `ANSWER_MEAN`.
 
-Other built-in options:
+| Strategy | Token(s) averaged |
+|---|---|
+| `ANSWER_MEAN` | Every assistant-answer token (default) |
+| `ANSWER_FIRST` | First assistant-answer token |
+| `ANSWER_LAST` | Last assistant-answer token |
+| `QUESTION_LAST` | Last token of the user question |
+| `QUESTION_LAST_SPECIAL` | First special token after the question span (often a chat-template delimiter) |
 
-- `QUESTION_LAST`
-- `QUESTION_LAST_SPECIAL`
-- `ANSWER_FIRST`
-- `ANSWER_LAST`
-- `ANSWER_MEAN`
-
-`QUESTION_LAST_SPECIAL` selects the first special token immediately after the question span, which is often a newline or template marker.
+`QUESTION_LAST_SPECIAL` raises if the token immediately after the question span is not a tokenizer special id, so it only makes sense for chat templates that end each turn with a delimiter token.
 
 ## Note
 
