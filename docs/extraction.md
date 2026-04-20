@@ -28,16 +28,17 @@ activations = extract_activations(
 
 ## Masking
 
-The default strategy is `MaskStrategy.RESPONSE_MEAN`, which averages only the assistant response tokens.
+The default strategy is `MaskStrategy.ANSWER_MEAN`, which averages only the assistant answer tokens.
 
 Other built-in options:
 
-- `RESPONSE_FIRST`
-- `RESPONSE_LAST`
-- `PROMPT_MEAN`
-- `PROMPT_LAST`
+- `QUESTION_LAST`
+- `QUESTION_LAST_SPECIAL`
+- `ANSWER_FIRST`
+- `ANSWER_LAST`
+- `ANSWER_MEAN`
 
-`PROMPT_LAST` selects the token immediately before the assistant response, which is often a newline or template marker.
+`QUESTION_LAST_SPECIAL` selects the first special token immediately after the question span, which is often a newline or template marker.
 
 ## Note
 

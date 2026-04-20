@@ -11,6 +11,7 @@ from persona_data.prompts import (
     format_messages,
     format_roleplay_prompt,
     mc_correct_letter,
+    supports_system_role,
 )
 from persona_data.synth_persona import PersonaData, QAPair
 from rich.console import Console
@@ -20,8 +21,9 @@ from rich.text import Text
 from persona_vectors.activations import extract_activations
 from persona_vectors.artifacts import SUPPORTED_VARIANTS, ActivationStore
 
-_MASK_STYLE = "black on green"
-_PROMPT_STYLE = "dim"
+_MASK_BG = "on green"
+_TEMPLATE_STYLE = "dim"
+_QUESTION_STYLE = "yellow"
 _RESPONSE_STYLE = "bright_cyan"
 _SPECIAL_STYLE = "bold magenta"
 
@@ -29,21 +31,34 @@ _SPECIAL_STYLE = "bold magenta"
 class MaskStrategy(StrEnum):
     """Which tokens contribute to the averaged hidden state.
 
-    All strategies pivot around the assistant response span, anchored at
-    ``answer_start`` (the first response token in the tokenized full prompt).
-    ``prompt_last`` is the token immediately before ``answer_start``, which is
-    often a newline or chat-template delimiter rather than a visible word.
-    ``prompt_last_special`` walks backwards from ``answer_start`` to find the
-    last special token on the prompt side (e.g. ``<end_of_turn>``), which may
-    act as a summary position in the residual stream.
+    All strategies pivot around the computed answer span. ``question_last`` and
+    ``question_last_special`` point at the final token on the question side,
+    with the latter selecting the special delimiter immediately after the
+    question span. ``answer_first``, ``answer_last``, and ``answer_mean`` target
+    the answer span directly.
     """
 
-    RESPONSE_MEAN = "response_mean"
-    RESPONSE_FIRST = "response_first"
-    RESPONSE_LAST = "response_last"
-    PROMPT_MEAN = "prompt_mean"
-    PROMPT_LAST = "prompt_last"
-    PROMPT_LAST_SPECIAL = "prompt_last_special"
+    QUESTION_LAST = "question_last"
+    QUESTION_LAST_SPECIAL = "question_last_special"
+    ANSWER_FIRST = "answer_first"
+    ANSWER_LAST = "answer_last"
+    ANSWER_MEAN = "answer_mean"
+
+
+@dataclass(frozen=True)
+class Span:
+    char_start: int
+    char_end: int
+    token_start: int
+    token_end: int
+
+
+@dataclass(frozen=True)
+class PromptSpans:
+    template: Span
+    question: Span
+    response: Span
+    template_merged_into_question: bool
 
 
 @dataclass
@@ -60,16 +75,27 @@ class PreparedInput:
 
     Attributes:
         question: Original user question text (used for artifact metadata).
+        prompt_text: Fully rendered chat prompt used for tokenization.
+        spans: Semantic token/character spans for template, question, answer.
+        assistant_start: Start token of the assistant message as returned by
+            ``format_messages``.
+        offset_mapping: Token-level character offsets for ``prompt_text``.
         input_ids: Token ids for the formatted prompt (shape ``(seq_len,)``).
-        answer_start: Index of the first assistant token in ``input_ids``.
         token_mask: Boolean mask over ``input_ids`` selecting which tokens
             contribute to the averaged hidden state.
     """
 
     question: str
+    prompt_text: str
+    spans: PromptSpans
+    assistant_start: int
+    offset_mapping: list[tuple[int, int]]
     input_ids: torch.Tensor
-    answer_start: int
     token_mask: torch.Tensor
+
+    @property
+    def answer_start(self) -> int:
+        return self.spans.response.token_start
 
 
 def _build_messages(qa: QAPair, system_prompt: str) -> list[dict[str, str]]:
@@ -88,13 +114,14 @@ def _build_messages(qa: QAPair, system_prompt: str) -> list[dict[str, str]]:
 
 def _build_mask(
     seq_len: int,
-    answer_start: int,
+    spans: PromptSpans,
     answer_end: int,
     strategy: MaskStrategy,
     input_ids: torch.Tensor | None = None,
     special_ids: set[int] | None = None,
 ) -> torch.Tensor:
     """Return a boolean mask over ``seq_len`` tokens for the given strategy."""
+    answer_start = spans.response.token_start
     if answer_start <= 0 or answer_start >= seq_len:
         raise ValueError(f"Invalid answer_start={answer_start} for seq_len={seq_len}")
     if answer_end <= answer_start or answer_end > seq_len:
@@ -103,36 +130,29 @@ def _build_mask(
         )
 
     mask = torch.zeros(seq_len, dtype=torch.bool)
-    if strategy is MaskStrategy.RESPONSE_MEAN:
+    if strategy is MaskStrategy.ANSWER_MEAN:
         mask[answer_start:answer_end] = True
-    elif strategy is MaskStrategy.RESPONSE_FIRST:
+    elif strategy is MaskStrategy.ANSWER_FIRST:
         mask[answer_start] = True
-    elif strategy is MaskStrategy.RESPONSE_LAST:
+    elif strategy is MaskStrategy.ANSWER_LAST:
         mask[answer_end - 1] = True
-    elif strategy is MaskStrategy.PROMPT_MEAN:
-        mask[:answer_start] = True
-    elif strategy is MaskStrategy.PROMPT_LAST:
-        # This is the last prompt-side token before the assistant response.
-        mask[answer_start - 1] = True
-    elif strategy is MaskStrategy.PROMPT_LAST_SPECIAL:
-        # Last special/delimiter token on the prompt side (e.g. <end_of_turn>).
-        # These tokens tend to act as "summary" positions in the residual stream.
+    elif strategy is MaskStrategy.QUESTION_LAST:
+        mask[spans.question.token_end - 1] = True
+    elif strategy is MaskStrategy.QUESTION_LAST_SPECIAL:
         assert input_ids is not None and special_ids is not None
-        idx = answer_start - 1
-        while idx >= 0 and int(input_ids[idx]) not in special_ids:
-            idx -= 1
-        if idx < 0:
-            raise ValueError("No special token found in prompt before answer_start")
+        idx = spans.question.token_end
+        if idx >= seq_len or int(input_ids[idx]) not in special_ids:
+            raise ValueError("Expected a special token immediately after question span")
         mask[idx] = True
     else:
         raise AssertionError(f"Unhandled mask strategy: {strategy!r}")
     return mask
 
 
-def _find_response_end(
+def _find_answer_end(
     input_ids: torch.Tensor, answer_start: int, special_ids: set[int]
 ) -> int:
-    """Return the end-exclusive index of the assistant response."""
+    """Return the end-exclusive index of the assistant answer."""
     seq_len = input_ids.shape[0]
     start = max(answer_start, 0)
 
@@ -142,11 +162,134 @@ def _find_response_end(
     return seq_len
 
 
+def _find_text_span(text: str, needle: str, start: int = 0) -> tuple[int, int]:
+    """Find ``needle`` in ``text`` at or after ``start``.
+
+    We try the exact text first, then a stripped version to account for chat
+    templates that trim message content before rendering.
+    """
+    for candidate in (needle, needle.strip()):
+        if not candidate:
+            continue
+        idx = text.find(candidate, start)
+        if idx >= 0:
+            return idx, idx + len(candidate)
+    raise ValueError(f"Could not find span for {needle!r} in rendered prompt")
+
+
+def _char_span_to_token_span(
+    offsets: list[tuple[int, int]], char_start: int, char_end: int
+) -> Span:
+    token_start = None
+    token_end = None
+    for idx, (start, end) in enumerate(offsets):
+        if token_start is None and end > char_start:
+            token_start = idx
+        if start < char_end:
+            token_end = idx + 1
+
+    if token_start is None or token_end is None or token_start >= token_end:
+        raise ValueError(
+            f"Could not map char span [{char_start}, {char_end}) onto token offsets"
+        )
+    return Span(
+        char_start=char_start,
+        char_end=char_end,
+        token_start=token_start,
+        token_end=token_end,
+    )
+
+
+def _build_prompt_spans(
+    full_prompt: str,
+    offsets: list[tuple[int, int]],
+    template_text: str,
+    question_text: str,
+    response_text: str,
+    *,
+    template_merged_into_question: bool,
+) -> PromptSpans:
+    template_char = _find_text_span(full_prompt, template_text, 0)
+    question_char = _find_text_span(full_prompt, question_text, template_char[1])
+    response_char = _find_text_span(full_prompt, response_text, question_char[1])
+
+    return PromptSpans(
+        template=_char_span_to_token_span(offsets, *template_char),
+        question=_char_span_to_token_span(offsets, *question_char),
+        response=_char_span_to_token_span(offsets, *response_char),
+        template_merged_into_question=template_merged_into_question,
+    )
+
+
+def _token_style_for_index(
+    p: PreparedInput, token_idx: int, special_ids: set[int]
+) -> str:
+    if p.spans.response.token_start <= token_idx < p.spans.response.token_end:
+        style = _RESPONSE_STYLE
+    elif p.spans.question.token_start <= token_idx < p.spans.question.token_end:
+        style = _QUESTION_STYLE
+    elif p.spans.template.token_start <= token_idx < p.spans.template.token_end:
+        style = _TEMPLATE_STYLE
+    else:
+        style = "dim"
+
+    if int(p.input_ids[token_idx]) in special_ids:
+        style = _SPECIAL_STYLE
+    if p.token_mask[token_idx]:
+        style = f"{style} {_MASK_BG}"
+    return style
+
+
+def _render_token_range(
+    rendered: Text,
+    p: PreparedInput,
+    tokenizer,
+    special_ids: set[int],
+    start: int,
+    end: int,
+) -> None:
+    for token_idx in range(start, end):
+        token_char_start, token_char_end = p.offset_mapping[token_idx]
+        raw = p.prompt_text[token_char_start:token_char_end]
+        if not raw:
+            raw = tokenizer.convert_ids_to_tokens([int(p.input_ids[token_idx])])[0]
+        rendered.append(raw, style=_token_style_for_index(p, token_idx, special_ids))
+
+
+def _render_prompt_preview(p: PreparedInput, tokenizer, max_tokens: int = 200) -> Text:
+    seq_len = int(p.input_ids.shape[0])
+    special_ids = set(tokenizer.all_special_ids)
+    rendered = Text()
+
+    head = max_tokens if max_tokens > 0 else seq_len
+    tail = 8 if max_tokens <= 0 else max(8, max_tokens // 4)
+    answer_extra = 8 if max_tokens <= 0 else max(8, max_tokens // 4)
+
+    # Show first head tokens from the template start (beginning of biography)
+    prefix_end = min(p.spans.template.token_start + head, seq_len)
+    # Anchor tail at template.token_end so we always see the biography end and
+    # the special tokens that follow it (e.g. <end_of_turn>, <start_of_turn>user)
+    tail_start = min(max(prefix_end, p.spans.template.token_end - tail), seq_len)
+    answer_end = min(seq_len, p.spans.response.token_end + answer_extra)
+
+    _render_token_range(rendered, p, tokenizer, special_ids, 0, prefix_end)
+
+    if prefix_end < tail_start:
+        rendered.append(" … ", style="dim")
+
+    _render_token_range(rendered, p, tokenizer, special_ids, tail_start, answer_end)
+
+    if answer_end < seq_len:
+        rendered.append(" …", style="dim")
+
+    return rendered
+
+
 def prepare_inputs(
     tokenizer,
     system_prompt: str,
     qa_pairs: list[QAPair],
-    mask_strategy: MaskStrategy = MaskStrategy.RESPONSE_MEAN,
+    mask_strategy: MaskStrategy = MaskStrategy.ANSWER_MEAN,
 ) -> list[PreparedInput]:
     """Format QA pairs into prompts and token masks for a given strategy.
 
@@ -160,16 +303,36 @@ def prepare_inputs(
     """
     prepared: list[PreparedInput] = []
     special_ids = set(tokenizer.all_special_ids)
+    supports_system = supports_system_role(tokenizer)
     for qa in qa_pairs:
         messages = _build_messages(qa, system_prompt)
-        full_prompt, answer_start = format_messages(messages, tokenizer)
-        input_ids = tokenizer(
-            full_prompt, return_tensors="pt", add_special_tokens=False
-        ).input_ids[0]
-        answer_end = _find_response_end(input_ids, answer_start, special_ids)
+        full_prompt, assistant_start = format_messages(messages, tokenizer)
+        encoding = tokenizer(
+            full_prompt,
+            return_offsets_mapping=True,
+            return_tensors="pt",
+            add_special_tokens=False,
+        )
+        input_ids = encoding.input_ids[0]
+        offsets = [tuple(pair) for pair in encoding.offset_mapping[0].tolist()]
+        spans = _build_prompt_spans(
+            full_prompt,
+            offsets,
+            system_prompt,
+            messages[1]["content"],
+            messages[2]["content"],
+            template_merged_into_question=not supports_system,
+        )
+        answer_end = _find_answer_end(
+            input_ids, spans.response.token_start, special_ids
+        )
+        if spans.response.token_end != answer_end:
+            raise ValueError(
+                "Computed answer span does not match the tokenized answer end"
+            )
         mask = _build_mask(
             input_ids.shape[0],
-            answer_start,
+            spans,
             answer_end,
             mask_strategy,
             input_ids=input_ids,
@@ -178,8 +341,11 @@ def prepare_inputs(
         prepared.append(
             PreparedInput(
                 question=qa.question,
+                prompt_text=full_prompt,
+                spans=spans,
+                assistant_start=assistant_start,
+                offset_mapping=offsets,
                 input_ids=input_ids,
-                answer_start=answer_start,
                 token_mask=mask,
             )
         )
@@ -187,37 +353,21 @@ def prepare_inputs(
 
 
 def _render_sample(p: PreparedInput, tokenizer, max_tokens: int = 200) -> Text:
-    ids = p.input_ids.tolist()
-    tokens = tokenizer.convert_ids_to_tokens(ids)
-    special_ids = set(tokenizer.all_special_ids)
-
-    if len(ids) > max_tokens:
-        head = max_tokens // 2
-        tail = max_tokens - head
-        indices = list(range(head)) + [None] + list(range(len(ids) - tail, len(ids)))
-    else:
-        indices = list(range(len(ids)))
-
     rendered = Text()
-    for idx in indices:
-        if idx is None:
-            rendered.append(" … ", style="dim")
-            continue
-        raw = tokens[idx].replace("▁", " ").replace("Ċ", "\n")
-        if p.token_mask[idx]:
-            style = _MASK_STYLE
-        elif ids[idx] in special_ids:
-            style = _SPECIAL_STYLE
-        elif idx >= p.answer_start:
-            style = _RESPONSE_STYLE
-        else:
-            style = _PROMPT_STYLE
-        parts = raw.split("\n")
-        for part_idx, part in enumerate(parts):
-            if part:
-                rendered.append(part, style=style)
-            if part_idx < len(parts) - 1:
-                rendered.append("\n")
+    question = p.question if len(p.question) <= 80 else p.question[:77] + "..."
+    rendered.append("question=", style="dim")
+    rendered.append(repr(question))
+    rendered.append("\n")
+    rendered.append("seq_len=", style="dim")
+    rendered.append(str(int(p.input_ids.shape[0])))
+    rendered.append("  masked_tokens=", style="dim")
+    rendered.append(str(int(p.token_mask.sum())))
+    if p.spans.template_merged_into_question:
+        rendered.append("  merged_template_into_question=", style="dim")
+        rendered.append("true")
+
+    rendered.append("\n\n")
+    rendered.append_text(_render_prompt_preview(p, tokenizer, max_tokens))
     return rendered
 
 
@@ -240,18 +390,13 @@ def preview_prepared_inputs(
     console.rule(" — ".join(title))
 
     for i, p in enumerate(prepared):
-        question = p.question if len(p.question) <= 80 else p.question[:77] + "..."
-        meta = Text.from_markup(
-            f"[dim]question=[/]{question!r}\n"
-            f"[dim]seq_len=[/]{int(p.input_ids.shape[0])}  "
-            f"[dim]answer_start=[/]{p.answer_start}  "
-            f"[dim]masked_tokens=[/]{int(p.token_mask.sum())}"
+        console.print(
+            Panel(
+                _render_sample(p, tokenizer, max_tokens),
+                title=f"sample {i}",
+                border_style="blue",
+            )
         )
-        body = Text()
-        body.append_text(meta)
-        body.append("\n\n")
-        body.append_text(_render_sample(p, tokenizer, max_tokens))
-        console.print(Panel(body, title=f"sample {i}", border_style="blue"))
 
 
 def _free_memory() -> None:
@@ -269,7 +414,7 @@ def run_extraction(
     persona: PersonaData,
     qa_pairs: list[QAPair],
     variants: tuple[str, ...],
-    mask_strategy: MaskStrategy = MaskStrategy.RESPONSE_MEAN,
+    mask_strategy: MaskStrategy = MaskStrategy.ANSWER_MEAN,
     remote: bool = False,
     on_status: Callable | None = None,
     verbose: bool = False,
@@ -303,11 +448,9 @@ def run_extraction(
 
     for variant in variants:
         if variant == "baseline":
-            system_prompt = format_roleplay_prompt(mode="mc")
+            system_prompt = format_roleplay_prompt()
         else:
-            system_prompt = format_roleplay_prompt(
-                getattr(persona, f"{variant}_view"), mode="mc"
-            )
+            system_prompt = format_roleplay_prompt(getattr(persona, f"{variant}_view"))
         prepared = prepare_inputs(
             tokenizer=model.tokenizer,
             system_prompt=system_prompt,

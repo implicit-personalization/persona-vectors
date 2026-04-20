@@ -19,8 +19,8 @@ set_seed(1337)
 
 # %% Setting up the model
 # Use 9b for remote (production), 2b for local testing
-# REMOTE = False
-REMOTE = True
+REMOTE = False
+# REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 
 print(f"Loading {MODEL_NAME}...")
@@ -52,21 +52,20 @@ model_table.add_row("Hidden Size", str(D_MODEL))
 console.print(model_table)
 
 # %% Load dataset from HuggingFace
-dataset = SynthPersonaDataset()
-first_persona = dataset[0]
+dataset = SynthPersonaDataset(sample_size=1)
+persona = dataset[0]
 
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
 dataset_table.add_column("Value", style="magenta")
 dataset_table.add_row("Total Personas", str(len(dataset)))
-dataset_table.add_row("First Persona", first_persona.name)
-dataset_table.add_row("Age", str(first_persona.persona["age"]))
+dataset_table.add_row("Persona Name", persona.name)
+dataset_table.add_row("Age", str(persona.persona["age"]))
 console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
-persona = first_persona
 qa_pairs = dataset.get_qa(persona.id)  # full run
-# qa_pairs = dataset.get_qa(persona.id)[:2]
+# qa_pairs = dataset.get_qa(persona.id)[:1]
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
@@ -77,7 +76,7 @@ results = run_extraction(
     persona=persona,
     qa_pairs=qa_pairs,
     variants=SUPPORTED_VARIANTS,
-    mask_strategy=MaskStrategy.PROMPT_LAST_SPECIAL,
+    mask_strategy=MaskStrategy.QUESTION_LAST_SPECIAL,
     remote=REMOTE,
     verbose=True,
 )

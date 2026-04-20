@@ -46,7 +46,7 @@ For each QA pair, two prompt variants are used:
 - **Positive (biography):** Full persona biography as system prompt + QA
 - **Negative (templated):** Generic templated prompt + QA
 
-The masked-mean activations over response tokens are extracted at a target layer
+The masked-mean activations over answer tokens are extracted at a target layer
 for both variants. The steering vector is:
 
 ```

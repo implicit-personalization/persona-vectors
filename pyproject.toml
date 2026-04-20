@@ -1,11 +1,11 @@
 [project]
 name = "persona-vectors"
-version = "0.2.1"
+version = "0.3.0"
 description = "Library for extracting and analyzing persona vectors"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "persona-data>=0.1.0",
+    "persona-data>=0.2.0",
     "nnsight>=0.6.1",
     "nnterp>=1.3.0",
     "plotly>=6.6.0",
@@ -24,6 +24,6 @@ dependencies = [
 requires = ["uv_build>=0.11.3,<0.12"]
 build-backend = "uv_build"
 
-# # Local development:
+# Local development:
 # [tool.uv.sources]
 # persona-data = { path = "../persona-data", editable = true }

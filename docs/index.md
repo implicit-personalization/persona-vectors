@@ -9,7 +9,7 @@ Extract persona-aligned activation vectors from language models and run activati
 Given a set of personas and evaluation questions:
 
 1. Format each persona as a system prompt (`templated` or `biography` variant)
-2. Build token masks over the response span (or another chosen strategy)
+2. Build token masks over the answer span (or another chosen strategy)
 3. Extract hidden states at each layer over the masked tokens
 3. Average those hidden states across questions → **persona vector** per layer
 

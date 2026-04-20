@@ -58,8 +58,8 @@ def build_extract_parser(subparsers) -> None:
         "--mask-strategy",
         type=MaskStrategy,
         choices=list(MaskStrategy),
-        default=MaskStrategy.RESPONSE_MEAN,
-        help="Which tokens to average (default: response_mean)",
+        default=MaskStrategy.ANSWER_MEAN,
+        help="Which tokens to average (default: answer_mean)",
     )
     extract.add_argument(
         "--persona-id", default=None, help="Extract only this persona (default: all)"
