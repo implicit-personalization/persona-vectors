@@ -9,7 +9,7 @@ Core module: `src/persona_vectors/steering.py`
 ## Pipeline
 
 ```
-Extract Activations (`notebook_extract.py`) → Compute Steering Vector → Save → Apply
+Extract Activations (`notebook_extract.py`) → Compute Steering Vector → Save → Evaluate / Apply
 ```
 
 Steering reuses the activations extracted by `notebook_extract.py`. No
@@ -36,6 +36,20 @@ save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
 ```bash
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
 ```
+
+### Formal experiment entrypoint
+
+```bash
+uv run python experiments/01_steering_eval.py
+```
+
+This script runs a benchmark-style steering evaluation on the current
+SynthPersona multiple-choice dataset:
+
+- extracts fresh `templated` / `biography` activations for the selected personas,
+- computes `biography - templated` steering vectors,
+- evaluates `bare`, `templated`, `biography`, and `steered` on the same MC items,
+- reports target-answer probability, accuracy, and flip statistics.
 
 ---
 

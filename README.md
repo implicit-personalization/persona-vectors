@@ -21,14 +21,17 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 
 ```
 persona-vectors/
+├── experiments/
+│   └── 01_steering_eval.py     # Formal steering evaluation on SynthPersona MC
 ├── notebooks/
 │   ├── notebook_extract.py      # Extraction pipeline (primary working script)
 │   ├── notebook_compare.py      # Load saved activations and compare variants
-│   └── notebook_steer.py        # Steering experiments
+│   └── notebook_steer.py        # Steering vector prototype / inspection
 ├── src/persona_vectors/
 │   ├── activations.py           # Core extraction helpers
 │   ├── analysis.py              # PCA / UMAP projections and scatter plots
 │   ├── artifacts.py             # Save/load/query activation artifact helpers
+│   ├── eval.py                  # MC scoring helpers for steering experiments
 │   ├── plots.py                 # Layer-wise cosine similarity plots
 │   ├── steering.py              # Steering vector computation and application
 │   └── parser.py                # CLI argument parsing
@@ -84,6 +87,10 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 
 `notebook_steer.py` loads saved activations and computes a steering vector for a
 selected persona.
+
+`experiments/01_steering_eval.py` turns that vector into a formal benchmark run
+on the current SynthPersona multiple-choice dataset and reports answer-space
+metrics such as target-answer probability and flip rate.
 
 ### Saved Format
 

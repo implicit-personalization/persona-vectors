@@ -81,6 +81,7 @@ class PreparedInput:
             contribute to the averaged hidden state.
     """
 
+    qid: str
     question: str
     prompt_text: str
     spans: PromptSpans
@@ -304,6 +305,7 @@ def prepare_inputs(
         )
         prepared.append(
             PreparedInput(
+                qid=qa.qid,
                 question=qa.question,
                 prompt_text=full_prompt,
                 spans=spans,
@@ -437,6 +439,7 @@ def run_extraction(
             persona.name,
             vectors,
             [p.question for p in prepared],
+            qids=[p.qid for p in prepared],
         )
 
         results.append(
