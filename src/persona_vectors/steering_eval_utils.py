@@ -139,6 +139,7 @@ def cached_variant_matches(
     expected_qids: list[str],
     *,
     expected_prompt_contract_version: str | None = None,
+    expected_mask_strategy: str | None = None,
 ) -> bool:
     try:
         _, qids, _ = store.load_records(prompt_variant, persona_id)
@@ -148,6 +149,11 @@ def cached_variant_matches(
     if expected_prompt_contract_version is not None:
         metadata = store.load_metadata(prompt_variant, persona_id)
         if metadata.get("prompt_contract_version") != expected_prompt_contract_version:
+            return False
+        if (
+            expected_mask_strategy is not None
+            and metadata.get("mask_strategy") != expected_mask_strategy
+        ):
             return False
 
     return qids == expected_qids

@@ -16,7 +16,7 @@ from rich.console import Console
 
 from persona_vectors.artifacts import ActivationStore
 from persona_vectors.eval import ChoiceEvalResult, evaluate_mc_questions_batch
-from persona_vectors.extraction import run_extraction
+from persona_vectors.extraction import MaskStrategy, run_extraction
 from persona_vectors.mc_prompt_contract import MC_PROMPT_CONTRACT_VERSION
 from persona_vectors.steering import compute_steering_vector
 from persona_vectors.steering_eval_utils import (
@@ -66,6 +66,12 @@ def parse_args() -> argparse.Namespace:
     )
     ap.add_argument("--method", choices=["mean", "pca"], default="mean")
     ap.add_argument("--center", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument(
+        "--mask-strategy",
+        choices=[strategy.value for strategy in MaskStrategy],
+        default=MaskStrategy.RESPONSE_MEAN.value,
+        help="Which token span to average when extracting activations.",
+    )
     ap.add_argument(
         "--alphas",
         default="1.0,2.0",
@@ -212,6 +218,7 @@ def main() -> None:
     alphas = [float(x.strip()) for x in args.alphas.split(",") if x.strip()]
     if not alphas:
         raise ValueError("Need at least one alpha")
+    mask_strategy = MaskStrategy(args.mask_strategy)
 
     out_root = Path(args.out_dir) if args.out_dir else default_output_dir(
         args.model, args.qa_type, args.personas, args.questions_per_persona
@@ -266,6 +273,7 @@ def main() -> None:
                 persona.id,
                 expected_qids,
                 expected_prompt_contract_version=MC_PROMPT_CONTRACT_VERSION,
+                expected_mask_strategy=mask_strategy.value,
             )
         ]
         if not missing:
@@ -281,6 +289,7 @@ def main() -> None:
                     persona,
                     qa_pairs,
                     tuple(missing),
+                    mask_strategy=mask_strategy,
                     remote=args.remote,
                     chunk_size=args.extraction_batch_size or args.question_batch_size,
                 ),
@@ -356,6 +365,7 @@ def main() -> None:
                 "extraction_batch_size": args.extraction_batch_size
                 or args.question_batch_size,
                 "prompt_contract_version": MC_PROMPT_CONTRACT_VERSION,
+                "mask_strategy": mask_strategy.value,
                 "vectors": {
                     persona_id: payload["metadata"] for persona_id, payload in vector_bank.items()
                 },
@@ -438,6 +448,7 @@ def main() -> None:
                 "remote": args.remote,
                 "reference_conditions": ["bare"],
                 "prompt_contract_version": MC_PROMPT_CONTRACT_VERSION,
+                "mask_strategy": mask_strategy.value,
                 "negative_variant": args.negative_variant,
                 "method": args.method,
                 "center": args.center,
@@ -556,6 +567,7 @@ def main() -> None:
                     "all_layers": args.all_layers,
                     "alpha_override": alpha,
                     "prompt_contract_version": MC_PROMPT_CONTRACT_VERSION,
+                    "mask_strategy": mask_strategy.value,
                     "cross_source_for": cross_source_for,
                     "extraction_variants": list(extraction_variants),
                 },
