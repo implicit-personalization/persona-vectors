@@ -7,9 +7,7 @@ from typing import Callable
 import torch
 from nnterp import StandardizedTransformer
 from persona_data.prompts import (
-    format_mc_question,
     format_messages,
-    format_roleplay_prompt,
     mc_correct_letter,
 )
 from persona_data.synth_persona import PersonaData, QAPair
@@ -19,11 +17,21 @@ from rich.text import Text
 
 from persona_vectors.activations import extract_activations
 from persona_vectors.artifacts import SUPPORTED_VARIANTS, ActivationStore
+from persona_vectors.mc_prompt_contract import (
+    MC_PROMPT_CONTRACT_VERSION,
+    render_mc_prompt_with_answer,
+)
+from persona_vectors.steering_eval_utils import (
+    NonRetryableRemoteOOM,
+    is_oom_error,
+    is_transient_remote_error,
+)
 
 _MASK_STYLE = "black on green"
 _PROMPT_STYLE = "dim"
 _RESPONSE_STYLE = "bright_cyan"
 _SPECIAL_STYLE = "bold magenta"
+console = Console()
 
 
 class MaskStrategy(StrEnum):
@@ -71,20 +79,6 @@ class PreparedInput:
     input_ids: torch.Tensor
     answer_start: int
     token_mask: torch.Tensor
-
-
-def _build_messages(qa: QAPair, system_prompt: str) -> list[dict[str, str]]:
-    if qa.answer_format == "choice" and qa.correct_choice_index is not None:
-        user_content = format_mc_question(qa)
-        answer_content = mc_correct_letter(qa)
-    else:
-        user_content = qa.question
-        answer_content = qa.answer
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-        {"role": "assistant", "content": answer_content},
-    ]
 
 
 def _build_mask(
@@ -145,7 +139,8 @@ def _find_response_end(
 
 def prepare_inputs(
     tokenizer,
-    system_prompt: str,
+    persona: PersonaData,
+    variant: str,
     qa_pairs: list[QAPair],
     mask_strategy: MaskStrategy = MaskStrategy.RESPONSE_MEAN,
 ) -> list[PreparedInput]:
@@ -162,8 +157,17 @@ def prepare_inputs(
     prepared: list[PreparedInput] = []
     special_ids = set(tokenizer.all_special_ids)
     for qa in qa_pairs:
-        messages = _build_messages(qa, system_prompt)
-        full_prompt, answer_start = format_messages(messages, tokenizer)
+        if qa.answer_format != "choice" or qa.correct_choice_index is None:
+            raise ValueError(
+                f"Extraction currently expects scored choice QA pairs, got {qa.qid!r}"
+            )
+        full_prompt, answer_start = render_mc_prompt_with_answer(
+            tokenizer,
+            persona=persona,
+            qa=qa,
+            condition="baseline" if variant == "baseline" else variant,  # type: ignore[arg-type]
+            answer=mc_correct_letter(qa),
+        )
         input_ids = tokenizer(
             full_prompt, return_tensors="pt", add_special_tokens=False
         ).input_ids[0]
@@ -265,6 +269,84 @@ def _free_memory() -> None:
         torch.mps.empty_cache()
 
 
+def _extract_prepared_with_adaptive_batch(
+    model: StandardizedTransformer,
+    prepared: list[PreparedInput],
+    *,
+    remote: bool,
+    on_status: Callable | None,
+    label: str,
+    retries: int = 3,
+    sleep_seconds: int = 10,
+) -> torch.Tensor:
+    """Extract a prepared chunk, splitting on remote OOM instead of retrying it unchanged."""
+
+    import time
+
+    if not prepared:
+        raise ValueError("prepared chunk must be non-empty")
+
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            vectors = extract_activations(
+                model,
+                input_ids_list=[p.input_ids for p in prepared],
+                token_masks=[p.token_mask for p in prepared],
+                remote=remote,
+                on_status=on_status,
+            )
+            _free_memory()
+            return vectors
+        except Exception as exc:
+            last_exc = exc
+            _free_memory()
+
+            if remote and is_oom_error(exc) and len(prepared) > 1:
+                mid = len(prepared) // 2
+                console.print(
+                    f"[yellow]{label} hit remote OOM with batch_size={len(prepared)}; "
+                    f"splitting into {mid}+{len(prepared) - mid}[/]"
+                )
+                left = _extract_prepared_with_adaptive_batch(
+                    model,
+                    prepared[:mid],
+                    remote=remote,
+                    on_status=on_status,
+                    label=f"{label} split-left",
+                    retries=retries,
+                    sleep_seconds=sleep_seconds,
+                )
+                right = _extract_prepared_with_adaptive_batch(
+                    model,
+                    prepared[mid:],
+                    remote=remote,
+                    on_status=on_status,
+                    label=f"{label} split-right",
+                    retries=retries,
+                    sleep_seconds=sleep_seconds,
+                )
+                return torch.cat([left, right], dim=0)
+            if remote and is_oom_error(exc) and len(prepared) == 1:
+                raise NonRetryableRemoteOOM(
+                    f"{label} failed with a single prompt; remote OOM is deterministic for this context length"
+                ) from exc
+
+            retryable = remote and is_transient_remote_error(exc)
+            if not retryable or attempt == retries:
+                raise
+
+            wait_s = sleep_seconds * attempt
+            console.print(
+                f"[yellow]{label} hit transient remote error on attempt {attempt}/{retries}; "
+                f"sleeping {wait_s}s and retrying[/]"
+            )
+            time.sleep(wait_s)
+
+    assert last_exc is not None
+    raise last_exc
+
+
 def run_extraction(
     model: StandardizedTransformer,
     model_name: str,
@@ -275,6 +357,7 @@ def run_extraction(
     remote: bool = False,
     on_status: Callable | None = None,
     verbose: bool = False,
+    chunk_size: int | None = None,
 ) -> list[ExtractionResult]:
     """Extract and save per-question activation vectors for each prompt variant.
 
@@ -291,6 +374,9 @@ def run_extraction(
             update with (job_id, status_name, description).
         verbose: If True, print a rich preview of each prepared sample before
             the forward pass.
+        chunk_size: Optional number of prepared QA examples to process per
+            extract_activations call. Use a small value to reduce remote memory
+            pressure on larger models.
 
     Returns:
         One ExtractionResult per variant.
@@ -304,15 +390,10 @@ def run_extraction(
     results: list[ExtractionResult] = []
 
     for variant in variants:
-        if variant == "baseline":
-            system_prompt = format_roleplay_prompt(mode="mc")
-        else:
-            system_prompt = format_roleplay_prompt(
-                getattr(persona, f"{variant}_view"), mode="mc"
-            )
         prepared = prepare_inputs(
             tokenizer=model.tokenizer,
-            system_prompt=system_prompt,
+            persona=persona,
+            variant=variant,
             qa_pairs=qa_pairs,
             mask_strategy=mask_strategy,
         )
@@ -325,13 +406,27 @@ def run_extraction(
                 mask_strategy=mask_strategy,
             )
 
-        vectors = extract_activations(
-            model,
-            input_ids_list=[p.input_ids for p in prepared],
-            token_masks=[p.token_mask for p in prepared],
-            remote=remote,
-            on_status=on_status,
-        )
+        if chunk_size is None or chunk_size <= 0:
+            chunk_size = len(prepared)
+
+        vector_chunks: list[torch.Tensor] = []
+        for start in range(0, len(prepared), chunk_size):
+            chunk = prepared[start : start + chunk_size]
+            chunk_vectors = _extract_prepared_with_adaptive_batch(
+                model,
+                chunk,
+                remote=remote,
+                on_status=on_status,
+                label=(
+                    f"extraction {persona.name} {variant} "
+                    f"questions {start + 1}-{start + len(chunk)}"
+                ),
+            )
+            vector_chunks.append(chunk_vectors)
+            del chunk_vectors
+            _free_memory()
+
+        vectors = torch.cat(vector_chunks, dim=0)
 
         artifact_dir = store.save(
             variant,
@@ -340,6 +435,10 @@ def run_extraction(
             vectors,
             [p.question for p in prepared],
             qids=[p.qid for p in prepared],
+            extra_metadata={
+                "prompt_contract_version": MC_PROMPT_CONTRACT_VERSION,
+                "mask_strategy": mask_strategy.value,
+            },
         )
 
         results.append(

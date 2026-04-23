@@ -79,7 +79,7 @@ def extract_activations(
         for ids, mask in zip(input_ids_list, masks):
             saved_hs: list[torch.Tensor] = []
             # Pre-tokenized ids are passed straight through — no double-BOS.
-            with model.trace(ids.unsqueeze(0)):
+            with model.trace(ids.unsqueeze(0)) as tracer:
                 # All layers live on the same device, so move the mask once.
                 mask_on_device = mask.to(device=model.layers_output[0].device)
                 for layer_idx in range(model.num_layers):
@@ -93,6 +93,9 @@ def extract_activations(
                     saved_hs.append(layer_mean.detach().cpu())
 
                 per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
+                # Extraction only needs residual activations; skipping the
+                # LM head avoids materializing full-sequence logits on NDIF.
+                tracer.stop()
 
             all_hs.append(per_text_hs)
 

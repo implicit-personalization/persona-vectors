@@ -45,6 +45,7 @@ class ActivationStore:
         per_question_vectors: torch.Tensor,
         questions: list[str],
         qids: list[str] | None = None,
+        extra_metadata: dict | None = None,
     ) -> Path:
         """Save per-question activation vectors and metadata. Returns the artifact directory."""
         if per_question_vectors.ndim != 3:
@@ -75,6 +76,8 @@ class ActivationStore:
         }
         if qids is not None:
             metadata["qids"] = qids
+        if extra_metadata is not None:
+            metadata.update(extra_metadata)
 
         (artifact_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
         return artifact_dir
@@ -153,6 +156,17 @@ class ActivationStore:
                 raise ValueError("metadata qids length does not match tensor")
 
         return vectors, qids, questions
+
+    def load_metadata(
+        self,
+        prompt_variant: str,
+        persona_id: str,
+    ) -> dict:
+        artifact_dir = self._path(prompt_variant, persona_id)
+        metadata_path = artifact_dir / "metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(metadata_path)
+        return json.loads(metadata_path.read_text())
 
 
 def list_personas(

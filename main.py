@@ -59,8 +59,11 @@ def steer_activations(cfg: SteerConfig) -> None:
     sv_dict = compute_steering_vector(
         persona_id=cfg.persona_id,
         model_name=cfg.model,
-        layer_idx=cfg.layer,
+        layer_idx=None if cfg.all_layers else cfg.layer,
         activations_dir=cfg.activations_dir,
+        negative_variant=cfg.negative_variant,
+        method=cfg.method,
+        center=cfg.center,
     )
 
     if not sv_dict:
@@ -98,6 +101,10 @@ def main() -> None:
             persona_id=args.persona_id,
             model=args.model,
             layer=args.layer,
+            all_layers=args.all_layers,
+            negative_variant=args.negative_variant,
+            method=args.method,
+            center=args.center,
             activations_dir=Path(args.activations_dir),
             out_dir=Path(args.out),
         )

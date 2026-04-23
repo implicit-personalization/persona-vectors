@@ -7,6 +7,7 @@ main.py stays a thin wiring layer.
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from persona_vectors.artifacts import SUPPORTED_VARIANTS
 from persona_vectors.extraction import MaskStrategy
@@ -37,6 +38,10 @@ class SteerConfig:
     persona_id: str
     model: str
     layer: int
+    all_layers: bool
+    negative_variant: Literal["templated", "baseline", "pooled_biography"]
+    method: Literal["mean", "pca"]
+    center: bool
     activations_dir: Path
     out_dir: Path
 
@@ -91,6 +96,29 @@ def build_steer_parser(subparsers) -> None:
     steer.add_argument("--model", default="google/gemma-2-9b-it", help="HF Model ID")
     steer.add_argument(
         "--layer", type=int, default=STEER_LAYER, help="Layer for steering vector"
+    )
+    steer.add_argument(
+        "--all-layers",
+        action="store_true",
+        help="Compute one steering vector per layer and save them together.",
+    )
+    steer.add_argument(
+        "--negative-variant",
+        choices=["templated", "baseline", "pooled_biography"],
+        default="baseline",
+        help="Negative contrast prompt used for steering vector extraction.",
+    )
+    steer.add_argument(
+        "--method",
+        choices=["mean", "pca"],
+        default="mean",
+        help="How to aggregate per-question diffs into a steering direction.",
+    )
+    steer.add_argument(
+        "--center",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Center each per-question activation vector before computing diffs.",
     )
     steer.add_argument(
         "--activations-dir",
