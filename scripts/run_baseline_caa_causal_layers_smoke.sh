@@ -8,8 +8,9 @@ LAYERS="${LAYERS:-26-41}"
 ALPHAS="${ALPHAS:-0.5,1.0,2.0,4.0}"
 QUESTIONS_PER_PERSONA="${QUESTIONS_PER_PERSONA:-5}"
 QUESTION_BATCH_SIZE="${QUESTION_BATCH_SIZE:-5}"
+CENTER="${CENTER:-source}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT_DIR="${OUT_DIR:-$REPO_ROOT/artifacts/experiments/baseline_caa_causal_layers_smoke/${RUN_ID}__gemma2-9b-it__layers_${LAYERS//-/_to_}__q${QUESTIONS_PER_PERSONA}}"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/artifacts/experiments/baseline_caa_causal_layers_smoke/${RUN_ID}__gemma2-9b-it__layers_${LAYERS//-/_to_}__center_${CENTER}__q${QUESTIONS_PER_PERSONA}}"
 
 cd "$REPO_ROOT"
 
@@ -19,10 +20,21 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+CENTER_ARGS=()
+if [[ "$CENTER" == "true" ]]; then
+  CENTER_ARGS=(--center)
+elif [[ "$CENTER" == "false" ]]; then
+  CENTER_ARGS=(--no-center)
+elif [[ "$CENTER" != "source" ]]; then
+  echo "CENTER must be one of: source, true, false" >&2
+  exit 2
+fi
+
 uv run python experiments/07_projected_vector_rerun.py \
   --source-run-root "$SOURCE_RUN_ROOT" \
   --layers "$LAYERS" \
   --vector-transform none \
+  "${CENTER_ARGS[@]}" \
   --alphas "$ALPHAS" \
   --questions-per-persona "$QUESTIONS_PER_PERSONA" \
   --question-batch-size "$QUESTION_BATCH_SIZE" \

@@ -60,6 +60,15 @@ def parse_args() -> argparse.Namespace:
         default="project_mean",
         help="Optional vector-space transform before steering evaluation.",
     )
+    parser.add_argument(
+        "--center",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override whether each saved activation vector is feature-centered before "
+            "computing steering diffs. Defaults to the source run metadata."
+        ),
+    )
     parser.add_argument("--out-dir", type=Path, default=None)
     return parser.parse_args()
 
@@ -173,6 +182,7 @@ def main() -> None:
     source_root = args.source_run_root
     source_metadata = json.loads((source_root / "vector_bank_metadata.json").read_text())
     model_name = args.model or source_metadata["model"]
+    center = bool(source_metadata.get("center", True)) if args.center is None else bool(args.center)
     layers = parse_layers(args.layers)
     layer_idx = None if layers is None else layers
     layers_label = "all" if layers is None else "_".join(str(layer) for layer in layers)
@@ -205,7 +215,7 @@ def main() -> None:
             activations_dir=activation_root,
             negative_variant=source_metadata.get("negative_variant", "pooled_biography"),
             method=source_metadata.get("method", "mean"),
-            center=bool(source_metadata.get("center", True)),
+            center=center,
             verbose=False,
         )
         vector_bank[persona.id] = {
@@ -227,7 +237,7 @@ def main() -> None:
                 "layers": layers if layers is not None else "all",
                 "negative_variant": source_metadata.get("negative_variant"),
                 "method": source_metadata.get("method"),
-                "center": source_metadata.get("center"),
+                "center": center,
                 "eval_personas": [persona.id for persona in personas],
                 "activation_root": str(activation_root),
                 "vectors": {
