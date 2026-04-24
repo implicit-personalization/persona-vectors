@@ -42,13 +42,19 @@ Each element returned by `prepare_inputs()` bundles a formatted sample together 
 
 | Strategy | Token(s) averaged |
 |---|---|
+| `PERSONA_MEAN` | All persona/system-prompt tokens before the question |
+| `PERSONA_LAST` | Last persona/system-prompt token before the question |
 | `ANSWER_MEAN` | Every assistant-answer token (default) |
 | `ANSWER_FIRST` | First assistant-answer token |
 | `ANSWER_LAST` | Last assistant-answer token |
 | `QUESTION_LAST` | Last token of the user question |
 | `QUESTION_LAST_SPECIAL` | First special token after the question span (often a chat-template delimiter) |
 
+`PERSONA_MEAN` and `PERSONA_LAST` refer to the persona prefix, which is the system-prompt/template portion for both templated and biography variants. They do not include the user question.
+
 `QUESTION_LAST_SPECIAL` raises if the token immediately after the question span is not a tokenizer special id, so it only makes sense for chat templates that end each turn with a delimiter token.
+
+If you want a delimiter-token version later, I can add `PERSONA_LAST_SPECIAL` separately.
 
 ## Note
 

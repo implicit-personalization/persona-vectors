@@ -30,13 +30,12 @@ _SPECIAL_STYLE = "bold magenta"
 class MaskStrategy(StrEnum):
     """Which tokens contribute to the averaged hidden state.
 
-    All strategies pivot around the computed answer span. ``question_last`` and
-    ``question_last_special`` point at the final token on the question side,
-    with the latter selecting the special delimiter immediately after the
-    question span. ``answer_first``, ``answer_last``, and ``answer_mean`` target
-    the answer span directly.
+    ``persona_*`` averages the persona/system-prompt prefix, ``question_*``
+    targets the user question, and ``answer_*`` targets the assistant answer.
     """
 
+    PERSONA_MEAN = "persona_mean"
+    PERSONA_LAST = "persona_last"
     QUESTION_LAST = "question_last"
     QUESTION_LAST_SPECIAL = "question_last_special"
     ANSWER_FIRST = "answer_first"
@@ -121,7 +120,11 @@ def _build_mask(
         )
 
     mask = torch.zeros(seq_len, dtype=torch.bool)
-    if strategy is MaskStrategy.ANSWER_MEAN:
+    if strategy is MaskStrategy.PERSONA_MEAN:
+        mask[spans.template.token_start : spans.template.token_end] = True
+    elif strategy is MaskStrategy.PERSONA_LAST:
+        mask[spans.template.token_end - 1] = True
+    elif strategy is MaskStrategy.ANSWER_MEAN:
         mask[answer_start:answer_end] = True
     elif strategy is MaskStrategy.ANSWER_FIRST:
         mask[answer_start] = True
@@ -272,6 +275,7 @@ def prepare_inputs(
     avoid a phantom extra BOS that would shift ``answer_start`` by +1 and
     misalign the mask with the actual response tokens.
 
+    Persona masks only cover the system-prompt prefix, not the question.
     Response masks stop before the first trailing special token after the
     assistant answer so template delimiters are not averaged.
     """
