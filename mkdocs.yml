@@ -30,4 +30,5 @@ nav:
   - Overview: index.md
   - Activation Extraction: extraction.md
   - Artifacts: artifacts.md
+  - Analysis: analysis.md
   - Steering: steering.md

@@ -18,6 +18,7 @@ import persona_vectors  # noqa: F401 – package-level import
 from persona_vectors.analysis import (
     build_embedding_figure,
     pairwise_cosine_similarity,
+    pca_explained_variance,
     project_pca,
 )
 from persona_vectors.artifacts import (
@@ -28,8 +29,18 @@ from persona_vectors.artifacts import (
     load_persona_names,
     model_dir_name,
 )
-from persona_vectors.extraction import ExtractionResult
-from persona_vectors.plots import plot_similarity_matrix, plot_similarity_matrix_grid
+from persona_vectors.extraction import (
+    ExtractionResult,
+    MaskStrategy,
+    PromptSpans,
+    Span,
+    _build_mask,
+)
+from persona_vectors.plots import (
+    plot_scree,
+    plot_similarity_matrix,
+    plot_similarity_matrix_grid,
+)
 
 # ---------------------------------------------------------------------------
 # 1. Imports
@@ -210,6 +221,11 @@ similarity = pairwise_cosine_similarity(vectors)
 assert similarity.shape == (3, 3)
 assert torch.isclose(similarity[0, 0], torch.tensor(1.0))
 
+# centered variant: subtracting the mean changes the off-diagonals
+sim_centered = pairwise_cosine_similarity(vectors, center=True)
+assert sim_centered.shape == (3, 3)
+assert not torch.allclose(similarity, sim_centered)
+
 try:
     pairwise_cosine_similarity([])
     assert False, "expected ValueError for empty vectors"
@@ -236,7 +252,26 @@ assert len(grid_fig.data) == 4
 print("✓ plot_similarity_matrix helpers OK")
 
 # ---------------------------------------------------------------------------
-# 11. ExtractionResult dataclass
+# 11. persona mask strategies
+# ---------------------------------------------------------------------------
+
+persona_spans = PromptSpans(
+    template=Span(0, 3, 0, 3),
+    question=Span(3, 5, 3, 5),
+    response=Span(5, 7, 5, 7),
+)
+input_ids = torch.tensor([10, 11, 12, 13, 14, 15, 16])
+
+mask = _build_mask(len(input_ids), persona_spans, MaskStrategy.PERSONA_MEAN, input_ids, set())
+assert mask.tolist() == [True, True, True, False, False, False, False]
+
+mask = _build_mask(len(input_ids), persona_spans, MaskStrategy.PERSONA_LAST, input_ids, set())
+assert mask.tolist() == [False, False, True, False, False, False, False]
+
+print("✓ persona mask strategies OK")
+
+# ---------------------------------------------------------------------------
+# 12. ExtractionResult dataclass
 # ---------------------------------------------------------------------------
 
 result = ExtractionResult(
@@ -248,6 +283,34 @@ result = ExtractionResult(
 assert result.variant == "biography"
 assert result.n_questions == 10
 print("✓ ExtractionResult OK")
+
+# ---------------------------------------------------------------------------
+# 13. pca_explained_variance
+# ---------------------------------------------------------------------------
+
+torch.manual_seed(2)
+samples = torch.randn(20, 12)
+ratios = pca_explained_variance(samples, n_components=5)
+assert ratios.shape == (5,)
+assert ratios.sum() <= 1.0 + 1e-6
+assert (ratios >= 0).all()
+
+# full-rank default
+ratios_full = pca_explained_variance(samples)
+assert ratios_full.shape == (min(samples.shape),)
+
+try:
+    pca_explained_variance(torch.randn(4))
+    assert False, "expected ValueError for 1D input"
+except ValueError:
+    pass
+
+print("✓ pca_explained_variance OK")
+
+fig_scree = plot_scree({"a": ratios, "b": ratios})
+assert len(fig_scree.data) > 0
+
+print("✓ new plot helpers OK")
 
 # ---------------------------------------------------------------------------
 # Done

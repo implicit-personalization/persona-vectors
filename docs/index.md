@@ -25,6 +25,7 @@ Dataset → Format Prompts → Build Token Masks → Extract Activations → Sav
 |---|---|
 | Build token masks and extract hidden states from the model | [Activation Extraction](extraction.md) |
 | Save and load activation tensors | [Artifacts](artifacts.md) |
+| Comparison and analysis views | [Analysis](analysis.md) |
 | Compute and apply steering vectors | [Steering](steering.md) |
 
 ## Installation
@@ -45,7 +46,7 @@ uv run python -m notebooks.notebook_extract
 # Same extraction flow with token-mask preview and a short sample run
 # (set verbose=True in the notebook)
 
-# Load saved activations and compare variants
+# Load saved activations and inspect comparison views
 uv run python -m notebooks.notebook_compare
 
 # Compute a steering vector from saved activations

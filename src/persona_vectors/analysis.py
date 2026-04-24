@@ -1,11 +1,22 @@
+import numpy as np
 import plotly.graph_objects as go
 import torch
 import torch.nn.functional as F
 from sklearn.decomposition import PCA
 
 
-def pairwise_cosine_similarity(vectors: list[torch.Tensor]) -> torch.Tensor:
-    """Compute pairwise cosine similarity between vectors."""
+def pairwise_cosine_similarity(
+    vectors: list[torch.Tensor], center: bool = False
+) -> torch.Tensor:
+    """Compute pairwise cosine similarity between vectors.
+
+    Args:
+        vectors: List of 1-D tensors (one per persona/condition).
+        center: If True, subtract the mean vector across the list before
+            normalising. LLM residual-stream means share a large DC component
+            that pushes every pairwise cosine toward ~1; centering removes it
+            so the remaining structure (which personas actually cluster) shows.
+    """
 
     if not vectors:
         raise ValueError("vectors must not be empty")
@@ -13,6 +24,8 @@ def pairwise_cosine_similarity(vectors: list[torch.Tensor]) -> torch.Tensor:
         raise ValueError("vectors must be 1-D tensors")
 
     stacked = torch.stack([vector.float() for vector in vectors])
+    if center:
+        stacked = stacked - stacked.mean(dim=0, keepdim=True)
     normalized = F.normalize(stacked, dim=1)
     return normalized @ normalized.T
 
@@ -106,3 +119,22 @@ def build_embedding_figure(
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
     return fig
+
+
+def pca_explained_variance(
+    samples: torch.Tensor, n_components: int | None = None
+) -> np.ndarray:
+    """Return the explained variance ratio for each principal component."""
+
+    if samples.ndim != 2:
+        raise ValueError("samples must have shape (n_samples, hidden_size)")
+
+    X = samples.float().cpu().numpy()
+    max_components = min(X.shape)
+    if n_components is None:
+        n_components = max_components
+    else:
+        n_components = min(n_components, max_components)
+
+    pca = PCA(n_components=n_components).fit(X)
+    return pca.explained_variance_ratio_
