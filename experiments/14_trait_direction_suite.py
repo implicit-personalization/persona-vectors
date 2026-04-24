@@ -313,6 +313,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--extraction-option-rotations",
+        default="0",
+        help=(
+            "Comma-separated rotations of substantive A-D options used during "
+            "biography-context activation extraction. Use 0,1,2,3 to build a "
+            "letter-balanced trait vector."
+        ),
+    )
+    parser.add_argument(
         "--score-batch-size",
         type=int,
         default=6,
@@ -419,6 +428,7 @@ def prepare_probe_inputs(
     *,
     class_by_persona_id: dict[str, str],
     activation_source: str,
+    option_rotations: list[int],
 ) -> tuple[list[torch.Tensor], list[torch.Tensor], list[dict]]:
     input_ids_list: list[torch.Tensor] = []
     token_masks: list[torch.Tensor] = []
@@ -427,69 +437,73 @@ def prepare_probe_inputs(
 
     for persona in personas:
         class_label = class_by_persona_id[persona.id]
-        for probe in spec.probes:
-            qa = probe.to_qa()
-            if activation_source == "prompt_last":
-                prompt, prompt_len = render_mc_generation_prompt(
-                    model.tokenizer,
-                    persona=persona,
-                    qa=qa,
-                    condition="biography",
-                )
-                input_ids = model.tokenizer(
-                    prompt,
-                    return_tensors="pt",
-                    add_special_tokens=False,
-                ).input_ids[0]
-                if int(input_ids.shape[0]) != prompt_len:
-                    raise ValueError("Prompt length mismatch after rendering")
-                mask = torch.zeros_like(input_ids, dtype=torch.bool)
-                mask[prompt_len - 1] = True
-                answer_letter = None
-            elif activation_source == "teacher_forced_choice_response_mean":
-                answer_idx = (
-                    probe.positive_choice_index
-                    if class_label == "positive"
-                    else probe.negative_choice_index
-                )
-                answer_letter = chr(ord("A") + answer_idx)
-                full_prompt, answer_start = render_mc_prompt_with_answer(
-                    model.tokenizer,
-                    persona=persona,
-                    qa=qa,
-                    condition="biography",
-                    answer=answer_letter,
-                )
-                input_ids = model.tokenizer(
-                    full_prompt,
-                    return_tensors="pt",
-                    add_special_tokens=False,
-                ).input_ids[0]
-                answer_end = _find_response_end(input_ids, answer_start, special_ids)
-                if answer_end <= answer_start:
-                    raise ValueError("Teacher-forced answer span is empty")
-                mask = torch.zeros_like(input_ids, dtype=torch.bool)
-                mask[answer_start:answer_end] = True
-            else:
-                raise AssertionError(f"Unhandled activation source: {activation_source}")
+        for rotation in option_rotations:
+            for base_probe in spec.probes:
+                probe = rotate_substantive_options(base_probe, rotation)
+                qa = probe.to_qa()
+                if activation_source == "prompt_last":
+                    prompt, prompt_len = render_mc_generation_prompt(
+                        model.tokenizer,
+                        persona=persona,
+                        qa=qa,
+                        condition="biography",
+                    )
+                    input_ids = model.tokenizer(
+                        prompt,
+                        return_tensors="pt",
+                        add_special_tokens=False,
+                    ).input_ids[0]
+                    if int(input_ids.shape[0]) != prompt_len:
+                        raise ValueError("Prompt length mismatch after rendering")
+                    mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                    mask[prompt_len - 1] = True
+                    answer_letter = None
+                elif activation_source == "teacher_forced_choice_response_mean":
+                    answer_idx = (
+                        probe.positive_choice_index
+                        if class_label == "positive"
+                        else probe.negative_choice_index
+                    )
+                    answer_letter = chr(ord("A") + answer_idx)
+                    full_prompt, answer_start = render_mc_prompt_with_answer(
+                        model.tokenizer,
+                        persona=persona,
+                        qa=qa,
+                        condition="biography",
+                        answer=answer_letter,
+                    )
+                    input_ids = model.tokenizer(
+                        full_prompt,
+                        return_tensors="pt",
+                        add_special_tokens=False,
+                    ).input_ids[0]
+                    answer_end = _find_response_end(input_ids, answer_start, special_ids)
+                    if answer_end <= answer_start:
+                        raise ValueError("Teacher-forced answer span is empty")
+                    mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                    mask[answer_start:answer_end] = True
+                else:
+                    raise AssertionError(f"Unhandled activation source: {activation_source}")
 
-            input_ids_list.append(input_ids)
-            token_masks.append(mask)
-            rows.append(
-                {
-                    "trait": spec.name,
-                    "attribute": spec.attribute,
-                    "persona_id": persona.id,
-                    "persona_name": persona.name,
-                    "class_label": class_label,
-                    "attribute_value": persona.persona.get(spec.attribute),
-                    "probe_id": probe.qid,
-                    "activation_source": activation_source,
-                    "answer_letter": answer_letter,
-                    "masked_token_count": int(mask.sum().item()),
-                    "prompt_token_count": int(input_ids.shape[0]),
-                }
-            )
+                input_ids_list.append(input_ids)
+                token_masks.append(mask)
+                rows.append(
+                    {
+                        "trait": spec.name,
+                        "attribute": spec.attribute,
+                        "persona_id": persona.id,
+                        "persona_name": persona.name,
+                        "class_label": class_label,
+                        "attribute_value": persona.persona.get(spec.attribute),
+                        "probe_id": probe.qid,
+                        "base_probe_id": base_probe.qid,
+                        "option_rotation": rotation % 4,
+                        "activation_source": activation_source,
+                        "answer_letter": answer_letter,
+                        "masked_token_count": int(mask.sum().item()),
+                        "prompt_token_count": int(input_ids.shape[0]),
+                    }
+                )
     return input_ids_list, token_masks, rows
 
 
@@ -807,9 +821,14 @@ def main() -> None:
     seeds = parse_int_csv(args.seeds)
     alphas = parse_float_csv(args.alphas)
     eval_option_rotations = parse_int_csv(args.eval_option_rotations)
-    invalid_rotations = [value for value in eval_option_rotations if value < 0 or value > 3]
+    extraction_option_rotations = parse_int_csv(args.extraction_option_rotations)
+    invalid_rotations = [
+        value
+        for value in eval_option_rotations + extraction_option_rotations
+        if value < 0 or value > 3
+    ]
     if invalid_rotations:
-        raise ValueError(f"--eval-option-rotations must be in [0, 3], got {invalid_rotations}")
+        raise ValueError(f"option rotations must be in [0, 3], got {invalid_rotations}")
     out_dir = args.out_dir or default_output_dir(
         model_name=args.model,
         layer=args.layer,
@@ -841,6 +860,7 @@ def main() -> None:
         "seeds": seeds,
         "alphas": alphas,
         "eval_option_rotations": eval_option_rotations,
+        "extraction_option_rotations": extraction_option_rotations,
         "eval_option_rotation_note": (
             "Only A-D substantive options are rotated. E remains the no-context fallback "
             "so the prompt contract's insufficient-context rule stays comparable."
@@ -886,6 +906,7 @@ def main() -> None:
                 spec,
                 class_by_persona_id=class_by_id,
                 activation_source=args.activation_source,
+                option_rotations=extraction_option_rotations,
             )
             heldout_ids, heldout_masks, heldout_rows = prepare_probe_inputs(
                 model,
@@ -893,6 +914,7 @@ def main() -> None:
                 spec,
                 class_by_persona_id=class_by_id,
                 activation_source=args.activation_source,
+                option_rotations=extraction_option_rotations,
             )
 
             console.print(

@@ -12,6 +12,7 @@ TRAIN_PER_CLASS="${TRAIN_PER_CLASS:-4}"
 SEEDS="${SEEDS:-1337}"
 ALPHAS="${ALPHAS:-0.25,0.5,1.0}"
 EVAL_OPTION_ROTATIONS="${EVAL_OPTION_ROTATIONS:-0}"
+EXTRACTION_OPTION_ROTATIONS="${EXTRACTION_OPTION_ROTATIONS:-0}"
 EXTRACTION_BATCH_SIZE="${EXTRACTION_BATCH_SIZE:-1}"
 SCORE_BATCH_SIZE="${SCORE_BATCH_SIZE:-6}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -35,6 +36,7 @@ uv run python experiments/14_trait_direction_suite.py \
   --seeds "$SEEDS" \
   --alphas "$ALPHAS" \
   --eval-option-rotations "$EVAL_OPTION_ROTATIONS" \
+  --extraction-option-rotations "$EXTRACTION_OPTION_ROTATIONS" \
   --extraction-batch-size "$EXTRACTION_BATCH_SIZE" \
   --score-batch-size "$SCORE_BATCH_SIZE" \
   --env-file "$ENV_FILE" \
