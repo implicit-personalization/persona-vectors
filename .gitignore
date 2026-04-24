@@ -54,6 +54,7 @@ Thumbs.db
 results/
 outputs/
 artifacts/
+logs/
 *.json.bak
 *.jsonl
 *.jsonl.bak
