@@ -45,6 +45,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--layers", default="30-41")
     parser.add_argument("--limit", type=int, default=3)
+    parser.add_argument(
+        "--patch-mode",
+        choices=["replace_clean", "add_clean_delta"],
+        default="replace_clean",
+        help=(
+            "replace_clean sets the corrupted activation to the clean biography activation. "
+            "add_clean_delta adds clean-biography minus corrupted-bare activation to the corrupted activation."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--remote", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
@@ -57,14 +66,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def default_output_dir(*, model_name: str, layers_label: str, limit: int) -> Path:
+def default_output_dir(
+    *,
+    model_name: str,
+    layers_label: str,
+    limit: int,
+    patch_mode: str,
+) -> Path:
     run_id = datetime.now().strftime("%Y%m%dT%H%M%SZ")
     model_dir = model_name.replace("/", "__")
     return (
         Path("artifacts")
         / "experiments"
         / "final_token_patch_smoke"
-        / f"{run_id}__{model_dir}__layers_{layers_label}__n{limit}"
+        / f"{run_id}__{model_dir}__{patch_mode}__layers_{layers_label}__n{limit}"
     )
 
 
@@ -119,6 +134,7 @@ def score_logits(
     remote: bool,
     patch_layer: int | None = None,
     patch_vector: torch.Tensor | None = None,
+    patch_mode: str = "replace_clean",
 ) -> torch.Tensor:
     input_ids = model.tokenizer(
         prompt,
@@ -132,13 +148,18 @@ def score_logits(
             if patch_vector is None:
                 raise ValueError("patch_vector is required with patch_layer")
             target = model.layers_output[patch_layer][0, token_pos, :]
-            target[:] = patch_vector.to(target.device)
+            if patch_mode == "replace_clean":
+                target[:] = patch_vector.to(target.device)
+            elif patch_mode == "add_clean_delta":
+                target[:] = target + patch_vector.to(target.device)
+            else:
+                raise ValueError(f"Unsupported patch_mode: {patch_mode!r}")
         logits = model.logits[0, token_pos, choice_ids].float().save()
 
     return resolve_saved_tensor(logits)
 
 
-def extract_clean_final_activations(
+def extract_final_activations(
     *,
     model: StandardizedTransformer,
     prompt: str,
@@ -258,6 +279,7 @@ def main() -> None:
         model_name=args.model,
         layers_label=layers_label,
         limit=args.limit,
+        patch_mode=args.patch_mode,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -267,7 +289,12 @@ def main() -> None:
         "layers": layers,
         "limit": args.limit,
         "remote": args.remote,
-        "patch_source": "biography final prompt token",
+        "patch_mode": args.patch_mode,
+        "patch_source": (
+            "biography final prompt token"
+            if args.patch_mode == "replace_clean"
+            else "biography final prompt token minus bare final prompt token"
+        ),
         "patch_target": "bare final prompt token",
         "candidates": candidates,
     }
@@ -317,7 +344,7 @@ def main() -> None:
                 label=f"biography logits {persona.name} / {qa.qid}",
             )
             clean_activations = run_with_remote_retry(
-                lambda: extract_clean_final_activations(
+                lambda: extract_final_activations(
                     model=model,
                     prompt=biography_prompt,
                     prompt_len=biography_prompt_len,
@@ -326,6 +353,20 @@ def main() -> None:
                 ),
                 label=f"clean final activations {persona.name} / {qa.qid}",
             )
+            if args.patch_mode == "add_clean_delta":
+                corrupted_activations = run_with_remote_retry(
+                    lambda: extract_final_activations(
+                        model=model,
+                        prompt=bare_prompt,
+                        prompt_len=bare_prompt_len,
+                        layers=layers,
+                        remote=args.remote,
+                    ),
+                    label=f"corrupted final activations {persona.name} / {qa.qid}",
+                )
+                patch_activations = clean_activations - corrupted_activations
+            else:
+                patch_activations = clean_activations
 
             bare_metrics = logits_to_metrics(
                 logits=bare_logits,
@@ -360,7 +401,8 @@ def main() -> None:
                         choice_ids=choice_ids,
                         remote=args.remote,
                         patch_layer=layer,
-                        patch_vector=clean_activations[layer_idx],
+                        patch_vector=patch_activations[layer_idx],
+                        patch_mode=args.patch_mode,
                     ),
                     label=f"patch layer {layer} {persona.name} / {qa.qid}",
                 )
