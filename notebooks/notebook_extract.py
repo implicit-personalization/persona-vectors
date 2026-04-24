@@ -22,6 +22,7 @@ set_seed(1337)
 REMOTE = False
 # REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
+RUN_NAME = "run_01"
 
 print(f"Loading {MODEL_NAME}...")
 if REMOTE:
@@ -64,8 +65,8 @@ dataset_table.add_row("Age", str(persona.persona["age"]))
 console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
-qa_pairs = dataset.get_qa(persona.id)  # full run
-# qa_pairs = dataset.get_qa(persona.id)[:1]
+# qa_pairs = dataset.get_qa(persona.id)  # full run
+qa_pairs = dataset.get_qa(persona.id)[:1]
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
@@ -79,6 +80,7 @@ results = run_extraction(
     mask_strategy=MaskStrategy.QUESTION_LAST_SPECIAL,
     remote=REMOTE,
     verbose=True,
+    activations_dir=f"artifacts/activations/{RUN_NAME}",
 )
 
 for r in results:

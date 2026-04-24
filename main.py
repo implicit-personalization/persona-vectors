@@ -13,14 +13,10 @@ from persona_vectors.parser import (
 
 
 def extract_activations(cfg: ExtractConfig) -> None:
-    import logging
-
     from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.extraction import run_extraction
-
-    logger = logging.getLogger(__name__)
 
     model = StandardizedTransformer(cfg.model)
     dataset = SynthPersonaDataset()
@@ -29,7 +25,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
         if cfg.persona_id
         else list(dataset)
     )
-    for persona in tqdm(personas, position=0, desc="personas", unit="persona"):
+    for persona in tqdm(personas, desc="personas", unit="persona"):
         qa_pairs = list(dataset.get_qa(persona.id))
         if not qa_pairs:
             continue
@@ -44,7 +40,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
             verbose=cfg.verbose,
         )
         for r in results:
-            logger.info("Saved %s/%s → %s", r.persona_name, r.variant, r.output_dir)
+            print("Saved %s/%s → %s", r.persona_name, r.variant, r.output_dir)
 
 
 def analyze_activations(cfg: AnalyzeConfig) -> None:

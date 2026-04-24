@@ -378,6 +378,7 @@ def run_extraction(
     remote: bool = False,
     on_status: Callable | None = None,
     verbose: bool = False,
+    activations_dir: str | Path | None = None,
 ) -> list[ExtractionResult]:
     """Extract and save per-question activation vectors for each prompt variant.
 
@@ -394,6 +395,8 @@ def run_extraction(
             update with (job_id, status_name, description).
         verbose: If True, print a rich preview of each prepared sample before
             the forward pass.
+        activations_dir: Root directory for saved activations. Pass a unique
+            subdirectory to keep multiple runs separate.
 
     Returns:
         One ExtractionResult per variant.
@@ -403,7 +406,7 @@ def run_extraction(
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")
 
-    store = ActivationStore(model_name)
+    store = ActivationStore(model_name, root_dir=activations_dir)
     results: list[ExtractionResult] = []
 
     for variant in variants:

@@ -142,28 +142,22 @@ def plot_similarity_matrix(
 
     z = _to_numpy(sim_matrix)
     fig = go.Figure(data=_similarity_heatmap(z, labels))
-    n_labels = len(labels)
     fig.update_layout(
         title=title,
         template="plotly_white",
         coloraxis=_similarity_coloraxis(),
-        width=max(400, 60 * n_labels),
-        height=max(400, 60 * n_labels),
-        margin=dict(t=100, l=70, r=40, b=70),
     )
     fig.update_xaxes(
         side="top",
         tickangle=-45,
         automargin=True,
         showticklabels=True,
-        tickfont=dict(size=9),
     )
     fig.update_yaxes(
         side="left",
         autorange="reversed",
         automargin=True,
         showticklabels=True,
-        tickfont=dict(size=9),
     )
 
     _finalize(fig, filename, show)
@@ -225,6 +219,67 @@ def plot_similarity_matrix_grid(
                 col=col,
                 row=row,
             )
+
+    _finalize(fig, filename, show)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Scree / elbow plot for PCA explained variance
+# ---------------------------------------------------------------------------
+
+
+def plot_scree(
+    variance_by_condition: dict[str, np.ndarray],
+    title: str = "PCA Explained Variance (Scree Plot)",
+    n_components: int = 20,
+    cumulative: bool = True,
+    filename: str | None = None,
+    show: bool = False,
+) -> go.Figure:
+    """Plot explained variance ratio per principal component for multiple conditions.
+
+    Args:
+        variance_by_condition: Mapping from condition label (e.g. "baseline",
+            "templated", "biography") to an array of explained variance ratios.
+        title: Plot title.
+        n_components: How many components to display.
+        cumulative: If True, also plot cumulative variance.
+        filename: If provided, save as HTML.
+        show: If True, open in browser.
+    """
+    fig = go.Figure()
+    for label, var in variance_by_condition.items():
+        var = var[:n_components]
+        components = list(range(1, len(var) + 1))
+        fig.add_trace(
+            go.Scatter(
+                x=components,
+                y=var.tolist(),
+                mode="lines+markers",
+                name=label,
+                marker=dict(size=5),
+            )
+        )
+        if cumulative:
+            fig.add_trace(
+                go.Scatter(
+                    x=components,
+                    y=np.cumsum(var).tolist(),
+                    mode="lines",
+                    name=f"{label} (cumulative)",
+                    line=dict(dash="dash"),
+                )
+            )
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Principal Component",
+        yaxis_title="Explained Variance Ratio",
+        template="plotly_white",
+        hovermode="x",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
+    )
 
     _finalize(fig, filename, show)
     return fig

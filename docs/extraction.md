@@ -53,3 +53,9 @@ Each element returned by `prepare_inputs()` bundles a formatted sample together 
 ## Note
 
 For NDIF runs, instantiate the model without `device_map` or `dtype` so it loads on the meta device.
+
+To keep multiple extraction runs separate, pass `activations_dir` to `run_extraction()`:
+
+```python
+run_extraction(..., activations_dir="artifacts/activations/run_001")
+```
