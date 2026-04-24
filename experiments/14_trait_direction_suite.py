@@ -51,6 +51,24 @@ class AttributeProbe:
         )
 
 
+def rotate_substantive_options(probe: AttributeProbe, rotation: int) -> AttributeProbe:
+    """Rotate A-D choices while keeping E as the no-context fallback option."""
+    rotation = rotation % 4
+    if rotation == 0:
+        return probe
+    if probe.positive_choice_index >= 4 or probe.negative_choice_index >= 4:
+        raise ValueError("Option rotation expects positive/negative choices inside A-D")
+    substantive = list(probe.choices[:4])
+    rotated = substantive[rotation:] + substantive[:rotation]
+    return AttributeProbe(
+        qid=f"{probe.qid}__rot{rotation}",
+        question=probe.question,
+        choices=tuple(rotated + [probe.choices[4]]),
+        positive_choice_index=(probe.positive_choice_index - rotation) % 4,
+        negative_choice_index=(probe.negative_choice_index - rotation) % 4,
+    )
+
+
 @dataclass(frozen=True)
 class TraitSpec:
     name: str
@@ -286,6 +304,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-per-class", type=int, default=4)
     parser.add_argument("--seeds", default="1337")
     parser.add_argument("--alphas", default="0.25,0.5,1.0")
+    parser.add_argument(
+        "--eval-option-rotations",
+        default="0",
+        help=(
+            "Comma-separated rotations of substantive A-D options used only during "
+            "no-context MC scoring. E stays fixed as the no-context fallback."
+        ),
+    )
     parser.add_argument("--remote", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--extraction-batch-size", type=int, default=1)
     parser.add_argument(
@@ -583,6 +609,7 @@ def score_probe_bank(
     spec: TraitSpec,
     reference_persona,
     remote: bool,
+    option_rotations: list[int],
     steering_layer: int | None = None,
     steering_vector: torch.Tensor | None = None,
     steering_alpha: float | None = None,
@@ -592,7 +619,12 @@ def score_probe_bank(
     choice_ids_list: list[list[int]] = []
     choice_letters_list: list[list[str]] = []
 
-    for probe in spec.probes:
+    eval_probes: list[tuple[int, AttributeProbe]] = []
+    for rotation in option_rotations:
+        for probe in spec.probes:
+            eval_probes.append((rotation % 4, rotate_substantive_options(probe, rotation)))
+
+    for _, probe in eval_probes:
         qa = probe.to_qa()
         prompt, prompt_len = render_mc_generation_prompt(
             model.tokenizer,
@@ -618,7 +650,13 @@ def score_probe_bank(
     )
 
     rows: list[dict] = []
-    for probe, letters, lp, prob in zip(spec.probes, choice_letters_list, logprobs, probs, strict=True):
+    for (rotation, probe), letters, lp, prob in zip(
+        eval_probes,
+        choice_letters_list,
+        logprobs,
+        probs,
+        strict=True,
+    ):
         pred_idx = int(lp.argmax().item())
         positive_logprob = float(lp[probe.positive_choice_index].item())
         negative_logprob = float(lp[probe.negative_choice_index].item())
@@ -626,6 +664,8 @@ def score_probe_bank(
             {
                 "eval_trait": spec.name,
                 "probe_id": probe.qid,
+                "base_probe_id": probe.qid.split("__rot", maxsplit=1)[0],
+                "option_rotation": rotation,
                 "question": probe.question,
                 "positive_choice_letter": letters[probe.positive_choice_index],
                 "negative_choice_letter": letters[probe.negative_choice_index],
@@ -751,6 +791,10 @@ def main() -> None:
     eval_traits_for_train = resolve_eval_traits(train_trait_names, args.eval_traits)
     seeds = parse_int_csv(args.seeds)
     alphas = parse_float_csv(args.alphas)
+    eval_option_rotations = parse_int_csv(args.eval_option_rotations)
+    invalid_rotations = [value for value in eval_option_rotations if value < 0 or value > 3]
+    if invalid_rotations:
+        raise ValueError(f"--eval-option-rotations must be in [0, 3], got {invalid_rotations}")
     out_dir = args.out_dir or default_output_dir(
         model_name=args.model,
         layer=args.layer,
@@ -781,6 +825,11 @@ def main() -> None:
         "eval_traits": eval_traits_for_train,
         "seeds": seeds,
         "alphas": alphas,
+        "eval_option_rotations": eval_option_rotations,
+        "eval_option_rotation_note": (
+            "Only A-D substantive options are rotated. E remains the no-context fallback "
+            "so the prompt contract's insufficient-context rule stays comparable."
+        ),
         "train_per_class": args.train_per_class,
         "trait_specs": {
             name: {
@@ -920,6 +969,7 @@ def main() -> None:
                         spec=eval_spec,
                         reference_persona=reference_persona,
                         remote=args.remote,
+                        option_rotations=eval_option_rotations,
                     ),
                     label=f"bare probes eval={eval_trait_name} seed={seed}",
                     retries=5,
@@ -949,6 +999,7 @@ def main() -> None:
                                 spec=eval_spec,
                                 reference_persona=reference_persona,
                                 remote=args.remote,
+                                option_rotations=eval_option_rotations,
                                 steering_layer=args.layer,
                                 steering_vector=vector,
                                 steering_alpha=signed_alpha,
