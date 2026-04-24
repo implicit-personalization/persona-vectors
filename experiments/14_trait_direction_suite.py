@@ -312,6 +312,12 @@ def parse_args() -> argparse.Namespace:
             "no-context MC scoring. E stays fixed as the no-context fallback."
         ),
     )
+    parser.add_argument(
+        "--score-batch-size",
+        type=int,
+        default=6,
+        help="Number of MC prompts per remote scoring trace.",
+    )
     parser.add_argument("--remote", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--extraction-batch-size", type=int, default=1)
     parser.add_argument(
@@ -610,6 +616,7 @@ def score_probe_bank(
     reference_persona,
     remote: bool,
     option_rotations: list[int],
+    score_batch_size: int,
     steering_layer: int | None = None,
     steering_vector: torch.Tensor | None = None,
     steering_alpha: float | None = None,
@@ -638,16 +645,24 @@ def score_probe_bank(
         choice_ids_list.append(choice_ids)
         choice_letters_list.append(choice_letters)
 
-    logprobs, probs = score_choice_distribution_batched(
-        model,
-        prompts,
-        prompt_lens,
-        choice_ids_list,
-        remote=remote,
-        steering_layer=steering_layer,
-        steering_vector=steering_vector,
-        steering_alpha=steering_alpha,
-    )
+    if score_batch_size <= 0:
+        raise ValueError("--score-batch-size must be positive")
+    logprobs: list[torch.Tensor] = []
+    probs: list[torch.Tensor] = []
+    for start in range(0, len(prompts), score_batch_size):
+        end = min(start + score_batch_size, len(prompts))
+        batch_logprobs, batch_probs = score_choice_distribution_batched(
+            model,
+            prompts[start:end],
+            prompt_lens[start:end],
+            choice_ids_list[start:end],
+            remote=remote,
+            steering_layer=steering_layer,
+            steering_vector=steering_vector,
+            steering_alpha=steering_alpha,
+        )
+        logprobs.extend(batch_logprobs)
+        probs.extend(batch_probs)
 
     rows: list[dict] = []
     for (rotation, probe), letters, lp, prob in zip(
@@ -830,6 +845,7 @@ def main() -> None:
             "Only A-D substantive options are rotated. E remains the no-context fallback "
             "so the prompt contract's insufficient-context rule stays comparable."
         ),
+        "score_batch_size": args.score_batch_size,
         "train_per_class": args.train_per_class,
         "trait_specs": {
             name: {
@@ -970,6 +986,7 @@ def main() -> None:
                         reference_persona=reference_persona,
                         remote=args.remote,
                         option_rotations=eval_option_rotations,
+                        score_batch_size=args.score_batch_size,
                     ),
                     label=f"bare probes eval={eval_trait_name} seed={seed}",
                     retries=5,
@@ -1000,6 +1017,7 @@ def main() -> None:
                                 reference_persona=reference_persona,
                                 remote=args.remote,
                                 option_rotations=eval_option_rotations,
+                                score_batch_size=args.score_batch_size,
                                 steering_layer=args.layer,
                                 steering_vector=vector,
                                 steering_alpha=signed_alpha,

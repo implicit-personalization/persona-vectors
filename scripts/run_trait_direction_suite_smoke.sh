@@ -13,6 +13,7 @@ SEEDS="${SEEDS:-1337}"
 ALPHAS="${ALPHAS:-0.25,0.5,1.0}"
 EVAL_OPTION_ROTATIONS="${EVAL_OPTION_ROTATIONS:-0}"
 EXTRACTION_BATCH_SIZE="${EXTRACTION_BATCH_SIZE:-1}"
+SCORE_BATCH_SIZE="${SCORE_BATCH_SIZE:-6}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/artifacts/experiments/trait_direction_suite/${RUN_ID}__gemma2-9b-it__layer_${LAYER}__${ACTIVATION_SOURCE}}"
 
@@ -35,6 +36,7 @@ uv run python experiments/14_trait_direction_suite.py \
   --alphas "$ALPHAS" \
   --eval-option-rotations "$EVAL_OPTION_ROTATIONS" \
   --extraction-batch-size "$EXTRACTION_BATCH_SIZE" \
+  --score-batch-size "$SCORE_BATCH_SIZE" \
   --env-file "$ENV_FILE" \
   --remote \
   --out-dir "$OUT_DIR"
