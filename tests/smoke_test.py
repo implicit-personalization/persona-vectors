@@ -262,10 +262,14 @@ persona_spans = PromptSpans(
 )
 input_ids = torch.tensor([10, 11, 12, 13, 14, 15, 16])
 
-mask = _build_mask(len(input_ids), persona_spans, MaskStrategy.PERSONA_MEAN, input_ids, set())
+mask = _build_mask(
+    len(input_ids), persona_spans, MaskStrategy.PERSONA_MEAN, input_ids, set()
+)
 assert mask.tolist() == [True, True, True, False, False, False, False]
 
-mask = _build_mask(len(input_ids), persona_spans, MaskStrategy.PERSONA_LAST, input_ids, set())
+mask = _build_mask(
+    len(input_ids), persona_spans, MaskStrategy.PERSONA_LAST, input_ids, set()
+)
 assert mask.tolist() == [False, False, True, False, False, False, False]
 
 print("✓ persona mask strategies OK")

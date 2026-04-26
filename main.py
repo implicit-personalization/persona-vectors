@@ -16,7 +16,10 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
+    import persona_vectors.activations as activations_mod
     from persona_vectors.extraction import run_extraction
+
+    activations_mod._LAYER_CHUNK_SIZE = 8 if cfg.remote else None
 
     model = StandardizedTransformer(cfg.model)
     dataset = SynthPersonaDataset()
