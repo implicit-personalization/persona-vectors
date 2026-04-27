@@ -22,6 +22,7 @@ EXTRACTION_BATCH_SIZE="${EXTRACTION_BATCH_SIZE:-2}"
 SCORE_BATCH_SIZE="${SCORE_BATCH_SIZE:-8}"
 STEERING_POSITIONS="${STEERING_POSITIONS:-all_prompt}"
 DRY_RUN="${DRY_RUN:-0}"
+LAYER_TIMEOUT_SECONDS="${LAYER_TIMEOUT_SECONDS:-0}"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 OUT_ROOT="${OUT_ROOT:-$REPO_ROOT/artifacts/experiments/response_mean_direction_suite}"
 LOG_DIR="${LOG_DIR:-$REPO_ROOT/logs/response_mean_direction_suite}"
@@ -46,6 +47,7 @@ echo "steering_positions=$STEERING_POSITIONS"
 echo "alphas=$ALPHAS"
 echo "attribute_mc_rotations=$ATTRIBUTE_MC_ROTATIONS"
 echo "dry_run=$DRY_RUN"
+echo "layer_timeout_seconds=$LAYER_TIMEOUT_SECONDS"
 echo "started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 if [[ "$MODE" != "attribute" ]]; then
@@ -63,7 +65,8 @@ for LAYER in $NORMALIZED_LAYERS; do
   echo
   echo "===== layer=$LAYER started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
 
-  env \
+  layer_cmd=(
+    env
     REPO_ROOT="$REPO_ROOT" \
     ENV_FILE="$ENV_FILE" \
     MODEL="$MODEL" \
@@ -87,6 +90,36 @@ for LAYER in $NORMALIZED_LAYERS; do
     DRY_RUN="$DRY_RUN" \
     OUT_DIR="$OUT_DIR" \
     bash scripts/run_response_mean_direction_suite_smoke.sh
+  )
+
+  if [[ "$LAYER_TIMEOUT_SECONDS" != "0" ]]; then
+    "${layer_cmd[@]}" &
+    layer_pid=$!
+    (
+      sleep "$LAYER_TIMEOUT_SECONDS"
+      if kill -0 "$layer_pid" 2>/dev/null; then
+        echo "Layer $LAYER timed out after ${LAYER_TIMEOUT_SECONDS}s; sending SIGINT"
+        kill -INT "$layer_pid" 2>/dev/null || true
+        sleep 15
+        if kill -0 "$layer_pid" 2>/dev/null; then
+          echo "Layer $LAYER still running after SIGINT; sending SIGTERM"
+          kill -TERM "$layer_pid" 2>/dev/null || true
+        fi
+      fi
+    ) &
+    watchdog_pid=$!
+    set +e
+    wait "$layer_pid"
+    layer_status=$?
+    set -e
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+    if [[ "$layer_status" != "0" ]]; then
+      exit "$layer_status"
+    fi
+  else
+    "${layer_cmd[@]}"
+  fi
 
   echo "===== layer=$LAYER finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
   if [[ -f "$OUT_DIR/summary.json" ]]; then
