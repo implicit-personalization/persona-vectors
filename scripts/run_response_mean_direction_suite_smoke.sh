@@ -16,8 +16,11 @@ MC_ITEMS_PER_PERSONA="${MC_ITEMS_PER_PERSONA:-8}"
 TRAIN_PER_CLASS="${TRAIN_PER_CLASS:-2}"
 SEEDS="${SEEDS:-1337}"
 ALPHAS="${ALPHAS:-0.5}"
+ATTRIBUTE_MC_EVAL="${ATTRIBUTE_MC_EVAL:-0}"
+ATTRIBUTE_MC_ROTATIONS="${ATTRIBUTE_MC_ROTATIONS:-0,1,2,3}"
 EXTRACTION_BATCH_SIZE="${EXTRACTION_BATCH_SIZE:-2}"
 SCORE_BATCH_SIZE="${SCORE_BATCH_SIZE:-4}"
+STEERING_POSITIONS="${STEERING_POSITIONS:-last}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/artifacts/experiments/response_mean_direction_suite/${RUN_ID}__gemma2-9b-it__layer_${LAYER}__${MODE}__${QA_FILTER}_smoke}"
 
@@ -29,7 +32,8 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-uv run python experiments/15_response_mean_direction_suite.py \
+cmd=(
+  uv run python experiments/15_response_mean_direction_suite.py
   --model "$MODEL" \
   --layer "$LAYER" \
   --mode "$MODE" \
@@ -45,6 +49,14 @@ uv run python experiments/15_response_mean_direction_suite.py \
   --alphas "$ALPHAS" \
   --extraction-batch-size "$EXTRACTION_BATCH_SIZE" \
   --score-batch-size "$SCORE_BATCH_SIZE" \
+  --steering-positions "$STEERING_POSITIONS" \
   --env-file "$ENV_FILE" \
   --remote \
   --out-dir "$OUT_DIR"
+)
+
+if [[ "$ATTRIBUTE_MC_EVAL" == "1" || "$ATTRIBUTE_MC_EVAL" == "true" ]]; then
+  cmd+=(--attribute-mc-eval --attribute-mc-rotations "$ATTRIBUTE_MC_ROTATIONS")
+fi
+
+"${cmd[@]}"

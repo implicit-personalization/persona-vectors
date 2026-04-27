@@ -87,6 +87,7 @@ def score_choice_distribution(
     steering_layer: int | list[int] | None = None,
     steering_vector: torch.Tensor | None = None,
     steering_alpha: float | None = None,
+    steering_positions: str = "last",
 ) -> tuple[torch.Tensor, torch.Tensor]:
     input_ids = model.tokenizer(
         prompt,
@@ -101,13 +102,22 @@ def score_choice_distribution(
 
     with torch.no_grad(), model.trace(input_ids.unsqueeze(0), remote=remote):
         if steer_vec is not None:
+            if steering_positions == "last":
+                token_positions = prompt_len - 1
+            elif steering_positions == "all_prompt":
+                token_positions = list(range(prompt_len))
+            else:
+                raise ValueError(
+                    "steering_positions must be 'last' or 'all_prompt', "
+                    f"got {steering_positions!r}"
+                )
             if steer_vec.ndim == 1:
                 for layer in layers:
                     model.steer(
                         layers=layer,
                         steering_vector=steer_vec,
                         factor=steering_alpha,
-                        token_positions=prompt_len - 1,
+                        token_positions=token_positions,
                     )
             elif steer_vec.ndim == 2:
                 if steer_vec.shape[0] != len(layers):
@@ -119,7 +129,7 @@ def score_choice_distribution(
                         layers=layer,
                         steering_vector=layer_vec,
                         factor=steering_alpha,
-                        token_positions=prompt_len - 1,
+                        token_positions=token_positions,
                     )
             else:
                 raise ValueError(
@@ -144,6 +154,7 @@ def score_choice_distribution_batched(
     steering_layer: int | list[int] | None = None,
     steering_vector: torch.Tensor | None = None,
     steering_alpha: float | None = None,
+    steering_positions: str = "last",
 ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     if not prompts:
         return [], []
@@ -171,15 +182,28 @@ def score_choice_distribution_batched(
 
     with torch.no_grad(), model.trace(input_ids, attention_mask=attention_mask, remote=remote):
         if steer_vec is not None:
-            batch_index = list(range(len(prompts)))
+            if steering_positions == "last":
+                steer_batch_index = list(range(len(prompts)))
+                steer_token_positions = token_positions
+            elif steering_positions == "all_prompt":
+                steer_batch_index = []
+                steer_token_positions = []
+                for batch_idx, prompt_len in enumerate(prompt_lens):
+                    steer_batch_index.extend([batch_idx] * prompt_len)
+                    steer_token_positions.extend(range(prompt_len))
+            else:
+                raise ValueError(
+                    "steering_positions must be 'last' or 'all_prompt', "
+                    f"got {steering_positions!r}"
+                )
             if steer_vec.ndim == 1:
                 for layer in layers:
                     model.steer(
                         layers=layer,
                         steering_vector=steer_vec,
                         factor=steering_alpha,
-                        token_positions=token_positions,
-                        batch_index=batch_index,
+                        token_positions=steer_token_positions,
+                        batch_index=steer_batch_index,
                     )
             elif steer_vec.ndim == 2:
                 for layer, layer_vec in zip(layers, steer_vec, strict=True):
@@ -187,8 +211,8 @@ def score_choice_distribution_batched(
                         layers=layer,
                         steering_vector=layer_vec,
                         factor=steering_alpha,
-                        token_positions=token_positions,
-                        batch_index=batch_index,
+                        token_positions=steer_token_positions,
+                        batch_index=steer_batch_index,
                     )
 
         batch_logprobs = []

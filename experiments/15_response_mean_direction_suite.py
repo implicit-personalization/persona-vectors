@@ -140,6 +140,132 @@ class FreeResponseRow:
     shared_harvest_hint: str
 
 
+@dataclass(frozen=True)
+class AttributeProbe:
+    qid: str
+    question: str
+    choices: tuple[str, str, str, str, str]
+    positive_choice_index: int
+    negative_choice_index: int
+
+    def to_qa(self) -> QAPair:
+        return QAPair(
+            qid=self.qid,
+            type="implicit",
+            question=self.question,
+            answer=self.choices[self.positive_choice_index],
+            difficulty=1,
+            answer_format="choice",
+            choices=list(self.choices),
+            correct_choice_index=self.positive_choice_index,
+            tags=["response_mean_attribute_probe"],
+        )
+
+
+def rotate_substantive_options(probe: AttributeProbe, rotation: int) -> AttributeProbe:
+    rotation = rotation % 4
+    if rotation == 0:
+        return probe
+    if probe.positive_choice_index >= 4 or probe.negative_choice_index >= 4:
+        raise ValueError("Option rotation expects positive/negative choices inside A-D")
+    substantive = list(probe.choices[:4])
+    rotated = substantive[rotation:] + substantive[:rotation]
+    return AttributeProbe(
+        qid=f"{probe.qid}__rot{rotation}",
+        question=probe.question,
+        choices=tuple(rotated + [probe.choices[4]]),
+        positive_choice_index=(probe.positive_choice_index - rotation) % 4,
+        negative_choice_index=(probe.negative_choice_index - rotation) % 4,
+    )
+
+
+POLITICAL_VIEW_PROBES = (
+    AttributeProbe(
+        qid="political_social_safety_net",
+        question="Which view sounds most natural to you when thinking about economic policy?",
+        choices=(
+            "Government should do more to reduce inequality and provide a stronger safety net.",
+            "Government should stay smaller, tax less, and leave more decisions to private citizens.",
+            "The best answer depends on the specific program and its cost.",
+            "Local communities matter more than national ideology here.",
+            "Not enough information from the context.",
+        ),
+        positive_choice_index=0,
+        negative_choice_index=1,
+    ),
+    AttributeProbe(
+        qid="political_regulation_business",
+        question="When business interests conflict with consumer or worker protections, what instinct do you usually have?",
+        choices=(
+            "Avoid heavy-handed rules unless there is clear evidence of harm.",
+            "Use regulation when markets are producing unfair or unsafe outcomes.",
+            "Look for voluntary standards before legal requirements.",
+            "Separate small businesses from large corporations before deciding.",
+            "Not enough information from the context.",
+        ),
+        positive_choice_index=1,
+        negative_choice_index=0,
+    ),
+    AttributeProbe(
+        qid="political_tradition_change",
+        question="How do you tend to think about social change?",
+        choices=(
+            "Social change is often necessary when old norms exclude or harm people.",
+            "Traditions deserve a strong presumption of respect before society changes them.",
+            "Some changes are overdue, but the pace and implementation matter.",
+            "The question depends more on family and community than politics.",
+            "Not enough information from the context.",
+        ),
+        positive_choice_index=0,
+        negative_choice_index=1,
+    ),
+    AttributeProbe(
+        qid="political_public_services",
+        question="What sounds closer to your view of public services?",
+        choices=(
+            "Private and charitable efforts are usually more accountable than expanded government systems.",
+            "Public systems are important because basic needs should not depend only on private charity.",
+            "Public services should be judged mainly by measurable outcomes.",
+            "The right balance depends on whether the service is local or federal.",
+            "Not enough information from the context.",
+        ),
+        positive_choice_index=1,
+        negative_choice_index=0,
+    ),
+    AttributeProbe(
+        qid="political_inequality_cause",
+        question="When you see major inequality, what explanation feels most plausible at first?",
+        choices=(
+            "Unequal outcomes often reflect structural barriers and unequal starting points.",
+            "Unequal outcomes often reflect differences in choices, effort, and responsibility.",
+            "Both structure and personal responsibility matter, and neither should be ignored.",
+            "The causes are usually too local and personal for broad ideology.",
+            "Not enough information from the context.",
+        ),
+        positive_choice_index=0,
+        negative_choice_index=1,
+    ),
+    AttributeProbe(
+        qid="political_institutional_trust",
+        question="Which political instinct fits you better when institutions disappoint people?",
+        choices=(
+            "Reform institutions so they are more inclusive, accountable, and publicly responsive.",
+            "Limit institutional power and protect individual freedom from centralized overreach.",
+            "Replace bad leadership before changing the institution itself.",
+            "Trust should be rebuilt through local relationships before national politics.",
+            "Not enough information from the context.",
+        ),
+        positive_choice_index=0,
+        negative_choice_index=1,
+    ),
+)
+
+
+ATTRIBUTE_MC_PROBES = {
+    "political_views": POLITICAL_VIEW_PROBES,
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -203,8 +329,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-per-class", type=int, default=4)
     parser.add_argument("--seeds", default="1337")
     parser.add_argument("--alphas", default="0.25,0.5,1.0")
+    parser.add_argument(
+        "--attribute-mc-eval",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Evaluate attribute response-mean vectors on no-context rotated MC probes.",
+    )
+    parser.add_argument(
+        "--attribute-mc-rotations",
+        default="0,1,2,3",
+        help="Comma-separated A-D option rotations for attribute MC probes.",
+    )
     parser.add_argument("--extraction-batch-size", type=int, default=2)
     parser.add_argument("--score-batch-size", type=int, default=6)
+    parser.add_argument(
+        "--steering-positions",
+        choices=["last", "all_prompt"],
+        default="last",
+        help=(
+            "Where to apply ActAdd during MC scoring. 'last' matches the old "
+            "single-token intervention; 'all_prompt' matches assistant-axis style "
+            "prefill steering over every prompt token."
+        ),
+    )
     parser.add_argument("--remote", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--env-file",
@@ -790,6 +937,7 @@ def score_shared_mc_for_persona_vectors(
     score_batch_size: int,
     mc_items_per_persona: int,
     seed: int,
+    steering_positions: str,
 ) -> list[dict]:
     rows: list[dict] = []
     prompts: list[str] = []
@@ -916,6 +1064,7 @@ def score_shared_mc_for_persona_vectors(
                         steering_layer=layer,
                         steering_vector=vector,
                         steering_alpha=alpha,
+                        steering_positions=steering_positions,
                     )
                     steered_logprobs.extend(lp)
                     steered_probs.extend(prob)
@@ -949,6 +1098,159 @@ def score_shared_mc_for_persona_vectors(
                             "choice_logprobs": [float(value) for value in lp.tolist()],
                         }
                     )
+
+    return rows
+
+
+def score_attribute_mc_probes(
+    model: StandardizedTransformer,
+    *,
+    personas: dict[str, PersonaRecord],
+    attribute: str,
+    true_vector: torch.Tensor,
+    shuffled_vector: torch.Tensor,
+    layer: int,
+    alphas: list[float],
+    rotations: list[int],
+    remote: bool,
+    score_batch_size: int,
+    seed: int,
+    steering_positions: str,
+) -> list[dict]:
+    if attribute not in ATTRIBUTE_MC_PROBES:
+        raise ValueError(f"No attribute MC probes registered for {attribute!r}")
+    if not personas:
+        raise ValueError("Attribute MC scoring needs at least one reference persona")
+
+    reference_persona = personas[sorted(personas)[0]].to_persona_data()
+    rows: list[dict] = []
+    prompts: list[str] = []
+    prompt_lens: list[int] = []
+    choice_ids_list: list[list[int]] = []
+    eval_meta: list[dict] = []
+
+    for base_probe in ATTRIBUTE_MC_PROBES[attribute]:
+        for rotation in rotations:
+            probe = rotate_substantive_options(base_probe, rotation)
+            qa = probe.to_qa()
+            prompt, prompt_len = render_mc_generation_prompt(
+                model.tokenizer,
+                persona=reference_persona,
+                qa=qa,
+                condition="bare",
+            )
+            _, choice_ids = choice_token_ids(model.tokenizer, qa)
+            prompts.append(prompt)
+            prompt_lens.append(prompt_len)
+            choice_ids_list.append(choice_ids)
+            eval_meta.append(
+                {
+                    "attribute": attribute,
+                    "seed": seed,
+                    "probe_id": probe.qid,
+                    "base_probe_id": base_probe.qid,
+                    "option_rotation": rotation % 4,
+                    "question": probe.question,
+                    "choices": list(probe.choices),
+                    "positive_choice_index": probe.positive_choice_index,
+                    "negative_choice_index": probe.negative_choice_index,
+                    "positive_letter": chr(ord("A") + probe.positive_choice_index),
+                    "negative_letter": chr(ord("A") + probe.negative_choice_index),
+                }
+            )
+
+    def append_score_rows(
+        *,
+        condition: str,
+        alpha: float | None,
+        steering_factor: float | None,
+        vector_name: str | None,
+        logprobs: list[torch.Tensor],
+        probs: list[torch.Tensor],
+    ) -> None:
+        for meta, lp, prob in zip(eval_meta, logprobs, probs, strict=True):
+            pos_idx = int(meta["positive_choice_index"])
+            neg_idx = int(meta["negative_choice_index"])
+            pred_idx = int(lp.argmax().item())
+            rows.append(
+                {
+                    **meta,
+                    "condition": condition,
+                    "alpha": alpha,
+                    "steering_factor": steering_factor,
+                    "vector": vector_name,
+                    "predicted_letter": chr(ord("A") + pred_idx),
+                    "predicted_choice_index": pred_idx,
+                    "predicted_positive": pred_idx == pos_idx,
+                    "predicted_negative": pred_idx == neg_idx,
+                    "predicted_unsure": pred_idx == 4,
+                    "positive_prob": float(prob[pos_idx].item()),
+                    "negative_prob": float(prob[neg_idx].item()),
+                    "positive_minus_negative_prob": float(
+                        prob[pos_idx].item() - prob[neg_idx].item()
+                    ),
+                    "positive_logprob": float(lp[pos_idx].item()),
+                    "negative_logprob": float(lp[neg_idx].item()),
+                    "positive_minus_negative_logprob": float(
+                        lp[pos_idx].item() - lp[neg_idx].item()
+                    ),
+                    "choice_probs": [float(value) for value in prob.tolist()],
+                    "choice_logprobs": [float(value) for value in lp.tolist()],
+                }
+            )
+
+    bare_logprobs: list[torch.Tensor] = []
+    bare_probs: list[torch.Tensor] = []
+    for start, end in chunked_indices(len(prompts), score_batch_size):
+        lp, prob = score_choice_distribution_batched(
+            model,
+            prompts[start:end],
+            prompt_lens[start:end],
+            choice_ids_list[start:end],
+            remote=remote,
+        )
+        bare_logprobs.extend(lp)
+        bare_probs.extend(prob)
+    append_score_rows(
+        condition="bare",
+        alpha=None,
+        steering_factor=None,
+        vector_name=None,
+        logprobs=bare_logprobs,
+        probs=bare_probs,
+    )
+
+    for alpha in alphas:
+        vector_conditions = [
+            ("true_positive_direction", true_vector, alpha, "true_attribute"),
+            ("true_negative_direction", true_vector, -alpha, "true_attribute"),
+            ("shuffled_positive_direction", shuffled_vector, alpha, "shuffled_control"),
+        ]
+        for condition, vector, steering_factor, vector_name in vector_conditions:
+            steered_logprobs: list[torch.Tensor] = []
+            steered_probs: list[torch.Tensor] = []
+            for start, end in chunked_indices(len(prompts), score_batch_size):
+                lp, prob = score_choice_distribution_batched(
+                    model,
+                    prompts[start:end],
+                    prompt_lens[start:end],
+                    choice_ids_list[start:end],
+                    remote=remote,
+                    steering_layer=layer,
+                    steering_vector=vector,
+                    steering_alpha=steering_factor,
+                    steering_positions=steering_positions,
+                )
+                steered_logprobs.extend(lp)
+                steered_probs.extend(prob)
+            append_score_rows(
+                condition=condition,
+                alpha=alpha,
+                steering_factor=steering_factor,
+                vector_name=vector_name,
+                logprobs=steered_logprobs,
+                probs=steered_probs,
+            )
 
     return rows
 
@@ -1005,6 +1307,103 @@ def summarize_mc_scores(rows: list[dict]) -> dict:
     return summary
 
 
+def summarize_attribute_mc_scores(rows: list[dict]) -> dict:
+    if not rows:
+        return {}
+    grouped: dict[tuple[str, int, str, float | None, str], list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[
+            (
+                row["attribute"],
+                int(row["seed"]),
+                row["condition"],
+                row["alpha"],
+                "all",
+            )
+        ].append(row)
+        grouped[
+            (
+                row["attribute"],
+                int(row["seed"]),
+                row["condition"],
+                row["alpha"],
+                f"rotation={row['option_rotation']}",
+            )
+        ].append(row)
+
+    bare_by_probe = {
+        (row["attribute"], row["seed"], row["probe_id"]): row
+        for row in rows
+        if row["condition"] == "bare"
+    }
+    summary: dict[str, dict] = {}
+    for (attribute, seed, condition, alpha, slice_name), condition_rows in sorted(
+        grouped.items(),
+        key=lambda item: (
+            item[0][0],
+            item[0][1],
+            item[0][2],
+            -1 if item[0][3] is None else item[0][3],
+            item[0][4],
+        ),
+    ):
+        n_rows = len(condition_rows)
+        mean_margin_logprob = (
+            sum(row["positive_minus_negative_logprob"] for row in condition_rows) / n_rows
+        )
+        mean_margin_prob = (
+            sum(row["positive_minus_negative_prob"] for row in condition_rows) / n_rows
+        )
+        payload = {
+            "n": n_rows,
+            "mean_positive_minus_negative_logprob": mean_margin_logprob,
+            "mean_positive_minus_negative_prob": mean_margin_prob,
+            "predicted_positive_rate": sum(
+                int(row["predicted_positive"]) for row in condition_rows
+            )
+            / n_rows,
+            "predicted_negative_rate": sum(
+                int(row["predicted_negative"]) for row in condition_rows
+            )
+            / n_rows,
+            "predicted_unsure_rate": sum(
+                int(row["predicted_unsure"]) for row in condition_rows
+            )
+            / n_rows,
+            "predicted_letter_counts": dict(
+                Counter(row["predicted_letter"] for row in condition_rows)
+            ),
+        }
+        if condition != "bare":
+            comparable = []
+            for row in condition_rows:
+                bare = bare_by_probe.get((row["attribute"], row["seed"], row["probe_id"]))
+                if bare is not None:
+                    comparable.append((row, bare))
+            if comparable:
+                payload["delta_vs_bare_positive_minus_negative_logprob"] = sum(
+                    row["positive_minus_negative_logprob"]
+                    - bare["positive_minus_negative_logprob"]
+                    for row, bare in comparable
+                ) / len(comparable)
+                payload["delta_vs_bare_positive_minus_negative_prob"] = sum(
+                    row["positive_minus_negative_prob"]
+                    - bare["positive_minus_negative_prob"]
+                    for row, bare in comparable
+                ) / len(comparable)
+                payload["changed_predicted_letter_rate"] = sum(
+                    int(row["predicted_letter"] != bare["predicted_letter"])
+                    for row, bare in comparable
+                ) / len(comparable)
+        summary[
+            (
+                f"attribute={attribute}::seed={seed}::condition={condition}"
+                f"::alpha={alpha}::{slice_name}"
+            )
+        ] = payload
+    return summary
+
+
 def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
     with path.open("w") as handle:
         for row in rows:
@@ -1021,6 +1420,9 @@ def main() -> None:
 
     seeds = parse_int_csv(args.seeds)
     alphas = parse_float_csv(args.alphas)
+    attribute_mc_rotations = parse_int_csv(args.attribute_mc_rotations)
+    if args.attribute_mc_eval and args.attribute not in ATTRIBUTE_MC_PROBES:
+        raise ValueError(f"No attribute MC probes registered for {args.attribute!r}")
     out_dir = args.out_dir or default_output_dir(
         model_name=args.model,
         layer=args.layer,
@@ -1094,8 +1496,11 @@ def main() -> None:
         "train_per_class": args.train_per_class,
         "seeds": seeds,
         "alphas": alphas,
+        "attribute_mc_eval": args.attribute_mc_eval,
+        "attribute_mc_rotations": attribute_mc_rotations,
         "extraction_batch_size": args.extraction_batch_size,
         "score_batch_size": args.score_batch_size,
+        "steering_positions": args.steering_positions,
         "remote": args.remote,
         "dry_run": args.dry_run,
         "attribute_spec": {
@@ -1161,6 +1566,7 @@ def main() -> None:
 
     vector_payload: dict[str, torch.Tensor] = {}
     projection: list[dict] = []
+    attribute_mc_rows: list[dict] = []
     mc_rows: list[dict] = []
     persona_vectors: dict[str, torch.Tensor] = {}
 
@@ -1180,6 +1586,7 @@ def main() -> None:
             score_batch_size=args.score_batch_size,
             mc_items_per_persona=args.mc_items_per_persona,
             seed=seeds[0],
+            steering_positions=args.steering_positions,
         )
         write_jsonl(out_dir / "shared_mc_scores.jsonl", mc_rows)
 
@@ -1275,7 +1682,26 @@ def main() -> None:
                     vector_name="shuffled_control",
                 )
             )
+            if args.attribute_mc_eval:
+                attribute_mc_rows.extend(
+                    score_attribute_mc_probes(
+                        model,
+                        personas=personas,
+                        attribute=args.attribute,
+                        true_vector=true_vector,
+                        shuffled_vector=shuffled_vector,
+                        layer=args.layer,
+                        alphas=alphas,
+                        rotations=attribute_mc_rotations,
+                        remote=args.remote,
+                        score_batch_size=args.score_batch_size,
+                        seed=seed,
+                        steering_positions=args.steering_positions,
+                    )
+                )
         write_jsonl(out_dir / "attribute_projection.jsonl", projection)
+        if attribute_mc_rows:
+            write_jsonl(out_dir / "attribute_mc_scores.jsonl", attribute_mc_rows)
 
     torch.save(vector_payload, out_dir / "vectors.pt")
 
@@ -1287,10 +1713,14 @@ def main() -> None:
             "vector_count": len(vector_payload),
             "shared_mc_score_rows": len(mc_rows),
             "attribute_projection_rows": len(projection),
+            "attribute_mc_score_rows": len(attribute_mc_rows),
         },
         "persona_shared_mc_summary": summarize_mc_scores(mc_rows) if mc_rows else {},
         "attribute_projection_summary": summarize_projection(projection)
         if projection
+        else {},
+        "attribute_mc_summary": summarize_attribute_mc_scores(attribute_mc_rows)
+        if attribute_mc_rows
         else {},
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
