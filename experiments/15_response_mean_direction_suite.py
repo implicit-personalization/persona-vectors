@@ -1220,11 +1220,22 @@ def score_attribute_mc_probes(
         probs=bare_probs,
     )
 
+    shuffled_norm = shuffled_vector.float().norm()
+    true_norm = true_vector.float().norm()
+    if float(shuffled_norm.item()) == 0.0:
+        shuffled_norm_matched_vector = shuffled_vector
+    else:
+        shuffled_norm_matched_vector = shuffled_vector * (true_norm / shuffled_norm)
     for alpha in alphas:
         vector_conditions = [
             ("true_positive_direction", true_vector, alpha, "true_attribute"),
             ("true_negative_direction", true_vector, -alpha, "true_attribute"),
-            ("shuffled_positive_direction", shuffled_vector, alpha, "shuffled_control"),
+            (
+                "shuffled_norm_matched_positive_direction",
+                shuffled_norm_matched_vector,
+                alpha,
+                "shuffled_norm_matched_control",
+            ),
         ]
         for condition, vector, steering_factor, vector_name in vector_conditions:
             steered_logprobs: list[torch.Tensor] = []
