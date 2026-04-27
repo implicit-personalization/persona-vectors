@@ -55,6 +55,7 @@ results/
 outputs/
 artifacts/
 logs/
+archive/
 *.json.bak
 *.jsonl
 *.jsonl.bak
