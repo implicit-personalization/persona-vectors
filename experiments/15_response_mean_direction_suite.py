@@ -1574,6 +1574,21 @@ def main() -> None:
     (out_dir / "skipped_extractions.json").write_text(
         json.dumps(skipped_rows, indent=2)
     )
+    torch.save(
+        {
+            "acts": acts.detach().cpu(),
+            "kept_rows": kept_rows,
+            "skipped_rows": skipped_rows,
+            "layer": args.layer,
+            "model": args.model,
+            "mode": args.mode,
+            "attribute": args.attribute,
+            "qa_filter": args.qa_filter,
+            "context_mode": args.context_mode,
+            "selected_personas": persona_ids,
+        },
+        out_dir / "activation_means.pt",
+    )
 
     vector_payload: dict[str, torch.Tensor] = {}
     projection: list[dict] = []
@@ -1721,6 +1736,7 @@ def main() -> None:
             **metadata,
             "kept_extractions": len(kept_rows),
             "skipped_extractions": len(skipped_rows),
+            "activation_means_path": str(out_dir / "activation_means.pt"),
             "vector_count": len(vector_payload),
             "shared_mc_score_rows": len(mc_rows),
             "attribute_projection_rows": len(projection),
