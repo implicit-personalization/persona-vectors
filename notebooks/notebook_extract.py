@@ -8,6 +8,7 @@ from rich.table import Table
 
 from persona_vectors.artifacts import SUPPORTED_VARIANTS
 from persona_vectors.extraction import MaskStrategy, run_extraction
+from persona_vectors.extraction_pertoken import run_pertoken_extraction
 
 console = Console()
 
@@ -85,3 +86,28 @@ results = run_extraction(
 
 for r in results:
     print(f"Saved {r.variant} activations to {r.output_dir} ({r.n_questions} examples)")
+
+# %% Per-token extraction for SAE pipeline
+print("\n" + "="*50)
+print("Running per-token extraction for SAE pipeline...")
+print("="*50)
+
+# Configuration for per-token extraction
+LAYERS_PERTOKEN = [20]  # Same layer as used in regular extraction for consistency
+REMOTE_PERTOKEN = REMOTE  # Use same remote setting
+
+# Run per-token extraction for both prompt variants
+results_pertoken = run_pertoken_extraction(
+    model=model,
+    model_name=MODEL_NAME,
+    persona=persona,
+    qa_pairs=qa_pairs,
+    variants=("templated", "biography"),
+    layers=LAYERS_PERTOKEN,
+    remote=REMOTE_PERTOKEN,
+)
+
+for r in results_pertoken:
+    print(
+        f"Saved {r.variant} ({r.n_questions} questions × {len(r.layers)} layers) → {r.output_dir}"
+    )
