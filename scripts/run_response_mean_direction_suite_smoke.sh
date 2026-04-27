@@ -21,6 +21,7 @@ ATTRIBUTE_MC_ROTATIONS="${ATTRIBUTE_MC_ROTATIONS:-0,1,2,3}"
 EXTRACTION_BATCH_SIZE="${EXTRACTION_BATCH_SIZE:-2}"
 SCORE_BATCH_SIZE="${SCORE_BATCH_SIZE:-4}"
 STEERING_POSITIONS="${STEERING_POSITIONS:-last}"
+ACTIVATION_CACHE="${ACTIVATION_CACHE:-}"
 DRY_RUN="${DRY_RUN:-0}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/artifacts/experiments/response_mean_direction_suite/${RUN_ID}__gemma2-9b-it__layer_${LAYER}__${MODE}__${QA_FILTER}_smoke}"
@@ -58,6 +59,10 @@ cmd=(
 
 if [[ "$ATTRIBUTE_MC_EVAL" == "1" || "$ATTRIBUTE_MC_EVAL" == "true" ]]; then
   cmd+=(--attribute-mc-eval --attribute-mc-rotations "$ATTRIBUTE_MC_ROTATIONS")
+fi
+
+if [[ -n "$ACTIVATION_CACHE" ]]; then
+  cmd+=(--activation-cache "$ACTIVATION_CACHE")
 fi
 
 if [[ "$DRY_RUN" == "1" || "$DRY_RUN" == "true" ]]; then

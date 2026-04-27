@@ -343,6 +343,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--extraction-batch-size", type=int, default=2)
     parser.add_argument("--score-batch-size", type=int, default=6)
     parser.add_argument(
+        "--activation-cache",
+        type=Path,
+        default=None,
+        help=(
+            "Optional activation_means.pt from a previous run with the same "
+            "model/layer/mode/attribute/filter/persona selection. When set, "
+            "extraction is skipped and only downstream vector/scoring work runs."
+        ),
+    )
+    parser.add_argument(
         "--steering-positions",
         choices=["last", "all_prompt"],
         default="last",
@@ -1421,6 +1431,71 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row) + "\n")
 
 
+def save_activation_cache(
+    path: Path,
+    *,
+    acts: torch.Tensor,
+    kept_rows: list[dict],
+    skipped_rows: list[dict],
+    args: argparse.Namespace,
+    persona_ids: list[str],
+) -> None:
+    torch.save(
+        {
+            "acts": acts.detach().cpu(),
+            "kept_rows": kept_rows,
+            "skipped_rows": skipped_rows,
+            "layer": args.layer,
+            "model": args.model,
+            "mode": args.mode,
+            "attribute": args.attribute,
+            "qa_filter": args.qa_filter,
+            "context_mode": args.context_mode,
+            "selected_personas": persona_ids,
+        },
+        path,
+    )
+
+
+def load_activation_cache(
+    path: Path,
+    *,
+    args: argparse.Namespace,
+    persona_ids: list[str],
+) -> tuple[torch.Tensor, list[dict], list[dict]]:
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    expected = {
+        "layer": args.layer,
+        "model": args.model,
+        "mode": args.mode,
+        "attribute": args.attribute,
+        "qa_filter": args.qa_filter,
+        "context_mode": args.context_mode,
+        "selected_personas": persona_ids,
+    }
+    mismatches = {
+        key: {"expected": value, "actual": payload.get(key)}
+        for key, value in expected.items()
+        if payload.get(key) != value
+    }
+    if mismatches:
+        raise ValueError(
+            "Activation cache metadata mismatch: "
+            + json.dumps(mismatches, indent=2, default=str)
+        )
+
+    acts = payload["acts"].float()
+    kept_rows = list(payload["kept_rows"])
+    skipped_rows = list(payload["skipped_rows"])
+    if acts.ndim != 2:
+        raise ValueError(f"Expected cached acts with shape (n, hidden), got {acts.shape}")
+    if acts.shape[0] != len(kept_rows):
+        raise ValueError(
+            f"Cached acts/rows mismatch: {acts.shape[0]} acts vs {len(kept_rows)} rows"
+        )
+    return acts, kept_rows, skipped_rows
+
+
 def main() -> None:
     args = parse_args()
     load_dotenv()
@@ -1511,6 +1586,7 @@ def main() -> None:
         "attribute_mc_rotations": attribute_mc_rotations,
         "extraction_batch_size": args.extraction_batch_size,
         "score_batch_size": args.score_batch_size,
+        "activation_cache": str(args.activation_cache) if args.activation_cache else None,
         "steering_positions": args.steering_positions,
         "remote": args.remote,
         "dry_run": args.dry_run,
@@ -1553,41 +1629,42 @@ def main() -> None:
 
     set_seed(seeds[0])
     model = StandardizedTransformer(args.model)
-    input_ids, token_masks, extraction_rows = build_extraction_inputs(
-        model,
-        personas=personas,
-        free_rows=selected_free_rows,
-        context_mode=args.context_mode,
-        max_context_chars=args.max_context_chars,
-    )
-    acts, kept_rows, skipped_rows = extract_with_adaptive_batches(
-        model,
-        input_ids_list=input_ids,
-        token_masks=token_masks,
-        rows=extraction_rows,
-        layer=args.layer,
-        remote=args.remote,
-        batch_size=args.extraction_batch_size,
-        label="response_mean",
-    )
+    if args.activation_cache is None:
+        input_ids, token_masks, extraction_rows = build_extraction_inputs(
+            model,
+            personas=personas,
+            free_rows=selected_free_rows,
+            context_mode=args.context_mode,
+            max_context_chars=args.max_context_chars,
+        )
+        acts, kept_rows, skipped_rows = extract_with_adaptive_batches(
+            model,
+            input_ids_list=input_ids,
+            token_masks=token_masks,
+            rows=extraction_rows,
+            layer=args.layer,
+            remote=args.remote,
+            batch_size=args.extraction_batch_size,
+            label="response_mean",
+        )
+    else:
+        acts, kept_rows, skipped_rows = load_activation_cache(
+            args.activation_cache,
+            args=args,
+            persona_ids=persona_ids,
+        )
+
     write_jsonl(out_dir / "extraction_rows.jsonl", kept_rows)
     (out_dir / "skipped_extractions.json").write_text(
         json.dumps(skipped_rows, indent=2)
     )
-    torch.save(
-        {
-            "acts": acts.detach().cpu(),
-            "kept_rows": kept_rows,
-            "skipped_rows": skipped_rows,
-            "layer": args.layer,
-            "model": args.model,
-            "mode": args.mode,
-            "attribute": args.attribute,
-            "qa_filter": args.qa_filter,
-            "context_mode": args.context_mode,
-            "selected_personas": persona_ids,
-        },
+    save_activation_cache(
         out_dir / "activation_means.pt",
+        acts=acts,
+        kept_rows=kept_rows,
+        skipped_rows=skipped_rows,
+        args=args,
+        persona_ids=persona_ids,
     )
 
     vector_payload: dict[str, torch.Tensor] = {}
