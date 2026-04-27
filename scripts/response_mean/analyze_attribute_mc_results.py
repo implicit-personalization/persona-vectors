@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import torch
+
 
 DEFAULT_ROOT = Path(
     "/Users/hengxuli/Repos/implicit-personalization/persona-vectors/"
@@ -92,6 +94,31 @@ def available_alphas(metadata: dict[str, Any], mc: dict[str, Any]) -> list[float
     return sorted(parsed)
 
 
+def vector_norms(artifact_dir: Path, attribute: str) -> dict[str, Any]:
+    path = artifact_dir / "vectors.pt"
+    if not path.exists():
+        return {
+            "true_vector_norm": "",
+            "shuffled_vector_norm": "",
+            "shuffled_to_true_norm_ratio": "",
+        }
+    payload = torch.load(path, map_location="cpu")
+    true_vector = payload.get(f"attribute::{attribute}::seed_1337")
+    shuffled_vector = payload.get(f"attribute_control::{attribute}::seed_1337")
+    true_norm = float(true_vector.float().norm().item()) if true_vector is not None else ""
+    shuffled_norm = (
+        float(shuffled_vector.float().norm().item()) if shuffled_vector is not None else ""
+    )
+    ratio: float | str = ""
+    if isinstance(true_norm, float) and isinstance(shuffled_norm, float) and true_norm != 0.0:
+        ratio = shuffled_norm / true_norm
+    return {
+        "true_vector_norm": true_norm,
+        "shuffled_vector_norm": shuffled_norm,
+        "shuffled_to_true_norm_ratio": ratio,
+    }
+
+
 def summarize_one(summary_path: Path) -> list[dict[str, Any]]:
     summary = json.loads(summary_path.read_text())
     metadata = summary.get("metadata", {})
@@ -101,6 +128,7 @@ def summarize_one(summary_path: Path) -> list[dict[str, Any]]:
         return []
 
     attribute = str(metadata.get("attribute", ""))
+    norms = vector_norms(summary_path.parent, attribute)
     rows: list[dict[str, Any]] = []
     for alpha in available_alphas(metadata, mc):
         rows.append(
@@ -115,6 +143,7 @@ def summarize_one(summary_path: Path) -> list[dict[str, Any]]:
                 "kept_extractions": metadata.get("kept_extractions", ""),
                 "skipped_extractions": metadata.get("skipped_extractions", ""),
                 "attribute_mc_score_rows": metadata.get("attribute_mc_score_rows", ""),
+                **norms,
                 "alpha": alpha,
                 "train_true_auc": projection_metric(
                     projection,
@@ -210,6 +239,9 @@ def main() -> None:
         "kept_extractions",
         "skipped_extractions",
         "attribute_mc_score_rows",
+        "true_vector_norm",
+        "shuffled_vector_norm",
+        "shuffled_to_true_norm_ratio",
         "alpha",
         "train_true_auc",
         "heldout_true_auc",
