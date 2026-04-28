@@ -37,6 +37,7 @@ class SteerConfig:
     persona_id: str
     model: str
     layer: int
+    mask_strategy: MaskStrategy
     activations_dir: Path
     out_dir: Path
 
@@ -91,6 +92,13 @@ def build_steer_parser(subparsers) -> None:
     steer.add_argument("--model", default="google/gemma-2-9b-it", help="HF Model ID")
     steer.add_argument(
         "--layer", type=int, default=STEER_LAYER, help="Layer for steering vector"
+    )
+    steer.add_argument(
+        "--mask-strategy",
+        type=MaskStrategy,
+        choices=list(MaskStrategy),
+        default=MaskStrategy.ANSWER_MEAN,
+        help="Which saved activations to load (default: answer_mean)",
     )
     steer.add_argument(
         "--activations-dir",

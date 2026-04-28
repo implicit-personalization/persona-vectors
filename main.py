@@ -19,7 +19,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
     import persona_vectors.activations as activations_mod
     from persona_vectors.extraction import run_extraction
 
-    activations_mod._LAYER_CHUNK_SIZE = 8 if cfg.remote else None
+    # activations_mod._LAYER_CHUNK_SIZE = 8 if cfg.remote else None
 
     model = StandardizedTransformer(cfg.model)
     dataset = SynthPersonaDataset()
@@ -60,6 +60,7 @@ def steer_activations(cfg: SteerConfig) -> None:
         persona_id=cfg.persona_id,
         model_name=cfg.model,
         layer_idx=cfg.layer,
+        mask_strategy=cfg.mask_strategy,
         activations_dir=cfg.activations_dir,
     )
 
@@ -98,6 +99,7 @@ def main() -> None:
             persona_id=args.persona_id,
             model=args.model,
             layer=args.layer,
+            mask_strategy=args.mask_strategy,
             activations_dir=Path(args.activations_dir),
             out_dir=Path(args.out),
         )

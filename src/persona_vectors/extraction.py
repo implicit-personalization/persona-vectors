@@ -31,13 +31,15 @@ class MaskStrategy(StrEnum):
     """Which tokens contribute to the averaged hidden state.
 
     ``persona_*`` averages the persona/system-prompt prefix, ``question_*``
-    targets the user question, and ``answer_*`` targets the assistant answer.
+    targets the user question, and ``answer_*`` targets the assistant answer
+    or the token immediately before it.
     """
 
     PERSONA_MEAN = "persona_mean"
     PERSONA_LAST = "persona_last"
     QUESTION_LAST = "question_last"
     QUESTION_LAST_SPECIAL = "question_last_special"
+    ANSWER_PREVIOUS = "answer_previous"
     ANSWER_FIRST = "answer_first"
     ANSWER_LAST = "answer_last"
     ANSWER_MEAN = "answer_mean"
@@ -71,7 +73,9 @@ class PreparedInput:
     """A single formatted sample ready for activation extraction.
 
     Attributes:
-        question: Original user question text (used for artifact metadata).
+        sample_id: Stable dataset sample id, used to verify alignment across
+            prompt variants.
+        question: Original user question text.
         prompt_text: Fully rendered chat prompt used for tokenization.
         spans: Semantic token/character spans for template, question, answer.
         offset_mapping: Token-level character offsets for ``prompt_text``.
@@ -80,26 +84,13 @@ class PreparedInput:
             contribute to the averaged hidden state.
     """
 
+    sample_id: str
     question: str
     prompt_text: str
     spans: PromptSpans
     offset_mapping: list[tuple[int, int]]
     input_ids: torch.Tensor
     token_mask: torch.Tensor
-
-
-def _build_messages(qa: QAPair, system_prompt: str) -> list[dict[str, str]]:
-    if qa.answer_format == "choice" and qa.correct_choice_index is not None:
-        user_content = format_mc_question(qa)
-        answer_content = mc_correct_letter(qa)
-    else:
-        user_content = qa.question
-        answer_content = qa.answer
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-        {"role": "assistant", "content": answer_content},
-    ]
 
 
 def _build_mask(
@@ -126,6 +117,11 @@ def _build_mask(
         mask[spans.template.token_end - 1] = True
     elif strategy is MaskStrategy.ANSWER_MEAN:
         mask[answer_start:answer_end] = True
+    elif strategy is MaskStrategy.ANSWER_PREVIOUS:
+        idx = answer_start - 1
+        if idx < 0:
+            raise ValueError("Expected a token immediately before answer span")
+        mask[idx] = True
     elif strategy is MaskStrategy.ANSWER_FIRST:
         mask[answer_start] = True
     elif strategy is MaskStrategy.ANSWER_LAST:
@@ -282,7 +278,18 @@ def prepare_inputs(
     prepared: list[PreparedInput] = []
     special_ids = set(tokenizer.all_special_ids)
     for qa in qa_pairs:
-        messages = _build_messages(qa, system_prompt)
+        if qa.answer_format == "choice" and qa.correct_choice_index is not None:
+            user_content = format_mc_question(qa)
+            answer_content = mc_correct_letter(qa)
+        else:
+            user_content = qa.question
+            answer_content = qa.answer
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": answer_content},
+        ]
         full_prompt, _ = format_messages(messages, tokenizer)
         encoding = tokenizer(
             full_prompt,
@@ -308,6 +315,7 @@ def prepare_inputs(
         )
         prepared.append(
             PreparedInput(
+                sample_id=qa.qid,
                 question=qa.question,
                 prompt_text=full_prompt,
                 spans=spans,
@@ -317,6 +325,61 @@ def prepare_inputs(
             )
         )
     return prepared
+
+
+def _prepare_inputs_for_strategy(
+    tokenizer,
+    system_prompt: str,
+    qa_pairs: list[QAPair],
+    mask_strategy: MaskStrategy,
+) -> list[PreparedInput]:
+    """Prepare the smallest useful batch for the requested mask strategy."""
+
+    if mask_strategy in (MaskStrategy.PERSONA_MEAN, MaskStrategy.PERSONA_LAST):
+        prompt_text = system_prompt.strip()
+        if not prompt_text:
+            raise ValueError(
+                "persona mask strategies require a non-empty system prompt"
+            )
+
+        encoding = tokenizer(
+            prompt_text,
+            return_offsets_mapping=True,
+            return_tensors="pt",
+            add_special_tokens=False,
+        )
+        input_ids = encoding.input_ids[0]
+        offsets = [tuple(pair) for pair in encoding.offset_mapping[0].tolist()]
+        spans = _char_span_to_token_span(offsets, 0, len(prompt_text))
+        prompt_spans = PromptSpans(template=spans, question=spans, response=spans)
+        mask = _build_mask(
+            input_ids.shape[0],
+            prompt_spans,
+            mask_strategy,
+            input_ids=input_ids,
+            special_ids=set(tokenizer.all_special_ids),
+        )
+        return [
+            PreparedInput(
+                sample_id="prompt_only",
+                question="prompt_only",
+                prompt_text=prompt_text,
+                spans=prompt_spans,
+                offset_mapping=offsets,
+                input_ids=input_ids,
+                token_mask=mask,
+            )
+        ]
+
+    if not qa_pairs:
+        raise ValueError("No QA pairs selected for extraction")
+
+    return prepare_inputs(
+        tokenizer=tokenizer,
+        system_prompt=system_prompt,
+        qa_pairs=qa_pairs,
+        mask_strategy=mask_strategy,
+    )
 
 
 def _render_sample(p: PreparedInput, tokenizer, max_tokens: int = 200) -> Text:
@@ -406,7 +469,8 @@ def run_extraction(
         One ExtractionResult per variant.
     """
     if not qa_pairs:
-        raise ValueError("No QA pairs selected for extraction")
+        if mask_strategy not in (MaskStrategy.PERSONA_MEAN, MaskStrategy.PERSONA_LAST):
+            raise ValueError("No QA pairs selected for extraction")
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")
 
@@ -415,7 +479,7 @@ def run_extraction(
 
     for variant in variants:
         system_prompt = system_prompt_for_variant(persona, variant)
-        prepared = prepare_inputs(
+        prepared = _prepare_inputs_for_strategy(
             tokenizer=model.tokenizer,
             system_prompt=system_prompt,
             qa_pairs=qa_pairs,
@@ -443,7 +507,8 @@ def run_extraction(
             persona.id,
             persona.name,
             vectors,
-            [p.question for p in prepared],
+            [p.sample_id for p in prepared],
+            mask_strategy=mask_strategy,
         )
 
         results.append(

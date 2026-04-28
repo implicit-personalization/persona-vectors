@@ -12,7 +12,7 @@ Extract persona-aligned activation vectors from language models and experiment w
 Given a set of personas and evaluation questions, this project:
 
 1. Formats each persona as a system prompt (short `templated` or long `biography`)
-2. Extracts hidden states at each layer (with support to then mask some specific tokens)
+2. Extracts hidden states at each layer with configurable token masking
 3. Averages those hidden states across questions to produce a **persona vector** per layer
 
 The resulting vectors can be compared across layers (cosine similarity) and eventually used for steering experiments.
@@ -90,16 +90,15 @@ selected persona.
 Each extraction produces:
 
 ```
-artifacts/activations/<model_dir>/<prompt_variant>/<persona_id>/
-├── activations.safetensors   # Per-question hidden states
-└── metadata.json            # persona_id, persona_name, questions, n_questions, num_layers, hidden_size
+artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
+├── manifest.json             # tensor shape, persona names, sample ids
+└── <persona_id>.safetensors
 ```
 
 `<model_dir>` is the model name with `/` replaced by `__`.
 
-The metadata stores the question text directly, so load-time analysis no longer needs
-to re-resolve qids from the dataset. It also stores tensor shape fields for validation
-at load time.
+The manifest stores compact sample ids (`qa.qid`) instead of full question text,
+plus tensor shape fields used for validation.
 
 ## CLI
 
@@ -115,4 +114,7 @@ python main.py analyze --out ./plots --similarity cosine
 
 # Run steering (example)
 python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id 005e1868-4e17-47e3-94fa-0d20e8d93662
+
+# Load steering activations extracted with a non-default mask strategy
+python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id <UUID> --mask-strategy answer_previous
 ```

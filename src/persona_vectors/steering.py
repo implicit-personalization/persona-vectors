@@ -37,6 +37,7 @@ def compute_steering_vector(
     persona_id: str,
     model_name: str,
     layer_idx: int = STEER_LAYER,
+    mask_strategy: object | None = None,
     activations_dir: Path | str | None = None,
     verbose: bool = True,
 ) -> dict:
@@ -63,14 +64,18 @@ def compute_steering_vector(
 
     # Load both positive (biography) and negative (templated) activations
     try:
-        pos_activations, pos_questions = store.load("biography", persona_id)
+        pos_activations, pos_sample_ids = store.load(
+            "biography", persona_id, mask_strategy=mask_strategy
+        )
     except FileNotFoundError:
         if verbose:
             print("✗ Biography activations not found. Run extraction first.")
         return {}
 
     try:
-        neg_activations, neg_questions = store.load("templated", persona_id)
+        neg_activations, neg_sample_ids = store.load(
+            "templated", persona_id, mask_strategy=mask_strategy
+        )
     except FileNotFoundError:
         if verbose:
             print("✗ Templated activations not found. Run extraction first.")
@@ -90,9 +95,8 @@ def compute_steering_vector(
     for i, (pos_act, neg_act) in enumerate(
         tqdm(zip(pos_activations, neg_activations), disable=not verbose)
     ):
-        # Verify QA alignment by question text
-        if pos_questions[i] != neg_questions[i]:
-            print(f"⚠ Warning: Question mismatch at index {i}")
+        if pos_sample_ids[i] != neg_sample_ids[i]:
+            print(f"Warning: sample id mismatch at index {i}")
 
         # pos_act shape: [num_layers, hidden_size] (already masked mean over response tokens)
         # Extract the layer we care about

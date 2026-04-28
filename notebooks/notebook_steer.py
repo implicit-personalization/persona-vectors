@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.artifacts import ActivationStore
+from persona_vectors.extraction import MaskStrategy
 from persona_vectors.steering import compute_steering_vector, save_steering_vector
 
 console = Console()
@@ -19,6 +20,7 @@ torch.set_grad_enabled(False)
 REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 STEER_LAYER = 20
+MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 
 # %% Load dataset
 dataset = SynthPersonaDataset()
@@ -38,7 +40,9 @@ store = ActivationStore(MODEL_NAME)
 # %% Load activations for both variants
 results = {}
 for variant in ["templated", "biography"]:
-    per_question_activations, _ = store.load(variant, persona.id)
+    per_question_activations, _ = store.load(
+        variant, persona.id, mask_strategy=MASK_STRATEGY
+    )
     results[variant] = per_question_activations
 
 print(f"Biography activations shape: {results['biography'].shape}")
@@ -49,6 +53,8 @@ sv_dict = compute_steering_vector(
     persona_id=persona.id,
     model_name=MODEL_NAME,
     layer_idx=STEER_LAYER,
+    mask_strategy=MASK_STRATEGY,
+    activations_dir=store.root_dir,
 )
 
 # %% Inspect steering vector

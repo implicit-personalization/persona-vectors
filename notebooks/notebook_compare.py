@@ -28,6 +28,7 @@ from persona_vectors.artifacts import (
     list_personas,
     load_persona_names,
 )
+from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import plot_layer_similarity, plot_similarity_matrix_grid
 
 console = Console()
@@ -37,9 +38,10 @@ load_dotenv()
 torch.set_grad_enabled(False)
 
 # Use 9b for remote (production), 2b for local testing
-REMOTE = False
-# REMOTE = True
+# REMOTE = False
+REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
+MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 
 # %% Load dataset and Activations
 dataset = SynthPersonaDataset()
@@ -57,13 +59,19 @@ console.print(dataset_table)
 available_variants = [
     variant
     for variant in SUPPORTED_VARIANTS
-    if list_personas(acts.root_dir, MODEL_NAME, [variant])
+    if list_personas(acts.root_dir, MODEL_NAME, [variant], mask_strategy=MASK_STRATEGY)
 ]
 console.print(f"Available variants: {available_variants}")
 
-persona_ids = list_personas(acts.root_dir, MODEL_NAME, available_variants)
+persona_ids = list_personas(
+    acts.root_dir, MODEL_NAME, available_variants, mask_strategy=MASK_STRATEGY
+)
 persona_names = load_persona_names(
-    acts.root_dir, MODEL_NAME, available_variants, persona_ids
+    acts.root_dir,
+    MODEL_NAME,
+    available_variants,
+    persona_ids,
+    mask_strategy=MASK_STRATEGY,
 )
 console.print(f"Personas with all variants: {len(persona_ids)}")
 
@@ -72,7 +80,7 @@ variant_means: dict[str, dict[str, torch.Tensor]] = {}
 for variant in available_variants:
     variant_means[variant] = {}
     for pid in persona_ids:
-        activations, _ = acts.load(variant, pid)
+        activations, _ = acts.load(variant, pid, mask_strategy=MASK_STRATEGY)
         variant_means[variant][pid] = activations.float().mean(dim=0)
 
 # %% Plot all variant pairs for each persona
@@ -89,6 +97,7 @@ for pid in persona_ids:
         pair_traces,
         title=f"Layer-wise Cosine Similarity — {persona_name}",
         # NOTE: This adds a lot of plot creations so currently disabled
+        # show=True,
         show=False,
     )
 

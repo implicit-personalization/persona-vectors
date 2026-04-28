@@ -1,28 +1,78 @@
 import json
 import os
+import warnings
 from pathlib import Path
 
 import torch
 from safetensors.torch import load_file, save_file
 
 SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography", "baseline")
+DEFAULT_MASK_STRATEGY = "answer_mean"
+MANIFEST_FILENAME = "manifest.json"
+TENSOR_KEY = "activations"
+TENSOR_SUFFIX = ".safetensors"
 
 
 def model_dir_name(model_name: str) -> str:
     return model_name.replace("/", "__")
 
 
-def _artifact_path(
+def _normalize_mask_strategy(mask_strategy: object | None) -> str:
+    if mask_strategy is None:
+        return DEFAULT_MASK_STRATEGY
+    return str(getattr(mask_strategy, "value", mask_strategy))
+
+
+def _variant_root(
     root_dir: str | Path,
     model_name: str,
     prompt_variant: str,
-    persona_id: str,
+    mask_strategy: object | None,
 ) -> Path:
-    return Path(root_dir) / model_dir_name(model_name) / prompt_variant / persona_id
+    return (
+        Path(root_dir)
+        / model_dir_name(model_name)
+        / _normalize_mask_strategy(mask_strategy)
+        / prompt_variant
+    )
+
+
+def _persona_tensor_path(variant_root: Path, persona_id: str) -> Path:
+    if "/" in persona_id or "\\" in persona_id:
+        raise ValueError(f"persona_id cannot contain path separators: {persona_id!r}")
+    return variant_root / f"{persona_id}{TENSOR_SUFFIX}"
+
+
+def _load_manifest(variant_root: Path) -> dict:
+    manifest_file = variant_root / MANIFEST_FILENAME
+    if not manifest_file.exists():
+        raise FileNotFoundError(manifest_file)
+    manifest = json.loads(manifest_file.read_text())
+    personas = manifest.get("personas")
+    if not isinstance(personas, dict):
+        raise ValueError(f"manifest {manifest_file} is missing a personas mapping")
+    return manifest
+
+
+def _variant_manifests(
+    root_dir: str | Path,
+    model_name: str,
+    variants: list[str],
+    mask_strategy: object | None,
+) -> list[dict]:
+    variant_roots = [
+        _variant_root(root_dir, model_name, variant, mask_strategy)
+        for variant in variants
+    ]
+    if not variant_roots or any(
+        not (root / MANIFEST_FILENAME).exists() for root in variant_roots
+    ):
+        return []
+    return [_load_manifest(root) for root in variant_roots]
 
 
 class ActivationStore:
-    """Artifact storage for per-question activation vectors under a root directory."""
+    """Artifact storage for masked-mean activation vectors."""
 
     def __init__(self, model_name: str, root_dir: str | Path | None = None) -> None:
         self.model_name = model_name
@@ -32,111 +82,131 @@ class ActivationStore:
             else Path(os.environ.get("ARTIFACTS_DIR", "artifacts")) / "activations"
         )
 
-    def _path(self, prompt_variant: str, persona_id: str) -> Path:
-        return _artifact_path(
-            self.root_dir, self.model_name, prompt_variant, persona_id
-        )
-
     def save(
         self,
         prompt_variant: str,
         persona_id: str,
         persona_name: str,
         per_question_vectors: torch.Tensor,
-        questions: list[str],
+        sample_ids: list[str],
+        mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
     ) -> Path:
-        """Save per-question activation vectors and metadata. Returns the artifact directory."""
         if per_question_vectors.ndim != 3:
             raise ValueError(
-                "per_question_vectors must have shape (n_questions, num_layers, hidden_size)"
+                "per_question_vectors must have shape (n_samples, num_layers, hidden_size)"
             )
-        if len(questions) != per_question_vectors.shape[0]:
-            raise ValueError("number of questions must match first tensor dimension")
+        if len(sample_ids) != per_question_vectors.shape[0]:
+            raise ValueError("number of sample ids must match first tensor dimension")
 
-        artifact_dir = self._path(prompt_variant, persona_id)
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-
-        n_questions, num_layers, hidden_size = per_question_vectors.shape
-
-        save_file(
-            {"per_question_vectors": per_question_vectors.detach().cpu()},
-            str(artifact_dir / "activations.safetensors"),
+        variant_root = _variant_root(
+            self.root_dir, self.model_name, prompt_variant, mask_strategy
         )
-        (artifact_dir / "metadata.json").write_text(
-            json.dumps(
-                {
-                    "persona_id": persona_id,
-                    "persona_name": persona_name,
-                    "questions": questions,
-                    "n_questions": n_questions,
-                    "num_layers": num_layers,
-                    "hidden_size": hidden_size,
-                },
-                indent=2,
+        variant_root.mkdir(parents=True, exist_ok=True)
+
+        manifest_path = variant_root / MANIFEST_FILENAME
+        manifest = (
+            _load_manifest(variant_root)
+            if manifest_path.exists()
+            else {
+                "num_layers": int(per_question_vectors.shape[1]),
+                "hidden_size": int(per_question_vectors.shape[2]),
+                "personas": {},
+            }
+        )
+        if manifest.get("num_layers") != int(
+            per_question_vectors.shape[1]
+        ) or manifest.get("hidden_size") != int(per_question_vectors.shape[2]):
+            raise ValueError(
+                f"tensor shape for {persona_id!r} does not match existing artifact manifest"
             )
-        )
-        return artifact_dir
+
+        tensor_path = _persona_tensor_path(variant_root, persona_id)
+        save_file({TENSOR_KEY: per_question_vectors.detach().cpu()}, str(tensor_path))
+
+        manifest["num_layers"] = int(per_question_vectors.shape[1])
+        manifest["hidden_size"] = int(per_question_vectors.shape[2])
+        manifest.setdefault("personas", {})[persona_id] = {
+            "name": persona_name,
+            "sample_ids": list(sample_ids),
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        return variant_root
 
     def load(
         self,
         prompt_variant: str,
         persona_id: str,
+        mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
     ) -> tuple[torch.Tensor, list[str]]:
-        """Load per-question vectors and questions. Returns (vectors, questions)."""
-        artifact_dir = self._path(prompt_variant, persona_id)
-        tensor_path = artifact_dir / "activations.safetensors"
-        metadata_path = artifact_dir / "metadata.json"
-
-        if not tensor_path.exists():
-            raise FileNotFoundError(tensor_path)
-        if not metadata_path.exists():
-            raise FileNotFoundError(metadata_path)
-
-        tensors = load_file(str(tensor_path))
-        if "per_question_vectors" not in tensors:
-            raise KeyError("Missing per_question_vectors in activations file")
-
-        vectors = tensors["per_question_vectors"]
-        if vectors.ndim != 3:
-            raise ValueError(
-                "per_question_vectors must have shape (n_questions, num_layers, hidden_size)"
+        requested = _normalize_mask_strategy(mask_strategy)
+        variant_root = _variant_root(
+            self.root_dir, self.model_name, prompt_variant, requested
+        )
+        manifest = _load_manifest(variant_root)
+        entry = manifest["personas"].get(persona_id)
+        if not isinstance(entry, dict):
+            raise FileNotFoundError(
+                f"No activations found for {self.model_name!r} / {prompt_variant!r} / {requested!r} / {persona_id!r}"
             )
 
-        metadata = json.loads(metadata_path.read_text())
-        questions = metadata.get("questions")
-        if not isinstance(questions, list):
-            raise ValueError("metadata questions must be a list")
-        if len(questions) != vectors.shape[0]:
-            raise ValueError("metadata questions length does not match tensor")
+        tensor_path = _persona_tensor_path(variant_root, persona_id)
+        if not tensor_path.exists():
+            raise FileNotFoundError(tensor_path)
+        tensors = load_file(str(tensor_path))
+        if TENSOR_KEY not in tensors:
+            raise FileNotFoundError(f"Missing {TENSOR_KEY!r} tensor in {tensor_path}")
 
-        return vectors, questions
+        vectors = tensors[TENSOR_KEY]
+        if vectors.ndim != 3:
+            raise ValueError(
+                f"tensor for {persona_id!r} must have shape (n_samples, num_layers, hidden_size)"
+            )
+
+        sample_ids = entry.get("sample_ids")
+        if not isinstance(sample_ids, list):
+            raise ValueError(
+                f"manifest entry for {persona_id} is missing sample ids"
+            )
+        if len(sample_ids) != vectors.shape[0]:
+            raise ValueError(
+                f"sample ids for {persona_id!r} do not match tensor length"
+            )
+        return vectors, [str(sample_id) for sample_id in sample_ids]
 
 
 def list_personas(
     root_dir: str | Path,
     model_name: str,
     variants: list[str],
+    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+    warn_missing: bool = True,
 ) -> list[str]:
-    """List persona ids available for every requested variant."""
+    if not variants:
+        return []
 
-    root = Path(root_dir)
-    shared_personas: set[str] | None = None
+    variant_roots = {
+        variant: _variant_root(root_dir, model_name, variant, mask_strategy)
+        for variant in variants
+    }
+    if any(not (root / MANIFEST_FILENAME).exists() for root in variant_roots.values()):
+        return []
 
-    for variant in variants:
-        model_dir = root / model_dir_name(model_name) / variant
-        if not model_dir.exists():
-            return []
+    variant_personas = {
+        variant: set(_load_manifest(root)["personas"].keys())
+        for variant, root in variant_roots.items()
+    }
+    shared = set.intersection(*variant_personas.values())
 
-        variant_personas = {d.name for d in model_dir.iterdir() if d.is_dir()}
-        shared_personas = (
-            variant_personas
-            if shared_personas is None
-            else shared_personas & variant_personas
-        )
-        if not shared_personas:
-            return []
+    if warn_missing and len(variant_personas) > 1:
+        all_personas = set.union(*variant_personas.values())
+        skipped = len(all_personas - shared)
+        if skipped:
+            warnings.warn(
+                f"Skipping {skipped} persona(s) missing one or more requested variants.",
+                stacklevel=2,
+            )
 
-    return sorted(shared_personas or set())
+    return sorted(shared)
 
 
 def load_persona_names(
@@ -144,26 +214,21 @@ def load_persona_names(
     model_name: str,
     variants: list[str],
     persona_ids: list[str],
+    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> dict[str, str]:
-    """Load display names from saved activation metadata."""
+    manifests = _variant_manifests(root_dir, model_name, variants, mask_strategy)
+    if not manifests:
+        return {}
 
     names: dict[str, str] = {}
     for persona_id in persona_ids:
-        for variant in variants:
-            metadata_path = (
-                _artifact_path(root_dir, model_name, variant, persona_id)
-                / "metadata.json"
-            )
-            try:
-                metadata = json.loads(metadata_path.read_text())
-            except (FileNotFoundError, json.JSONDecodeError, OSError):
-                continue
-
-            persona_name = metadata.get("persona_name")
-            if isinstance(persona_name, str) and persona_name:
-                names[persona_id] = persona_name
-                break
-
+        for manifest in manifests:
+            entry = manifest["personas"].get(persona_id)
+            if isinstance(entry, dict):
+                name = entry.get("name")
+                if isinstance(name, str) and name:
+                    names[persona_id] = name
+                    break
     return names
 
 
@@ -172,29 +237,25 @@ def list_layers(
     model_name: str,
     variants: list[str],
     persona_ids: list[str],
+    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> list[int]:
-    """List layer indices shared by all matching saved activation files."""
+    manifests = _variant_manifests(root_dir, model_name, variants, mask_strategy)
+    if not manifests:
+        return []
+
+    if persona_ids:
+        shared_personas = set.intersection(
+            *(set(manifest["personas"].keys()) for manifest in manifests)
+        )
+        if not set(persona_ids) <= shared_personas:
+            return []
 
     shared_layers: set[int] | None = None
-
-    for variant in variants:
-        for persona_id in persona_ids:
-            try:
-                metadata_path = (
-                    _artifact_path(root_dir, model_name, variant, persona_id)
-                    / "metadata.json"
-                )
-                metadata = json.loads(metadata_path.read_text())
-                num_layers = metadata["num_layers"]
-            except (FileNotFoundError, KeyError, TypeError, ValueError, OSError):
-                continue
-
-            if not isinstance(num_layers, int) or num_layers < 0:
-                continue
-
+    for manifest in manifests:
+        num_layers = manifest.get("num_layers")
+        if isinstance(num_layers, int) and num_layers >= 0:
             layers = set(range(num_layers))
             shared_layers = layers if shared_layers is None else shared_layers & layers
-
     return sorted(shared_layers or set())
 
 
@@ -204,20 +265,28 @@ def load_mean_activations(
     persona_ids: list[str],
     variant_a: str,
     variant_b: str,
+    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> tuple[list[tuple[str, torch.Tensor, torch.Tensor]], dict[str, str], list[str]]:
-    """Load per-persona mean activation vectors for two variants."""
-
     store = ActivationStore(model_name, root_dir)
     persona_names = load_persona_names(
-        root_dir, model_name, [variant_a, variant_b], persona_ids
+        root_dir,
+        model_name,
+        [variant_a, variant_b],
+        persona_ids,
+        mask_strategy=mask_strategy,
     )
+
     traces: list[tuple[str, torch.Tensor, torch.Tensor]] = []
     errors: list[str] = []
 
     for persona_id in persona_ids:
         try:
-            vectors_a, _ = store.load(variant_a, persona_id)
-            vectors_b, _ = store.load(variant_b, persona_id)
+            vectors_a, _ = store.load(
+                variant_a, persona_id, mask_strategy=mask_strategy
+            )
+            vectors_b, _ = store.load(
+                variant_b, persona_id, mask_strategy=mask_strategy
+            )
         except (FileNotFoundError, KeyError, OSError, ValueError) as exc:
             errors.append(f"{persona_id}: {exc}")
             continue

@@ -9,7 +9,7 @@ Extract persona-aligned activation vectors from language models and run activati
 Given a set of personas and evaluation questions:
 
 1. Format each persona as a system prompt (`templated` or `biography` variant)
-2. Build token masks over the answer span (or another chosen strategy)
+2. Build token masks over the answer span, the prediction position, or another chosen strategy
 3. Extract hidden states at each layer over the masked tokens
 4. Average those hidden states across questions → **persona vector** per layer
 
@@ -51,6 +51,9 @@ uv run python -m notebooks.notebook_compare
 
 # Compute a steering vector from saved activations
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
+
+# Use non-default extracted activations, such as the pre-answer prediction position
+uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --mask-strategy answer_previous
 ```
 
 ## Dependencies

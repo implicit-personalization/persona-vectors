@@ -19,10 +19,9 @@ set_seed(1337)
 
 # %% Setting up the model
 # Use 9b for remote (production), 2b for local testing
-REMOTE = False
-# REMOTE = True
+# REMOTE = False
+REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
-RUN_NAME = "run_01"
 
 print(f"Loading {MODEL_NAME}...")
 if REMOTE:
@@ -66,21 +65,23 @@ console.print(dataset_table)
 
 # %% Pick persona and get QA pairs
 # qa_pairs = dataset.get_qa(persona.id)  # full run
-qa_pairs = dataset.get_qa(persona.id)[:1]
+qa_pairs = dataset.get_qa(persona.id)[:8]
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
 # %% Extract activations for all prompt variants (including baseline with empty persona)
+# RUN_NAME = "run_01"
+MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 results = run_extraction(
     model=model,
     model_name=MODEL_NAME,
     persona=persona,
     qa_pairs=qa_pairs,
     variants=SUPPORTED_VARIANTS,
-    mask_strategy=MaskStrategy.QUESTION_LAST_SPECIAL,
+    mask_strategy=MASK_STRATEGY,
     remote=REMOTE,
     verbose=True,
-    activations_dir=f"artifacts/activations/{RUN_NAME}",
+    # activations_dir=f"artifacts/activations/{RUN_NAME}",
 )
 
 for r in results:

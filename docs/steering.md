@@ -26,6 +26,7 @@ sv_dict = compute_steering_vector(
     persona_id="0023952f-142e-434b-82e2-7a7451b7c55f",
     model_name="google/gemma-2-9b-it",
     layer_idx=20,
+    mask_strategy="answer_previous",
 )
 
 save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
@@ -35,6 +36,7 @@ save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
 
 ```bash
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
+uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20 --mask-strategy answer_previous
 ```
 
 ---
@@ -46,8 +48,9 @@ For each QA pair, two prompt variants are used:
 - **Positive (biography):** Full persona biography as system prompt + QA
 - **Negative (templated):** Generic templated prompt + QA
 
-The masked-mean activations over answer tokens are extracted at a target layer
-for both variants. The steering vector is:
+The masked activations are extracted at a target layer for both variants. By
+default this averages answer tokens; with `answer_previous`, it uses the token
+position immediately before the first answer token. The steering vector is:
 
 ```
 steering_vector = mean_over_questions(biography_h) - mean_over_questions(templated_h)
@@ -67,6 +70,7 @@ sv_dict = compute_steering_vector(
     persona_id="...",
     model_name="google/gemma-2-9b-it",
     layer_idx=20,
+    mask_strategy="answer_previous",
     activations_dir="artifacts/activations",
 )
 ```
@@ -109,9 +113,9 @@ artifacts/vectors/{persona_id}/
 
 The `metadata.json` file also records `suggested_alpha`.
 
-If the input activations were extracted with a non-default masking strategy,
-that choice should be tracked in the extraction artifacts or run metadata before
-using the vectors for steering.
+When using a non-default extraction strategy, pass the same `mask_strategy` to
+`compute_steering_vector()` or `main.py steer` so it loads the matching
+activation artifacts.
 
 ---
 

@@ -45,12 +45,15 @@ Each element returned by `prepare_inputs()` bundles a formatted sample together 
 | `PERSONA_MEAN` | All persona/system-prompt tokens before the question |
 | `PERSONA_LAST` | Last persona/system-prompt token before the question |
 | `ANSWER_MEAN` | Every assistant-answer token (default) |
+| `ANSWER_PREVIOUS` | Token immediately before the first assistant-answer token |
 | `ANSWER_FIRST` | First assistant-answer token |
 | `ANSWER_LAST` | Last assistant-answer token |
 | `QUESTION_LAST` | Last token of the user question |
 | `QUESTION_LAST_SPECIAL` | First special token after the question span (often a chat-template delimiter) |
 
 `PERSONA_MEAN` and `PERSONA_LAST` refer to the persona prefix, which is the system-prompt/template portion for both templated and biography variants. They do not include the user question.
+
+`ANSWER_PREVIOUS` is useful for probing the state that will predict the first answer token, because causal language models compute the next-token distribution from the position immediately before that token.
 
 `QUESTION_LAST_SPECIAL` raises if the token immediately after the question span is not a tokenizer special id, so it only makes sense for chat templates that end each turn with a delimiter token.
 
