@@ -1,19 +1,6 @@
 #!/usr/bin/env python
 
-"""Layer-wise cosine similarity between prompt variants.
-
-Compares all pairs of available persona variants (templated, biography) for
-one or more personas. The shared baseline artifact is not part of this
-per-persona variant intersection; use the UI PCA/UMAP/similarity views to add
-it as an Assistant reference sample.
-
-Research notes:
-- Centering activations per layer along the feature dimension can change
-  the cosine similarity picture. See "Mech interp puzzle 1: Suspiciously
-  similar embeddings in GPT" for background.
-  https://www.alignmentforum.org/posts/eLNo7b56kQQerCzp2/
-  TODO: revisit centering approach; current comparison is uncentered.
-"""
+"""Layer-wise cosine similarity between prompt variants."""
 
 from itertools import combinations
 
@@ -24,15 +11,19 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import pairwise_cosine_similarity
+from persona_vectors.analysis import load_persona_mean_samples
 from persona_vectors.artifacts import (
-    SUPPORTED_VARIANTS,
+    PERSONA_VARIANTS,
     ActivationStore,
     list_personas,
     load_persona_names,
 )
 from persona_vectors.extraction import MaskStrategy
-from persona_vectors.plots import plot_layer_similarity, plot_similarity_matrix_grid
+from persona_vectors.plots import (
+    build_layered_figure,
+    build_pair_similarity_figure,
+    plot_layer_similarity,
+)
 
 console = Console()
 
@@ -45,6 +36,9 @@ torch.set_grad_enabled(False)
 REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
+INCLUDE_BASELINE_REFERENCE = True
+SIMILARITY_VARIANT = "biography"
+LAYERS: list[int] | None = None
 
 # %% Load dataset and Activations
 dataset = SynthPersonaDataset()
@@ -59,22 +53,20 @@ dataset_table.add_row("Model Name", acts.model_name)
 console.print(dataset_table)
 
 # %% Discover which variants are available
-comparison_variants = [
-    variant for variant in SUPPORTED_VARIANTS if variant != "baseline"
-]
 available_variants = [
     variant
-    for variant in comparison_variants
+    for variant in PERSONA_VARIANTS
     if list_personas(acts.root_dir, MODEL_NAME, [variant], mask_strategy=MASK_STRATEGY)
 ]
+console.print(f"Available comparison variants: {available_variants}")
 baseline_available = BASELINE_PERSONA_ID in list_personas(
     acts.root_dir,
     MODEL_NAME,
-    ["baseline"],
+    [BASELINE_PERSONA_ID],
     mask_strategy=MASK_STRATEGY,
     warn_missing=False,
 )
-console.print(f"Available comparison variants: {available_variants}")
+include_baseline = INCLUDE_BASELINE_REFERENCE and baseline_available
 console.print(f"Baseline reference available: {baseline_available}")
 
 persona_ids = list_personas(
@@ -97,23 +89,26 @@ for variant in available_variants:
         activations, _ = acts.load(variant, pid, mask_strategy=MASK_STRATEGY)
         variant_means[variant][pid] = activations.float().mean(dim=0)
 
-# %% Plot all variant pairs for each persona
+# %% Plot all persona/variant-pair traces together
 comparison_pairs = list(combinations(available_variants, 2))
+all_pair_traces = []
 
 for pid in persona_ids:
     persona_name = persona_names.get(pid, pid[:8])
-    pair_traces = [
-        (f"{left} vs {right}", variant_means[left][pid], variant_means[right][pid])
+    all_pair_traces.extend(
+        (
+            f"{persona_name}: {left} vs {right}",
+            variant_means[left][pid],
+            variant_means[right][pid],
+        )
         for left, right in comparison_pairs
-    ]
-
-    plot_layer_similarity(
-        pair_traces,
-        title=f"Layer-wise Cosine Similarity — {persona_name}",
-        # NOTE: This adds a lot of plot creations so currently disabled
-        # show=True,
-        show=False,
     )
+
+plot_layer_similarity(
+    all_pair_traces,
+    title="Layer-wise Cosine Similarity — All personas and variant pairs",
+    show=True,
+)
 
 # %% Plot Averaged across personas
 avg_variant_means = {
@@ -122,37 +117,61 @@ avg_variant_means = {
     )
     for variant in available_variants
 }
+avg_plot_means = dict(avg_variant_means)
+if include_baseline:
+    baseline_vectors, _ = acts.load(
+        BASELINE_PERSONA_ID,
+        BASELINE_PERSONA_ID,
+        mask_strategy=MASK_STRATEGY,
+    )
+    avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().mean(dim=0)
+
 pair_traces = [
-    (f"{left} vs {right}", avg_variant_means[left], avg_variant_means[right])
-    for left, right in comparison_pairs
+    (f"{left} vs {right}", avg_plot_means[left], avg_plot_means[right])
+    for left, right in combinations(avg_plot_means, 2)
 ]
 
 plot_layer_similarity(
     pair_traces,
-    title="Layer-wise Cosine Similarity — Averaged across personas",
+    title=(
+        "Layer-wise Cosine Similarity — Averaged across personas"
+        + (" + baseline" if include_baseline else "")
+    ),
     show=True,
 )
 
-# TODO: Clean up removing the average or something else this is too noisy
-# Not really resonable to have those results with such an high similarity
-# %% Plot pairwise similarity matrices at 4 layers
-# matrix_variant = available_variants[0]
-# layer_count = variant_means[matrix_variant][persona_ids[0]].shape[0]
-# layer_indices = [round(i * (layer_count - 1) / 3) for i in range(4)]
-# matrix_titles = [f"Layer {layer_index + 1}" for layer_index in layer_indices]
-# labels = [persona_names.get(pid, pid[:8]) for pid in persona_ids]
-#
-# similarity_matrices = [
-#     pairwise_cosine_similarity(
-#         [variant_means[matrix_variant][pid][layer_index] for pid in persona_ids]
-#     )
-#     for layer_index in layer_indices
-# ]
-#
-# plot_similarity_matrix_grid(
-#     similarity_matrices,
-#     labels=labels,
-#     titles=matrix_titles,
-#     title=f"Pairwise Cosine Similarity Across Personas ({matrix_variant})",
-#     show=True,
-# )
+# %% Similarity matrix and pair trajectories, matching the UI comparison view
+similarity_variant = (
+    SIMILARITY_VARIANT
+    if SIMILARITY_VARIANT in available_variants
+    else available_variants[0]
+)
+samples = load_persona_mean_samples(
+    acts.root_dir,
+    MODEL_NAME,
+    similarity_variant,
+    mask_strategy=MASK_STRATEGY,
+    persona_ids=persona_ids,
+    include_baseline=include_baseline,
+)
+
+build_layered_figure(
+    samples,
+    "similarity",
+    layers=LAYERS,
+    title=(
+        "Centered similarity — "
+        f"{similarity_variant} — personas averaged over questions"
+        + (" + baseline" if include_baseline else "")
+    ),
+).show()
+
+build_pair_similarity_figure(
+    samples,
+    layers=LAYERS,
+    title=(
+        "Pair similarity trajectories — "
+        f"{similarity_variant} — personas averaged over questions"
+        + (" + baseline" if include_baseline else "")
+    ),
+).show()

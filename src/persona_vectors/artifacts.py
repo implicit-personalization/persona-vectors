@@ -7,11 +7,12 @@ import torch
 from persona_data.prompts import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 from safetensors.torch import load_file, save_file
 
-SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography", "baseline")
+PERSONA_VARIANTS: tuple[str, ...] = ("templated", "biography")
+SUPPORTED_VARIANTS: tuple[str, ...] = (*PERSONA_VARIANTS, BASELINE_PERSONA_ID)
 DEFAULT_MASK_STRATEGY = "answer_mean"
-MANIFEST_FILENAME = "manifest.json"
-TENSOR_KEY = "activations"
-TENSOR_SUFFIX = ".safetensors"
+_MANIFEST_FILENAME = "manifest.json"
+_TENSOR_KEY = "activations"
+_TENSOR_SUFFIX = ".safetensors"
 
 
 def model_dir_name(model_name: str) -> str:
@@ -41,11 +42,11 @@ def _variant_root(
 def _persona_tensor_path(variant_root: Path, persona_id: str) -> Path:
     if "/" in persona_id or "\\" in persona_id:
         raise ValueError(f"persona_id cannot contain path separators: {persona_id!r}")
-    return variant_root / f"{persona_id}{TENSOR_SUFFIX}"
+    return variant_root / f"{persona_id}{_TENSOR_SUFFIX}"
 
 
 def _load_manifest(variant_root: Path) -> dict:
-    manifest_file = variant_root / MANIFEST_FILENAME
+    manifest_file = variant_root / _MANIFEST_FILENAME
     if not manifest_file.exists():
         raise FileNotFoundError(manifest_file)
     manifest = json.loads(manifest_file.read_text())
@@ -66,7 +67,7 @@ def _variant_manifests(
         for variant in variants
     ]
     if not variant_roots or any(
-        not (root / MANIFEST_FILENAME).exists() for root in variant_roots
+        not (root / _MANIFEST_FILENAME).exists() for root in variant_roots
     ):
         return []
     return [_load_manifest(root) for root in variant_roots]
@@ -98,7 +99,7 @@ class ActivationStore:
             )
         if len(sample_ids) != per_question_vectors.shape[0]:
             raise ValueError("number of sample ids must match first tensor dimension")
-        if prompt_variant == "baseline":
+        if prompt_variant == BASELINE_PERSONA_ID:
             persona_id = BASELINE_PERSONA_ID
             persona_name = BASELINE_PERSONA_NAME
 
@@ -107,7 +108,7 @@ class ActivationStore:
         )
         variant_root.mkdir(parents=True, exist_ok=True)
 
-        manifest_path = variant_root / MANIFEST_FILENAME
+        manifest_path = variant_root / _MANIFEST_FILENAME
         manifest = (
             _load_manifest(variant_root)
             if manifest_path.exists()
@@ -125,11 +126,11 @@ class ActivationStore:
             )
 
         tensor_path = _persona_tensor_path(variant_root, persona_id)
-        save_file({TENSOR_KEY: per_question_vectors.detach().cpu()}, str(tensor_path))
+        save_file({_TENSOR_KEY: per_question_vectors.detach().cpu()}, str(tensor_path))
 
         manifest["num_layers"] = int(per_question_vectors.shape[1])
         manifest["hidden_size"] = int(per_question_vectors.shape[2])
-        if prompt_variant == "baseline":
+        if prompt_variant == BASELINE_PERSONA_ID:
             manifest["personas"] = {}
         manifest.setdefault("personas", {})[persona_id] = {
             "name": persona_name,
@@ -159,10 +160,10 @@ class ActivationStore:
         if not tensor_path.exists():
             raise FileNotFoundError(tensor_path)
         tensors = load_file(str(tensor_path))
-        if TENSOR_KEY not in tensors:
-            raise FileNotFoundError(f"Missing {TENSOR_KEY!r} tensor in {tensor_path}")
+        if _TENSOR_KEY not in tensors:
+            raise FileNotFoundError(f"Missing {_TENSOR_KEY!r} tensor in {tensor_path}")
 
-        vectors = tensors[TENSOR_KEY]
+        vectors = tensors[_TENSOR_KEY]
         if vectors.ndim != 3:
             raise ValueError(
                 f"tensor for {persona_id!r} must have shape (n_samples, num_layers, hidden_size)"
@@ -192,7 +193,7 @@ def list_personas(
         variant: _variant_root(root_dir, model_name, variant, mask_strategy)
         for variant in variants
     }
-    if any(not (root / MANIFEST_FILENAME).exists() for root in variant_roots.values()):
+    if any(not (root / _MANIFEST_FILENAME).exists() for root in variant_roots.values()):
         return []
 
     variant_personas = {

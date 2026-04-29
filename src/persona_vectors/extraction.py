@@ -11,8 +11,8 @@ from persona_data.prompts import (
     BASELINE_PERSONA_NAME,
     format_mc_question,
     format_messages,
+    format_roleplay_prompt,
     mc_correct_letter,
-    system_prompt_for_variant,
 )
 from persona_data.synth_persona import PersonaData, QAPair
 from rich.console import Console
@@ -440,23 +440,29 @@ def _free_memory() -> None:
 def run_extraction(
     model: StandardizedTransformer,
     model_name: str,
-    persona: PersonaData,
     qa_pairs: list[QAPair],
     variants: tuple[str, ...],
+    *,
+    persona: PersonaData | None = None,
     mask_strategy: MaskStrategy = MaskStrategy.ANSWER_MEAN,
     remote: bool = False,
     on_status: Callable | None = None,
     verbose: bool = False,
     activations_dir: str | Path | None = None,
+    chunk_size: int | None = None,
 ) -> list[ExtractionResult]:
-    """Extract and save per-question activation vectors for each prompt variant.
+    """Extract and save per-question activation vectors for each variant.
+
+    The ``baseline`` variant uses the persona-less Assistant prompt and is
+    saved under the shared ``BASELINE_PERSONA_ID``; every other variant reads
+    ``<variant>_view`` from ``persona`` and saves under that persona's id.
 
     Args:
         model: Loaded standardized nnterp model.
         model_name: HuggingFace model identifier used for artifact paths.
-        persona: The persona whose QA pairs are being extracted.
         qa_pairs: Question-answer pairs to run extraction on.
-        variants: Prompt variants to extract (``"templated"`` or ``"biography"``).
+        variants: Variants to extract. See ``SUPPORTED_VARIANTS``.
+        persona: Required for non-baseline variants; ignored for ``baseline``.
         mask_strategy: Which tokens should contribute to the averaged hidden
             state. See :class:`MaskStrategy`.
         remote: Whether to execute on NDIF.
@@ -466,13 +472,12 @@ def run_extraction(
             the forward pass.
         activations_dir: Root directory for saved activations. Pass a unique
             subdirectory to keep multiple runs separate.
+        chunk_size: If set, slice each forward pass into chunks of this many
+            layers to bound peak memory. Slower; use for long biographies.
 
     Returns:
-        One ExtractionResult per variant.
+        One ExtractionResult per variant, in the order requested.
     """
-    if not qa_pairs:
-        if mask_strategy not in (MaskStrategy.PERSONA_MEAN, MaskStrategy.PERSONA_LAST):
-            raise ValueError("No QA pairs selected for extraction")
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")
 
@@ -480,7 +485,15 @@ def run_extraction(
     results: list[ExtractionResult] = []
 
     for variant in variants:
-        system_prompt = system_prompt_for_variant(persona, variant)
+        if variant == BASELINE_PERSONA_ID:
+            system_prompt = format_roleplay_prompt()
+            persona_id, persona_name = BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
+        else:
+            if persona is None:
+                raise ValueError(f"variant {variant!r} requires a persona")
+            system_prompt = format_roleplay_prompt(getattr(persona, f"{variant}_view"))
+            persona_id, persona_name = persona.id, persona.name
+
         prepared = prepare_inputs_for_strategy(
             tokenizer=model.tokenizer,
             system_prompt=system_prompt,
@@ -502,12 +515,13 @@ def run_extraction(
             token_masks=[p.token_mask for p in prepared],
             remote=remote,
             on_status=on_status,
+            chunk_size=chunk_size,
         )
 
         artifact_dir = store.save(
             variant,
-            BASELINE_PERSONA_ID if variant == "baseline" else persona.id,
-            BASELINE_PERSONA_NAME if variant == "baseline" else persona.name,
+            persona_id,
+            persona_name,
             vectors,
             [p.sample_id for p in prepared],
             mask_strategy=mask_strategy,
@@ -518,9 +532,7 @@ def run_extraction(
                 variant=variant,
                 output_dir=artifact_dir,
                 n_questions=vectors.shape[0],
-                persona_name=(
-                    BASELINE_PERSONA_NAME if variant == "baseline" else persona.name
-                ),
+                persona_name=persona_name,
             )
         )
 

@@ -103,17 +103,22 @@ artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
 The manifest stores compact sample ids (`qa.qid`) instead of full question text,
 plus tensor shape fields used for validation.
 
-The `baseline` variant uses the persona-less Assistant prompt and is stored
-once under the shared baseline persona id. Compare views can add it as an
-Assistant reference alongside templated or biography persona samples.
+The Assistant baseline is exposed as a regular variant (`baseline`) in the
+extraction CLI and UI. It is persona-less, so it is run once across the first
+selected persona's QA pairs and stored under the shared baseline persona id.
+Compare views can add it as an Assistant reference alongside templated or
+biography persona samples.
 
 ## CLI
 
 `extract`, `analyze`, and `steer` are implemented.
 
 ```bash
-# Extract activations
+# Extract activations (defaults to all variants, including baseline)
 python main.py extract --model google/gemma-2-2b-it
+
+# Pick specific variants — 'baseline' is just another variant and is run once
+python main.py extract --model google/gemma-2-2b-it --variants biography baseline
 
 # Analyze saved activations
 python main.py analyze --model google/gemma-2-9b-it --variant biography --mask-strategy answer_mean --out ./plots

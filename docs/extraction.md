@@ -57,8 +57,6 @@ Each element returned by `prepare_inputs()` bundles a formatted sample together 
 
 `QUESTION_LAST_SPECIAL` raises if the token immediately after the question span is not a tokenizer special id, so it only makes sense for chat templates that end each turn with a delimiter token.
 
-If you want a delimiter-token version later, I can add `PERSONA_LAST_SPECIAL` separately.
-
 ## Note
 
 For NDIF runs, instantiate the model without `device_map` or `dtype` so it loads on the meta device.
@@ -67,4 +65,21 @@ To keep multiple extraction runs separate, pass `activations_dir` to `run_extrac
 
 ```python
 run_extraction(..., activations_dir="artifacts/activations/run_001")
+```
+
+### Long biographies / OOM
+
+If a single forward pass over the full biography OOMs (large model + long
+context), pass `chunk_size=N` to slice the trace into `N`-layer chunks and
+carry the residual stream forward via `model.skip_layers`. Slower, but
+bounds peak memory:
+
+```python
+run_extraction(..., chunk_size=8)
+```
+
+The same knob is exposed on the CLI as `--chunk-size`:
+
+```bash
+python main.py extract --model google/gemma-2-9b-it --variants biography baseline --chunk-size 8 --remote
 ```

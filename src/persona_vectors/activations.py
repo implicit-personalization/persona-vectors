@@ -5,8 +5,6 @@ import torch
 from nnsight.intervention.backends.remote import JobStatusDisplay, RemoteBackend
 from nnterp import StandardizedTransformer
 
-_LAYER_CHUNK_SIZE: int | None = None
-
 
 class _CallbackJobStatusDisplay(JobStatusDisplay):
     """JobStatusDisplay subclass that fires an extra callback on each update.
@@ -48,6 +46,7 @@ def extract_activations(
     token_masks: list[torch.Tensor],
     remote: bool = False,
     on_status: Callable[[str, str, str], None] | None = None,
+    chunk_size: int | None = None,
 ) -> torch.Tensor:
     """Run forward passes and return mean hidden states over masked tokens per layer.
 
@@ -66,12 +65,16 @@ def extract_activations(
             called on every NDIF status update. Only used when remote=True. Useful
             for surfacing job progress in a UI (e.g. Streamlit) without capturing
             stdout. The normal terminal output from nnsight is still printed.
+        chunk_size: If set, run each forward pass in slices of this many layers,
+            carrying the boundary residual stream forward via ``model.skip_layers``.
+            Slower but bounds peak memory — use it for long biographies that OOM
+            on the default single-trace path.
     """
 
     if len(input_ids_list) != len(token_masks):
         raise ValueError("input_ids_list and token_masks must have the same length")
-    if _LAYER_CHUNK_SIZE is not None and _LAYER_CHUNK_SIZE <= 0:
-        raise ValueError("chunk size must be positive")
+    if chunk_size is not None and chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
 
     masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
     if not all(m.any() for m in masks):
@@ -86,8 +89,10 @@ def extract_activations(
 
     backend = _build_backend(model, remote, on_status)
 
-    if _LAYER_CHUNK_SIZE is None:
-        # NOTE: Default branch of the code -> OOM on long biographies
+    if chunk_size is None:
+        # NOTE: Default branch — single trace per sample. Faster, but can OOM
+        # on long biographies; pass ``chunk_size`` to opt into the slower
+        # layer-sliced path below.
         with torch.no_grad(), model.session(remote=remote, backend=backend):
             all_hs: list[torch.Tensor] = nnsight.save([])
 
@@ -123,10 +128,8 @@ def extract_activations(
             chunk_hs: list[torch.Tensor] = []
             boundary: torch.Tensor | None = None
             # Pre-tokenized ids are passed straight through — no double-BOS.
-            for start_layer in range(0, model.num_layers, _LAYER_CHUNK_SIZE):
-                end_layer = min(
-                    start_layer + _LAYER_CHUNK_SIZE - 1, model.num_layers - 1
-                )
+            for start_layer in range(0, model.num_layers, chunk_size):
+                end_layer = min(start_layer + chunk_size - 1, model.num_layers - 1)
                 chunk_backend = _build_backend(model, remote, on_status)
                 with model.session(remote=remote, backend=chunk_backend):
                     with model.trace(ids.unsqueeze(0)) as tracer:

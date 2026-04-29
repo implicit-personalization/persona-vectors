@@ -23,6 +23,7 @@ class ExtractConfig:
     persona_id: str | None = None
     remote: bool = False
     verbose: bool = False
+    chunk_size: int | None = None
 
 
 @dataclass
@@ -57,7 +58,11 @@ def build_extract_parser(subparsers) -> None:
         nargs="+",
         default=list(SUPPORTED_VARIANTS),
         choices=SUPPORTED_VARIANTS,
-        help="Prompt variants to extract (default: all)",
+        help=(
+            "Variants to extract (default: all). 'baseline' is the shared "
+            "persona-less Assistant prompt and is run once across the first "
+            "selected persona's QA pairs."
+        ),
     )
     extract.add_argument(
         "--mask-strategy",
@@ -74,6 +79,15 @@ def build_extract_parser(subparsers) -> None:
     )
     extract.add_argument(
         "--verbose", action="store_true", help="Print extraction previews"
+    )
+    extract.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help=(
+            "Slice each forward pass into this many layers to bound peak memory "
+            "(slower; use for long biographies). Default: single trace per sample."
+        ),
     )
 
 
@@ -94,7 +108,7 @@ def build_analyze_parser(subparsers) -> None:
         "--variant",
         default="biography",
         choices=SUPPORTED_VARIANTS,
-        help="Prompt variant to analyze (default: biography)",
+        help="Artifact group to analyze (default: biography)",
     )
     analyze.add_argument(
         "--mask-strategy",

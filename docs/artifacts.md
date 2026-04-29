@@ -19,9 +19,10 @@ Artifacts are grouped by model, mask strategy, and prompt variant. A single
 `manifest.json` tracks all personas available for that grouping, while each
 persona has its own safetensors file next to the manifest.
 
-The `baseline` prompt variant has no persona text in its system prompt. It is
-stored once under the shared baseline persona id from `persona_data.prompts`
-and can be added as an Assistant reference in persona-space comparisons.
+The Assistant baseline is a persona-less artifact variant. It is stored once
+under `baseline/` with the shared baseline persona id from
+`persona_data.prompts` and can be added as an Assistant reference in
+persona-space comparisons.
 
 ## ActivationStore
 

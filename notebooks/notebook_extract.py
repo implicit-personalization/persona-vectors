@@ -2,11 +2,12 @@ import torch
 from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
 from persona_data.environment import set_seed
+from persona_data.prompts import BASELINE_PERSONA_ID
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.artifacts import SUPPORTED_VARIANTS
+from persona_vectors.artifacts import PERSONA_VARIANTS
 from persona_vectors.extraction import MaskStrategy, run_extraction
 
 console = Console()
@@ -70,16 +71,14 @@ print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
 # %% Extract activations for all prompt variants
-# Baseline uses the persona-less Assistant prompt and is saved once under the
-# shared baseline persona id.
 # RUN_NAME = "run_01"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 results = run_extraction(
     model=model,
     model_name=MODEL_NAME,
-    persona=persona,
     qa_pairs=qa_pairs,
-    variants=SUPPORTED_VARIANTS,
+    variants=PERSONA_VARIANTS,
+    persona=persona,
     mask_strategy=MASK_STRATEGY,
     remote=REMOTE,
     verbose=True,
@@ -87,4 +86,19 @@ results = run_extraction(
 )
 
 for r in results:
+    print(f"Saved {r.variant} activations to {r.output_dir} ({r.n_questions} examples)")
+
+# %% Extract the shared persona-less Assistant baseline
+# Baseline reuses the same QA pairs but drops the persona prefix; only run once.
+baseline_results = run_extraction(
+    model=model,
+    model_name=MODEL_NAME,
+    qa_pairs=qa_pairs,
+    variants=(BASELINE_PERSONA_ID,),
+    mask_strategy=MASK_STRATEGY,
+    remote=REMOTE,
+    verbose=True,
+)
+
+for r in baseline_results:
     print(f"Saved {r.variant} activations to {r.output_dir} ({r.n_questions} examples)")

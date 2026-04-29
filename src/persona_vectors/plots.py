@@ -6,13 +6,12 @@ import torch
 import torch.nn.functional as F
 from persona_data.environment import get_artifacts_dir
 from plotly.colors import qualitative
-from plotly.subplots import make_subplots
 
 from persona_vectors.analysis import (
     LayeredSamples,
     cosine_similarity_matrix,
-    project_pca_centered,
-    project_umap_centered,
+    project_pca,
+    project_umap,
 )
 
 
@@ -36,12 +35,6 @@ def save_plot_png(fig: go.Figure, filename: str) -> Path:
     output_path = _plots_dir() / f"{filename}.png"
     fig.write_image(str(output_path))
     return output_path
-
-
-def _to_numpy(x: torch.Tensor | np.ndarray) -> np.ndarray:
-    if isinstance(x, torch.Tensor):
-        return x.cpu().numpy()
-    return np.asarray(x)
 
 
 def _similarity_coloraxis() -> dict:
@@ -78,10 +71,6 @@ def _similarity_heatmap(
     )
 
 
-def _centered_similarity_heatmap(z: np.ndarray, labels: list[str]) -> go.Heatmap:
-    return _similarity_heatmap(z, labels, hover_label="Centered cosine")
-
-
 def _label_color_map(labels: list[str]) -> dict[str, str]:
     palette = qualitative.Safe + qualitative.Dark24 + qualitative.Set3
     unique_labels = sorted(set(labels), key=lambda value: value.casefold())
@@ -89,27 +78,6 @@ def _label_color_map(labels: list[str]) -> dict[str, str]:
         label: palette[index % len(palette)]
         for index, label in enumerate(unique_labels)
     }
-
-
-def _add_similarity_traces(
-    fig: go.Figure,
-    short: torch.Tensor,
-    long: torch.Tensor,
-    label: str | None = None,
-) -> None:
-    """Add one cosine-similarity trace to an existing figure."""
-    similarities = F.cosine_similarity(short, long, dim=1).tolist()
-    layers = list(range(len(similarities)))
-    fig.add_trace(
-        go.Scatter(
-            x=layers,
-            y=similarities,
-            mode="lines+markers",
-            marker=dict(size=5),
-            name=label,
-            hovertemplate="Layer %{x}<br>Cosine sim: %{y:.4f}<extra></extra>",
-        )
-    )
 
 
 def plot_layer_similarity(
@@ -134,153 +102,50 @@ def plot_layer_similarity(
     """
     fig = go.Figure()
     for label, short, long in traces:
-        _add_similarity_traces(fig, short, long, label=label)
+        similarities = F.cosine_similarity(short, long, dim=1).tolist()
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(len(similarities))),
+                y=similarities,
+                mode="lines+markers",
+                marker=dict(size=5),
+                name=label,
+                hovertemplate="Layer %{x}<br>Cosine sim: %{y:.4f}<extra></extra>",
+            )
+        )
     fig.update_layout(
         title=title,
         xaxis_title="Layer",
         yaxis_title="Cosine similarity",
         hovermode="x",
         template="plotly_white",
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=1.02,
-        ),
-    )
-
-    _finalize(fig, filename, show)
-
-    return fig
-
-
-def plot_similarity_matrix(
-    sim_matrix: torch.Tensor | np.ndarray,
-    labels: list[str],
-    title: str = "Pairwise Cosine Similarity",
-    filename: str | None = None,
-    show: bool = False,
-) -> go.Figure:
-    """Plot a pairwise cosine similarity matrix as a heatmap."""
-
-    z = _to_numpy(sim_matrix)
-    fig = go.Figure(data=_similarity_heatmap(z, labels))
-    fig.update_layout(
-        title=title,
-        template="plotly_white",
-        coloraxis=_similarity_coloraxis(),
-    )
-    fig.update_xaxes(
-        side="top",
-        tickangle=-45,
-        automargin=True,
-        showticklabels=True,
-    )
-    fig.update_yaxes(
-        side="left",
-        autorange="reversed",
-        automargin=True,
-        showticklabels=True,
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
     _finalize(fig, filename, show)
     return fig
-
-
-def plot_similarity_matrix_grid(
-    matrices: list[torch.Tensor | np.ndarray],
-    labels: list[str],
-    titles: list[str],
-    title: str = "Pairwise Cosine Similarity",
-    filename: str | None = None,
-    show: bool = False,
-) -> go.Figure:
-    """Plot multiple similarity matrices in a 2x2 grid."""
-
-    if len(matrices) != 4 or len(titles) != 4:
-        raise ValueError("matrices and titles must both have length 4")
-
-    fig = make_subplots(
-        rows=2,
-        cols=2,
-        subplot_titles=titles,
-        horizontal_spacing=0.07,
-        vertical_spacing=0.09,
-    )
-    for index, matrix in enumerate(matrices):
-        row = index // 2 + 1
-        col = index % 2 + 1
-        z = _to_numpy(matrix)
-        fig.add_trace(_similarity_heatmap(z, labels), row=row, col=col)
-
-    n_labels = len(labels)
-    fig.update_layout(
-        title=title,
-        template="plotly_white",
-        coloraxis=_similarity_coloraxis(),
-        width=max(600, 90 * n_labels),
-        height=max(700, 100 * n_labels),
-        margin=dict(t=250, l=70, r=50, b=70),
-    )
-    for row in [1, 2]:
-        for col in [1, 2]:
-            fig.update_xaxes(
-                side="top",
-                tickangle=-45,
-                automargin=True,
-                showticklabels=row == 1,
-                tickfont=dict(size=9),
-                col=col,
-                row=row,
-            )
-            fig.update_yaxes(
-                side="left",
-                autorange="reversed",
-                automargin=True,
-                showticklabels=col == 1,
-                tickfont=dict(size=9),
-                col=col,
-                row=row,
-            )
-
-    _finalize(fig, filename, show)
-    return fig
-
-
-# ---------------------------------------------------------------------------
-# Scree / elbow plot for PCA explained variance
-# ---------------------------------------------------------------------------
 
 
 def plot_scree(
     variance_by_condition: dict[str, np.ndarray],
-    title: str = "PCA Explained Variance (Scree Plot)",
+    title: str = "PCA Explained Variance",
     n_components: int = 20,
     cumulative: bool = True,
     filename: str | None = None,
     show: bool = False,
 ) -> go.Figure:
-    """Plot explained variance ratio per principal component for multiple conditions.
+    """Plot PCA explained variance ratios for one or more conditions."""
 
-    Args:
-        variance_by_condition: Mapping from condition label (e.g. "baseline",
-            "templated", "biography") to an array of explained variance ratios.
-        title: Plot title.
-        n_components: How many components to display.
-        cumulative: If True, also plot cumulative variance.
-        filename: If provided, save as HTML.
-        show: If True, open in browser.
-    """
     fig = go.Figure()
     colors = _label_color_map(list(variance_by_condition))
-    for label, var in variance_by_condition.items():
-        var = var[:n_components]
-        components = list(range(1, len(var) + 1))
+    for label, variance in variance_by_condition.items():
+        values = variance[:n_components]
+        components = list(range(1, len(values) + 1))
         color = colors[label]
         fig.add_trace(
             go.Scatter(
                 x=components,
-                y=var.tolist(),
+                y=values.tolist(),
                 mode="lines+markers",
                 name=label,
                 marker=dict(size=5),
@@ -291,17 +156,17 @@ def plot_scree(
             fig.add_trace(
                 go.Scatter(
                     x=components,
-                    y=np.cumsum(var).tolist(),
+                    y=np.cumsum(values).tolist(),
                     mode="lines",
-                    name=f"{label} (cumulative)",
+                    name=f"{label} cumulative",
                     line=dict(color=color, dash="dash"),
                 )
             )
 
     fig.update_layout(
         title=title,
-        xaxis_title="Principal Component",
-        yaxis_title="Explained Variance Ratio",
+        xaxis_title="Principal component",
+        yaxis_title="Explained variance ratio",
         template="plotly_white",
         hovermode="x",
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
@@ -526,14 +391,22 @@ def _build_layered_similarity_figure(
     }
     first_layer = selected_layers[0]
     fig = go.Figure(
-        data=[_centered_similarity_heatmap(matrices[first_layer], samples.labels)]
+        data=[
+            _similarity_heatmap(
+                matrices[first_layer], samples.labels, hover_label="Centered cosine"
+            )
+        ]
     )
     frames = []
     for layer in selected_layers:
         frames.append(
             go.Frame(
                 name=str(layer),
-                data=[_centered_similarity_heatmap(matrices[layer], samples.labels)],
+                data=[
+                    _similarity_heatmap(
+                        matrices[layer], samples.labels, hover_label="Centered cosine"
+                    )
+                ],
                 layout=_layer_frame_layout(title, layer),
             )
         )
@@ -558,6 +431,70 @@ def _build_layered_similarity_figure(
     return fig
 
 
+def build_pair_similarity_figure(
+    samples: LayeredSamples,
+    layers: list[int] | None = None,
+    title: str = "Centered Pair Similarity Across Layers",
+) -> go.Figure:
+    """Plot each persona-pair similarity as a line across layers."""
+
+    selected_layers = _validate_layers(samples.vectors, layers)
+    n_samples = samples.vectors.shape[0]
+    if n_samples < 2:
+        raise ValueError("At least two samples are required")
+
+    matrices = {
+        layer: cosine_similarity_matrix(samples.vectors[:, layer, :], center=True)
+        .cpu()
+        .numpy()
+        for layer in selected_layers
+    }
+    pairs = [
+        (left, right)
+        for left in range(n_samples)
+        for right in range(left + 1, n_samples)
+    ]
+    show_legend = len(pairs) <= 30
+
+    fig = go.Figure()
+    for left, right in pairs:
+        left_label = samples.labels[left]
+        right_label = samples.labels[right]
+        pair_label = f"{left_label} <> {right_label}"
+        values = [float(matrices[layer][left, right]) for layer in selected_layers]
+        fig.add_trace(
+            go.Scatter(
+                x=selected_layers,
+                y=values,
+                mode="lines+markers",
+                name=pair_label,
+                showlegend=show_legend,
+                marker=dict(size=5),
+                line=dict(width=1.8),
+                opacity=0.78,
+                hovertemplate=(
+                    f"{left_label}<br>{right_label}<br>"
+                    "Layer %{x}<br>Centered cosine: %{y:.4f}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.add_hline(y=0, line_width=1, line_dash="dot", line_color="#64748b")
+    fig.update_layout(
+        title=title,
+        xaxis_title="Layer",
+        yaxis_title="Centered cosine similarity",
+        yaxis=dict(range=[-1, 1]),
+        hovermode="closest",
+        template="plotly_white",
+        margin=dict(t=90, b=70),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
+    )
+    fig.update_xaxes(tickmode="array", tickvals=selected_layers, automargin=True)
+    fig.update_yaxes(zeroline=True, automargin=True)
+    return fig
+
+
 def build_layered_figure(
     samples: LayeredSamples,
     kind: str,
@@ -573,8 +510,8 @@ def build_layered_figure(
         return _build_layered_embedding_figure(
             samples,
             selected_layers,
-            title=title or "Centered PCA by Layer",
-            project_fn=project_pca_centered,
+            title=title or "PCA by Layer",
+            project_fn=project_pca,
             x_label="PC1",
             y_label="PC2",
         )
@@ -583,7 +520,7 @@ def build_layered_figure(
             samples,
             selected_layers,
             title=title or "Centered UMAP by Layer",
-            project_fn=project_umap_centered,
+            project_fn=project_umap,
             x_label="UMAP 1",
             y_label="UMAP 2",
         )
@@ -594,56 +531,3 @@ def build_layered_figure(
             title=title or "Centered Cosine Similarity by Layer",
         )
     raise ValueError("kind must be one of: pca, umap, similarity")
-
-
-def build_embedding_figure(
-    coords: torch.Tensor,
-    labels: list[str],
-    title: str,
-    x_label: str,
-    y_label: str,
-    hover_text: list[str] | None = None,
-) -> go.Figure:
-    """Build a 2D scatter plot from projected coordinates."""
-    if coords.ndim != 2 or coords.shape[1] != 2:
-        raise ValueError("coords must have shape (n_samples, 2)")
-    if len(labels) != coords.shape[0]:
-        raise ValueError("labels must match number of samples")
-    if hover_text is not None and len(hover_text) != coords.shape[0]:
-        raise ValueError("hover_text must match number of samples")
-
-    fig = go.Figure()
-    unique_labels = sorted(set(labels), key=lambda value: value.casefold())
-    label_colors = _label_color_map(labels)
-
-    for label in unique_labels:
-        mask = torch.tensor([value == label for value in labels], dtype=torch.bool)
-        selected = coords[mask]
-        fig.add_trace(
-            go.Scatter(
-                x=selected[:, 0].tolist(),
-                y=selected[:, 1].tolist(),
-                mode="markers",
-                name=label,
-                marker=dict(
-                    size=8,
-                    opacity=0.8,
-                    color=label_colors[label],
-                ),
-                text=(
-                    [hover_text[i] for i, value in enumerate(labels) if value == label]
-                    if hover_text is not None
-                    else None
-                ),
-                hovertemplate="%{text}<br>x=%{x:.4f}<br>y=%{y:.4f}<extra></extra>",
-            )
-        )
-
-    fig.update_layout(
-        title=title,
-        xaxis_title=x_label,
-        yaxis_title=y_label,
-        template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
-    )
-    return fig

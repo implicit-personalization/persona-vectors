@@ -15,7 +15,7 @@ from persona_vectors.artifacts import (
     list_personas,
     model_dir_name,
 )
-from persona_vectors.plots import build_layered_figure
+from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
 
 print("✓ imports OK")
 
@@ -95,6 +95,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert pm.vectors.shape == (2, 4, 8)
 
     build_layered_figure(pm, "similarity", layers=[0, 1])
+    build_pair_similarity_figure(pm, layers=[0, 1])
 
     outputs = run_saved_activation_analysis(
         model_name="test/model",
@@ -107,6 +108,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert {
         "persona_mean_pca",
         "persona_mean_similarity",
+        "persona_pair_similarity",
+        "pca_scree",
     } <= outputs.keys()
     assert all(path.exists() for path in outputs.values())
 

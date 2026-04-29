@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from persona_data.prompts import BASELINE_PERSONA_ID
 from sklearn.decomposition import PCA
 
 from persona_vectors.artifacts import ActivationStore, list_personas, load_persona_names
@@ -18,42 +19,23 @@ class LayeredSamples:
     hover_text: list[str]
 
 
-def load_persona_mean_samples(
-    root_dir: str | Path,
-    model_name: str,
+def _load_variant_samples(
+    store: ActivationStore,
     variant: str,
     mask_strategy: object,
-    persona_ids: list[str] | None = None,
-) -> LayeredSamples:
-    """Load one mean activation sample per persona.
-
-    Args:
-        root_dir: Activation artifact root, usually ``artifacts/activations``.
-        model_name: HuggingFace model id used at extraction time.
-        variant: Prompt variant to load.
-        mask_strategy: Saved mask strategy to load.
-        persona_ids: Optional subset. If omitted, all personas present for the
-            variant/mask strategy are loaded.
-    """
-
-    if persona_ids is None:
-        persona_ids = list_personas(
-            root_dir, model_name, [variant], mask_strategy=mask_strategy
-        )
-    if not persona_ids:
-        raise FileNotFoundError(
-            f"No personas found for {model_name!r} / {variant!r} / {mask_strategy!r}"
-        )
-
-    store = ActivationStore(model_name, root_dir=root_dir)
+    persona_ids: list[str],
+) -> tuple[list[torch.Tensor], list[str], list[str]]:
+    """Load one mean-over-questions sample per persona for a single variant."""
     persona_names = load_persona_names(
-        root_dir, model_name, [variant], persona_ids, mask_strategy=mask_strategy
+        store.root_dir,
+        store.model_name,
+        [variant],
+        persona_ids,
+        mask_strategy=mask_strategy,
     )
-
     vectors: list[torch.Tensor] = []
     labels: list[str] = []
     hover_text: list[str] = []
-
     for persona_id in persona_ids:
         acts, _ = store.load(variant, persona_id, mask_strategy=mask_strategy)
         if acts.ndim != 3:
@@ -66,6 +48,52 @@ def load_persona_mean_samples(
         hover_text.append(
             f"Persona: {name}<br>ID: {persona_id}<br>Questions averaged: {acts.shape[0]}"
         )
+    return vectors, labels, hover_text
+
+
+def load_persona_mean_samples(
+    root_dir: str | Path,
+    model_name: str,
+    variant: str,
+    mask_strategy: object,
+    persona_ids: list[str] | None = None,
+    *,
+    include_baseline: bool = False,
+) -> LayeredSamples:
+    """Load one mean activation sample per persona.
+
+    Args:
+        root_dir: Activation artifact root, usually ``artifacts/activations``.
+        model_name: HuggingFace model id used at extraction time.
+        variant: Prompt variant to load.
+        mask_strategy: Saved mask strategy to load.
+        persona_ids: Optional subset. If omitted, all personas present for the
+            variant/mask strategy are loaded.
+        include_baseline: If True, append the persona-less Assistant baseline
+            (loaded from the ``baseline`` artifact group) as one extra sample.
+    """
+
+    if persona_ids is None:
+        persona_ids = list_personas(
+            root_dir, model_name, [variant], mask_strategy=mask_strategy
+        )
+    if not persona_ids:
+        raise FileNotFoundError(
+            f"No personas found for {model_name!r} / {variant!r} / {mask_strategy!r}"
+        )
+
+    store = ActivationStore(model_name, root_dir=root_dir)
+    vectors, labels, hover_text = _load_variant_samples(
+        store, variant, mask_strategy, persona_ids
+    )
+
+    if include_baseline:
+        bl_vectors, bl_labels, bl_hover = _load_variant_samples(
+            store, BASELINE_PERSONA_ID, mask_strategy, [BASELINE_PERSONA_ID]
+        )
+        vectors.extend(bl_vectors)
+        labels.extend(bl_labels)
+        hover_text.extend(bl_hover)
 
     return LayeredSamples(torch.stack(vectors), labels, hover_text)
 
@@ -74,32 +102,16 @@ def _center_features(samples: torch.Tensor) -> torch.Tensor:
     return samples.float() - samples.float().mean(dim=0, keepdim=True)
 
 
-def pairwise_cosine_similarity(
-    vectors: list[torch.Tensor], center: bool = False
-) -> torch.Tensor:
-    """Compute pairwise cosine similarity between vectors.
-
-    Args:
-        vectors: List of 1-D tensors (one per persona/condition).
-        center: If True, subtract the mean vector across the list before
-            normalising. LLM residual-stream means share a large DC component
-            that pushes every pairwise cosine toward ~1; centering removes it
-            so the remaining structure (which personas actually cluster) shows.
-    """
-
-    if not vectors:
-        raise ValueError("vectors must not be empty")
-    if any(vector.ndim != 1 for vector in vectors):
-        raise ValueError("vectors must be 1-D tensors")
-
-    stacked = torch.stack([vector.float() for vector in vectors])
-    return cosine_similarity_matrix(stacked, center=center)
-
-
 def cosine_similarity_matrix(
     samples: torch.Tensor, center: bool = True
 ) -> torch.Tensor:
-    """Cosine similarity for a 2-D sample matrix, centered by default."""
+    """Cosine similarity for a 2-D sample matrix, centered by default.
+
+    Centering subtracts the per-feature mean across rows before normalising.
+    LLM residual-stream means share a large DC component that pushes every raw
+    pairwise cosine toward ~1; centering removes it so the remaining persona
+    cluster structure shows.
+    """
 
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
@@ -125,10 +137,40 @@ def project_pca(samples: torch.Tensor) -> torch.Tensor:
     return torch.from_numpy(embedding)
 
 
-def project_pca_centered(samples: torch.Tensor) -> torch.Tensor:
-    """Project samples to 2D PCA after explicit feature centering."""
+def pca_explained_variance(
+    samples: torch.Tensor, n_components: int | None = None
+) -> np.ndarray:
+    """Return the explained variance ratio for each principal component."""
 
-    return project_pca(_center_features(samples))
+    if samples.ndim != 2:
+        raise ValueError("samples must have shape (n_samples, hidden_size)")
+
+    x = samples.float().cpu().numpy()
+    max_components = min(x.shape)
+    if n_components is None:
+        n_components = max_components
+    else:
+        n_components = min(n_components, max_components)
+
+    pca = PCA(n_components=n_components).fit(x)
+    return pca.explained_variance_ratio_
+
+
+def _scree_layers(num_layers: int, layers: list[int] | None) -> list[int]:
+    """Use requested layers, or a small representative set for compact plots."""
+    if layers is not None:
+        selected = list(layers)
+    elif num_layers <= 4:
+        selected = list(range(num_layers))
+    else:
+        selected = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
+
+    invalid = [layer for layer in selected if layer < 0 or layer >= num_layers]
+    if invalid:
+        raise ValueError(
+            f"Invalid layer(s) for tensor with {num_layers} layers: {invalid}"
+        )
+    return selected
 
 
 def run_saved_activation_analysis(
@@ -142,7 +184,11 @@ def run_saved_activation_analysis(
 ) -> dict[str, Path]:
     """Create interactive PCA and similarity HTML files from saved activations."""
 
-    from persona_vectors.plots import build_layered_figure
+    from persona_vectors.plots import (
+        build_layered_figure,
+        build_pair_similarity_figure,
+        plot_scree,
+    )
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -155,11 +201,7 @@ def run_saved_activation_analysis(
         persona_ids=persona_ids,
     )
     figure_specs = [("persona_mean", "pca"), ("persona_mean", "similarity")]
-    title_suffix = {
-        "pca": "centered PCA",
-        "similarity": "centered cosine similarity",
-    }
-
+    title_suffix = {"pca": "PCA", "similarity": "centered cosine similarity"}
     outputs: dict[str, Path] = {}
     for name, kind in figure_specs:
         fig = build_layered_figure(
@@ -171,17 +213,36 @@ def run_saved_activation_analysis(
         path = output / f"{variant}_{mask_strategy}_{name}_{kind}.html"
         fig.write_html(str(path))
         outputs[f"{name}_{kind}"] = path
+
+    pair_fig = build_pair_similarity_figure(
+        samples,
+        layers=layers,
+        title=f"{variant} {mask_strategy} persona-pair similarity across layers",
+    )
+    pair_path = output / f"{variant}_{mask_strategy}_persona_pair_similarity.html"
+    pair_fig.write_html(str(pair_path))
+    outputs["persona_pair_similarity"] = pair_path
+
+    scree_layers = _scree_layers(int(samples.vectors.shape[1]), layers)
+    scree_fig = plot_scree(
+        {
+            f"layer {layer}": pca_explained_variance(samples.vectors[:, layer, :])
+            for layer in scree_layers
+        },
+        title=f"{variant} {mask_strategy} PCA explained variance",
+        show=False,
+    )
+    scree_path = output / f"{variant}_{mask_strategy}_pca_scree.html"
+    scree_fig.write_html(str(scree_path))
+    outputs["pca_scree"] = scree_path
     return outputs
 
 
 def project_umap(samples: torch.Tensor) -> torch.Tensor:
-    """Project samples to 2D using UMAP.
+    """Project samples to 2D using UMAP after centering features.
 
-    Args:
-        samples: Tensor with shape (n_samples, hidden_size).
-
-    Returns:
-        Tensor with shape (n_samples, 2).
+    Centering removes the shared DC component before UMAP fits, matching the
+    convention used by the centered cosine views.
     """
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
@@ -191,32 +252,8 @@ def project_umap(samples: torch.Tensor) -> torch.Tensor:
     except ImportError as exc:
         raise ImportError("umap-learn is required for UMAP projections") from exc
 
+    centered = _center_features(samples)
     embedding = umap.UMAP(n_components=2, random_state=1337).fit_transform(
-        samples.float().cpu().numpy()
+        centered.float().cpu().numpy()
     )
     return torch.from_numpy(embedding)
-
-
-def project_umap_centered(samples: torch.Tensor) -> torch.Tensor:
-    """Project samples to 2D UMAP after explicit feature centering."""
-
-    return project_umap(_center_features(samples))
-
-
-def pca_explained_variance(
-    samples: torch.Tensor, n_components: int | None = None
-) -> np.ndarray:
-    """Return the explained variance ratio for each principal component."""
-
-    if samples.ndim != 2:
-        raise ValueError("samples must have shape (n_samples, hidden_size)")
-
-    X = samples.float().cpu().numpy()
-    max_components = min(X.shape)
-    if n_components is None:
-        n_components = max_components
-    else:
-        n_components = min(n_components, max_components)
-
-    pca = PCA(n_components=n_components).fit(X)
-    return pca.explained_variance_ratio_

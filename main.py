@@ -14,13 +14,10 @@ from persona_vectors.parser import (
 
 def extract_activations(cfg: ExtractConfig) -> None:
     from nnterp import StandardizedTransformer
+    from persona_data.prompts import BASELINE_PERSONA_ID
     from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.extraction import run_extraction
-
-    # HACK: This is the alternative version to avoid OOM but is much slower
-    # import persona_vectors.activations as activations_mod
-    # activations_mod._LAYER_CHUNK_SIZE = 8 if cfg.remote else None
 
     model = StandardizedTransformer(cfg.model)
     dataset = SynthPersonaDataset()
@@ -29,21 +26,46 @@ def extract_activations(cfg: ExtractConfig) -> None:
         if cfg.persona_id
         else list(dataset)
     )
-    for persona in tqdm(personas, desc="personas", unit="persona"):
-        qa_pairs = list(dataset.get_qa(persona.id))
-        if not qa_pairs:
-            continue
-        results = run_extraction(
-            model=model,
-            model_name=cfg.model,
-            persona=persona,
-            qa_pairs=qa_pairs,
-            variants=cfg.variants,
-            mask_strategy=cfg.mask_strategy,
-            remote=cfg.remote,
-            verbose=cfg.verbose,
+
+    persona_variants = tuple(v for v in cfg.variants if v != BASELINE_PERSONA_ID)
+    run_baseline = BASELINE_PERSONA_ID in cfg.variants
+
+    common = dict(
+        model=model,
+        model_name=cfg.model,
+        mask_strategy=cfg.mask_strategy,
+        remote=cfg.remote,
+        verbose=cfg.verbose,
+        chunk_size=cfg.chunk_size,
+    )
+
+    if persona_variants:
+        for persona in tqdm(personas, desc="personas", unit="persona"):
+            qa_pairs = list(dataset.get_qa(persona.id))
+            if not qa_pairs:
+                continue
+            for r in run_extraction(
+                qa_pairs=qa_pairs,
+                variants=persona_variants,
+                persona=persona,
+                **common,
+            ):
+                print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
+
+    if run_baseline:
+        # Baseline is persona-less; one run, sharing the first persona's QA pairs.
+        baseline_qa_pairs = next(
+            (qa for qa in (list(dataset.get_qa(p.id)) for p in personas) if qa),
+            None,
         )
-        for r in results:
+        if baseline_qa_pairs is None:
+            print("Skipping baseline: no QA pairs available.")
+            return
+        for r in run_extraction(
+            qa_pairs=baseline_qa_pairs,
+            variants=(BASELINE_PERSONA_ID,),
+            **common,
+        ):
             print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
 
 
@@ -95,6 +117,7 @@ def main() -> None:
             persona_id=args.persona_id,
             remote=args.remote,
             verbose=args.verbose,
+            chunk_size=args.chunk_size,
         )
         extract_activations(cfg)
     elif args.command == "analyze":

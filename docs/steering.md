@@ -9,7 +9,7 @@ Core module: `src/persona_vectors/steering.py`
 ## Pipeline
 
 ```
-Extract Activations (`notebook_extract.py`) → Compute Steering Vector → Save → Apply
+Extract Activations (`notebook_extract.py`) → Compute Steering Vector → Save
 ```
 
 Steering reuses the activations extracted by `notebook_extract.py`. No
