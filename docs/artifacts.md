@@ -52,7 +52,6 @@ vectors, sample_ids = store.load(
 - `list_personas()`: persona ids available across all requested variants for a mask strategy
 - `list_layers()`: shared layer indices
 - `load_persona_names()`: display names from saved metadata
-- `load_mean_activations()`: mean vectors for comparing two variants
 
 All query helpers accept `mask_strategy`, defaulting to `answer_mean`.
 `store.save()` writes one persona safetensors file and updates `manifest.json`.

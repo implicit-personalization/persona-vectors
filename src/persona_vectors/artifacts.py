@@ -186,6 +186,12 @@ def list_personas(
     mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
     warn_missing: bool = True,
 ) -> list[str]:
+    """Return persona ids available in every requested variant.
+
+    The result is the intersection across all ``variants`` for one
+    model/mask-strategy artifact group. This keeps downstream comparisons from
+    silently pairing a persona that exists in one prompt variant but not another.
+    """
     if not variants:
         return []
 
@@ -221,6 +227,11 @@ def load_persona_names(
     persona_ids: list[str],
     mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> dict[str, str]:
+    """Load display names for known persona ids from saved manifests.
+
+    Names are looked up across ``variants`` in order; the first non-empty name
+    wins. Missing manifests or missing persona entries are ignored.
+    """
     manifests = _variant_manifests(root_dir, model_name, variants, mask_strategy)
     if not manifests:
         return {}
@@ -244,6 +255,11 @@ def list_layers(
     persona_ids: list[str],
     mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> list[int]:
+    """Return shared layer indices for the requested artifacts.
+
+    If ``persona_ids`` is provided, all ids must be present in every requested
+    variant or an empty list is returned.
+    """
     manifests = _variant_manifests(root_dir, model_name, variants, mask_strategy)
     if not manifests:
         return []
@@ -262,46 +278,3 @@ def list_layers(
             layers = set(range(num_layers))
             shared_layers = layers if shared_layers is None else shared_layers & layers
     return sorted(shared_layers or set())
-
-
-def load_mean_activations(
-    root_dir: str | Path,
-    model_name: str,
-    persona_ids: list[str],
-    variant_a: str,
-    variant_b: str,
-    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
-) -> tuple[list[tuple[str, torch.Tensor, torch.Tensor]], dict[str, str], list[str]]:
-    store = ActivationStore(model_name, root_dir)
-    persona_names = load_persona_names(
-        root_dir,
-        model_name,
-        [variant_a, variant_b],
-        persona_ids,
-        mask_strategy=mask_strategy,
-    )
-
-    traces: list[tuple[str, torch.Tensor, torch.Tensor]] = []
-    errors: list[str] = []
-
-    for persona_id in persona_ids:
-        try:
-            vectors_a, _ = store.load(
-                variant_a, persona_id, mask_strategy=mask_strategy
-            )
-            vectors_b, _ = store.load(
-                variant_b, persona_id, mask_strategy=mask_strategy
-            )
-        except (FileNotFoundError, KeyError, OSError, ValueError) as exc:
-            errors.append(f"{persona_id}: {exc}")
-            continue
-
-        traces.append(
-            (
-                persona_id,
-                vectors_a.float().mean(dim=0),
-                vectors_b.float().mean(dim=0),
-            )
-        )
-
-    return traces, persona_names, errors

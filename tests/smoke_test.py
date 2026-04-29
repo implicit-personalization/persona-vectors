@@ -7,6 +7,7 @@ from persona_data.prompts import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
     load_persona_mean_samples,
+    load_variant_mean_samples,
     run_saved_activation_analysis,
 )
 from persona_vectors.artifacts import (
@@ -16,6 +17,7 @@ from persona_vectors.artifacts import (
     model_dir_name,
 )
 from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
+from persona_vectors.steering import compute_steering_vector
 
 print("✓ imports OK")
 
@@ -93,6 +95,15 @@ with tempfile.TemporaryDirectory() as tmp:
 
     pm = load_persona_mean_samples(tmp, "test/model", "biography", "answer_mean")
     assert pm.vectors.shape == (2, 4, 8)
+    vm = load_variant_mean_samples(
+        tmp,
+        "test/model",
+        ["biography"],
+        "answer_mean",
+        persona_ids=["persona-001", "persona-002"],
+    )
+    assert vm["biography"].vectors.shape == (2, 4, 8)
+    assert vm["biography"].labels == ["Test Persona 1", "Test Persona 2"]
 
     build_layered_figure(pm, "similarity", layers=[0, 1])
     build_pair_similarity_figure(pm, layers=[0, 1])
@@ -112,5 +123,39 @@ with tempfile.TemporaryDirectory() as tmp:
         "pca_scree",
     } <= outputs.keys()
     assert all(path.exists() for path in outputs.values())
+
+with tempfile.TemporaryDirectory() as tmp:
+    store = ActivationStore("test/model", root_dir=tmp)
+    sample_ids = ["q0", "q1"]
+    templated = torch.zeros(2, 3, 4)
+    biography = torch.ones(2, 3, 4)
+    store.save(
+        "templated",
+        "persona-001",
+        "Test Persona",
+        templated,
+        sample_ids,
+        mask_strategy="answer_mean",
+    )
+    store.save(
+        "biography",
+        "persona-001",
+        "Test Persona",
+        biography,
+        sample_ids,
+        mask_strategy="answer_mean",
+    )
+
+    sv = compute_steering_vector(
+        "persona-001",
+        "test/model",
+        layer_idx=1,
+        mask_strategy="answer_mean",
+        activations_dir=tmp,
+        verbose=False,
+    )
+    assert sv["steering_vector"].shape == (1, 1, 4)
+    assert torch.allclose(sv["steering_vector"], torch.ones(1, 1, 4))
+    assert sv["n_qa_pairs"] == 2
 
 print("✓ smoke test passed")

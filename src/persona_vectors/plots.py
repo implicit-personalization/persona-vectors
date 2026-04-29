@@ -37,16 +37,6 @@ def save_plot_png(fig: go.Figure, filename: str) -> Path:
     return output_path
 
 
-def _similarity_coloraxis() -> dict:
-    return dict(
-        cmin=-1,
-        cmax=1,
-        cmid=0,
-        colorscale="RdBu_r",
-        colorbar=dict(title="Cosine sim"),
-    )
-
-
 def _finalize(fig: go.Figure, filename: str | None, show: bool) -> None:
     if filename is not None:
         output_path = save_plot_html(fig, filename)
@@ -422,7 +412,13 @@ def _build_layered_similarity_figure(
         width=max(800, 26 * len(samples.labels)),
         height=max(700, 24 * len(samples.labels)),
         margin=dict(t=170, b=90),
-        coloraxis=_similarity_coloraxis(),
+        coloraxis=dict(
+            cmin=-1,
+            cmax=1,
+            cmid=0,
+            colorscale="RdBu_r",
+            colorbar=dict(title="Cosine sim"),
+        ),
         updatemenus=_layer_animation_buttons(),
         sliders=_layer_slider(selected_layers),
     )
@@ -501,7 +497,12 @@ def build_layered_figure(
     layers: list[int] | None = None,
     title: str | None = None,
 ) -> go.Figure:
-    """Build an interactive per-layer PCA, UMAP, or similarity figure."""
+    """Build an interactive per-layer PCA, UMAP, or similarity figure.
+
+    This is the main plotting entry point for persona-space views. It accepts
+    the ``LayeredSamples`` returned by analysis helpers and adds the shared
+    layer slider/animation controls used by all layered plots.
+    """
 
     selected_layers = _validate_layers(samples.vectors, layers)
     if samples.vectors.shape[0] < 2:

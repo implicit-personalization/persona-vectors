@@ -98,6 +98,34 @@ def load_persona_mean_samples(
     return LayeredSamples(torch.stack(vectors), labels, hover_text)
 
 
+def load_variant_mean_samples(
+    root_dir: str | Path,
+    model_name: str,
+    variants: list[str],
+    mask_strategy: object,
+    persona_ids: list[str] | None = None,
+) -> dict[str, LayeredSamples]:
+    """Load mean activation samples for multiple variants in a shared persona order."""
+
+    if not variants:
+        raise ValueError("At least one variant is required")
+    if not persona_ids:
+        raise FileNotFoundError(
+            f"No shared personas found for {model_name!r} / {variants!r} / {mask_strategy!r}"
+        )
+
+    store = ActivationStore(model_name, root_dir=root_dir)
+    samples_by_variant = {}
+    for variant in variants:
+        vectors, labels, hover_text = _load_variant_samples(
+            store, variant, mask_strategy, persona_ids
+        )
+        samples_by_variant[variant] = LayeredSamples(
+            torch.stack(vectors), labels, hover_text
+        )
+    return samples_by_variant
+
+
 def _center_features(samples: torch.Tensor) -> torch.Tensor:
     return samples.float() - samples.float().mean(dim=0, keepdim=True)
 

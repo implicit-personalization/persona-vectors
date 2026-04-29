@@ -22,6 +22,11 @@ persona. Each sample keeps the layer axis: `(n_personas, num_layers, hidden_size
 Pass `include_baseline=True` to append the persona-less Assistant baseline
 sample (loaded from the `baseline` artifact group) as one extra row.
 
+### `load_variant_mean_samples(...)`
+
+Loads one `LayeredSamples` object per prompt variant using the same persona
+order for every variant. This is useful for variant-to-variant comparisons.
+
 ### `cosine_similarity_matrix(samples, center=True)`
 
 Cosine similarity for a 2-D `(n_samples, hidden_size)` matrix; returns
@@ -44,16 +49,18 @@ hidden_size)`. Returns a 1-D numpy array of length `n_components` (default:
 
 ## Plots
 
-All plot functions return a `go.Figure`. Pass `filename="..."` to write an
-HTML artifact under `<artifacts_dir>/plots/<filename>.html`, or `show=True`
-to open in the browser.
+All plot functions return a `go.Figure`. The main entry point is
+`build_layered_figure()`, which creates the interactive layer-slider views used
+by the CLI. Pass `filename="..."` to the smaller standalone plot functions to
+write an HTML artifact under `<artifacts_dir>/plots/<filename>.html`, or
+`show=True` to open in the browser.
 
 | Function | Best for |
 |---|---|
 | `plot_scree(variance_by_condition, n_components=20, cumulative=True)` | Comparing PCA spectra across representative layers |
 | `plot_layer_similarity(traces, ...)` | Cosine similarity per layer across prompt variants |
 | `build_pair_similarity_figure(samples, layers=None)` | Line trajectories for every persona pair across selected layers |
-| `build_layered_figure(samples, kind, layers=None)` | Interactive PCA, UMAP, or similarity figure with a layer dropdown |
+| `build_layered_figure(samples, kind, layers=None)` | Interactive PCA, UMAP, or similarity figure with layer controls |
 
 ## CLI
 
@@ -72,6 +79,11 @@ This writes interactive HTML files with layer dropdowns:
 - `persona_pair_similarity`: persona-pair similarity trajectories across layers
 - `pca_scree`: PCA explained-variance curves for selected or representative layers
 
+The plotting code intentionally keeps Plotly-specific layout helpers private to
+`plots.py`. Public callers should generally load `LayeredSamples` with
+`analysis.py`, then call `build_layered_figure()` or
+`build_pair_similarity_figure()`.
+
 For prompt-only extraction, use `persona_mean` or `persona_last` during
 extraction and analysis. Those strategies run on the rendered system prompt
 only, so they do not need every QA pair.
@@ -85,19 +97,22 @@ Layer-wise variant similarity across saved prompt variants.
 ## Quick example
 
 ```python
-import torch
-from persona_vectors.analysis import cosine_similarity_matrix, pca_explained_variance
-from persona_vectors.artifacts import ActivationStore, list_personas
+from persona_vectors.analysis import (
+    cosine_similarity_matrix,
+    load_persona_mean_samples,
+    pca_explained_variance,
+)
 
-store = ActivationStore("google/gemma-2-9b-it")
-persona_ids = list_personas(store.root_dir, "google/gemma-2-9b-it", ["biography"])
-
-# saved question samples for each persona
-acts = {pid: store.load("biography", pid)[0] for pid in persona_ids}
+samples = load_persona_mean_samples(
+    "artifacts/activations",
+    "google/gemma-2-9b-it",
+    "biography",
+    "answer_mean",
+)
 
 # persona similarity at a middle layer, centered to remove shared DC component
-mid = next(iter(acts.values())).shape[1] // 2
-means = torch.stack([a[:, mid, :].mean(dim=0) for a in acts.values()])
+mid = samples.vectors.shape[1] // 2
+means = samples.vectors[:, mid, :]
 print(cosine_similarity_matrix(means))
 print(pca_explained_variance(means))
 ```

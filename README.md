@@ -2,7 +2,7 @@
 
 [![Docs](https://img.shields.io/badge/docs-view-purple?logo=github)](https://implicit-personalization.github.io/persona-vectors/)
 
-Extract persona-aligned activation vectors from language models and experiment with activation steering.
+Extract persona-aligned activation vectors from language models and analyze how persona prompts move hidden states.
 
 > [!WARNING]
 > This is very experimental currently 🚨
@@ -29,7 +29,7 @@ persona-vectors/
 │   ├── activations.py           # Core extraction helpers
 │   ├── analysis.py              # PCA / UMAP projections and scatter plots
 │   ├── artifacts.py             # Save/load/query activation artifact helpers
-│   ├── plots.py                 # Layer-wise cosine similarity plots
+│   ├── plots.py                 # Plotly figures for layer-wise analysis
 │   ├── steering.py              # Steering vector computation and application
 │   └── parser.py                # CLI argument parsing
 ├── artifacts/                   # Saved activations (gitignored)

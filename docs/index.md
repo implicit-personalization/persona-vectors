@@ -1,6 +1,6 @@
 # persona-vectors
 
-Extract persona-aligned activation vectors from language models and run activation steering experiments.
+Extract persona-aligned activation vectors from language models and analyze how persona prompts move hidden states.
 
 > **Warning:** This project is very experimental.
 
@@ -13,12 +13,13 @@ Given a set of personas and evaluation questions:
 3. Extract hidden states at each layer over the masked tokens
 4. Average those hidden states across questions → **persona vector** per layer
 
-Vectors can then be compared across layers (cosine similarity) or used to steer model generation toward a specific persona.
+Vectors can then be compared across layers with PCA, UMAP, and centered cosine
+similarity. Steering is kept as an experimental side path.
 
 ## Pipeline
 
 ```
-Dataset → Format Prompts → Build Token Masks → Extract Activations → Save → Analyze / Steer
+Dataset → Format Prompts → Build Token Masks → Extract Activations → Save → Analyze
 ```
 
 | Step | Doc |
@@ -26,7 +27,7 @@ Dataset → Format Prompts → Build Token Masks → Extract Activations → Sav
 | Build token masks and extract hidden states from the model | [Activation Extraction](extraction.md) |
 | Save and load activation tensors | [Artifacts](artifacts.md) |
 | Comparison and analysis views | [Analysis](analysis.md) |
-| Compute and apply steering vectors | [Steering](steering.md) |
+| Experimental steering vectors | [Steering](steering.md) |
 
 ## Installation
 
@@ -49,7 +50,7 @@ uv run python -m notebooks.notebook_extract
 # Load saved activations and inspect comparison views
 uv run python -m notebooks.notebook_compare
 
-# Compute a steering vector from saved activations
+# Optional: compute an experimental steering vector from saved activations
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
 
 # Use non-default extracted activations, such as the pre-answer prediction position

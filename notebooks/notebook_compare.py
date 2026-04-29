@@ -11,13 +11,11 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import load_persona_mean_samples
-from persona_vectors.artifacts import (
-    PERSONA_VARIANTS,
-    ActivationStore,
-    list_personas,
-    load_persona_names,
+from persona_vectors.analysis import (
+    load_persona_mean_samples,
+    load_variant_mean_samples,
 )
+from persona_vectors.artifacts import PERSONA_VARIANTS, ActivationStore, list_personas
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
     build_layered_figure,
@@ -61,34 +59,28 @@ console.print(f"Available comparison variants: {available_variants}")
 persona_ids = list_personas(
     acts.root_dir, MODEL_NAME, available_variants, mask_strategy=MASK_STRATEGY
 )
-persona_names = load_persona_names(
-    acts.root_dir,
-    MODEL_NAME,
-    available_variants,
-    persona_ids,
-    mask_strategy=MASK_STRATEGY,
-)
 console.print(f"Personas with all variants: {len(persona_ids)}")
 
 # %% Load mean activations per variant per persona
-variant_means: dict[str, dict[str, torch.Tensor]] = {}
-for variant in available_variants:
-    variant_means[variant] = {}
-    for pid in persona_ids:
-        activations, _ = acts.load(variant, pid, mask_strategy=MASK_STRATEGY)
-        variant_means[variant][pid] = activations.float().mean(dim=0)
+variant_samples = load_variant_mean_samples(
+    acts.root_dir,
+    MODEL_NAME,
+    available_variants,
+    mask_strategy=MASK_STRATEGY,
+    persona_ids=persona_ids,
+)
+persona_labels = next(iter(variant_samples.values())).labels
 
 # %% Plot all persona/variant-pair traces together
 comparison_pairs = list(combinations(available_variants, 2))
 all_pair_traces = []
 
-for pid in persona_ids:
-    persona_name = persona_names.get(pid, pid[:8])
+for persona_index, persona_name in enumerate(persona_labels):
     all_pair_traces.extend(
         (
             f"{persona_name}: {left} vs {right}",
-            variant_means[left][pid],
-            variant_means[right][pid],
+            variant_samples[left].vectors[persona_index],
+            variant_samples[right].vectors[persona_index],
         )
         for left, right in comparison_pairs
     )
@@ -101,10 +93,7 @@ plot_layer_similarity(
 
 # %% Plot Averaged across personas
 avg_variant_means = {
-    variant: torch.stack([variant_means[variant][pid] for pid in persona_ids]).mean(
-        dim=0
-    )
-    for variant in available_variants
+    variant: samples.vectors.mean(dim=0) for variant, samples in variant_samples.items()
 }
 avg_plot_means = dict(avg_variant_means)
 
@@ -113,7 +102,8 @@ baseline_vectors, _ = acts.load(
     BASELINE_PERSONA_ID,
     mask_strategy=MASK_STRATEGY,
 )
-avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().mean(dim=0)
+# Add the baseline to the ones that are plotted
+avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().squeeze(dim=0)
 
 pair_traces = [
     (f"{left} vs {right}", avg_plot_means[left], avg_plot_means[right])
@@ -127,15 +117,10 @@ plot_layer_similarity(
 )
 
 # %% Similarity matrix and pair trajectories, matching the UI comparison view
-similarity_variant = (
-    SIMILARITY_VARIANT
-    if SIMILARITY_VARIANT in available_variants
-    else available_variants[0]
-)
 samples = load_persona_mean_samples(
     acts.root_dir,
     MODEL_NAME,
-    similarity_variant,
+    SIMILARITY_VARIANT,
     mask_strategy=MASK_STRATEGY,
     persona_ids=persona_ids,
     include_baseline=True,
@@ -144,14 +129,13 @@ samples = load_persona_mean_samples(
 build_layered_figure(
     samples,
     "similarity",
-    title=f"Centered similarity — {similarity_variant} — personas averaged over questions",
+    title=f"Centered similarity — {SIMILARITY_VARIANT} — personas averaged over questions",
 ).show()
 
 build_pair_similarity_figure(
     samples,
     title=(
         "Pair similarity trajectories — "
-        f"{similarity_variant} — personas averaged over questions"
-        + (" + baseline" if include_baseline else "")
+        f"{SIMILARITY_VARIANT} — personas averaged over questions"
     ),
 ).show()
