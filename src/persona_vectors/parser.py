@@ -27,9 +27,13 @@ class ExtractConfig:
 
 @dataclass
 class AnalyzeConfig:
-    activations_path: str
-    output_dir: str
-    similarity: str
+    model: str
+    activations_dir: Path
+    output_dir: Path
+    variant: str
+    mask_strategy: MaskStrategy
+    persona_ids: list[str] | None
+    layers: list[int] | None
 
 
 @dataclass
@@ -75,12 +79,42 @@ def build_extract_parser(subparsers) -> None:
 
 def build_analyze_parser(subparsers) -> None:
     analyze = subparsers.add_parser("analyze", help="Analyze saved activations")
-    analyze.add_argument("--out", required=True, help="Output directory")
+    analyze.add_argument("--model", required=True, help="HuggingFace model ID")
     analyze.add_argument(
-        "--similarity",
-        default="cosine",
-        choices=["cosine", "dot"],
-        help="Similarity metric",
+        "--activations-dir",
+        default="artifacts/activations",
+        help="Root directory containing extracted activations",
+    )
+    analyze.add_argument(
+        "--out",
+        default="artifacts/plots",
+        help="Output directory for analysis plots",
+    )
+    analyze.add_argument(
+        "--variant",
+        default="biography",
+        choices=SUPPORTED_VARIANTS,
+        help="Prompt variant to analyze (default: biography)",
+    )
+    analyze.add_argument(
+        "--mask-strategy",
+        type=MaskStrategy,
+        choices=list(MaskStrategy),
+        default=MaskStrategy.ANSWER_MEAN,
+        help="Which saved activations to load (default: answer_mean)",
+    )
+    analyze.add_argument(
+        "--persona-id",
+        nargs="+",
+        default=None,
+        help="Analyze only these persona UUIDs (default: all available)",
+    )
+    analyze.add_argument(
+        "--layers",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Layers to include in interactive plots (default: all available)",
     )
 
 

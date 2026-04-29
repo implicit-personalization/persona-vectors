@@ -4,6 +4,7 @@ import warnings
 from pathlib import Path
 
 import torch
+from persona_data.prompts import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 from safetensors.torch import load_file, save_file
 
 SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography", "baseline")
@@ -97,6 +98,9 @@ class ActivationStore:
             )
         if len(sample_ids) != per_question_vectors.shape[0]:
             raise ValueError("number of sample ids must match first tensor dimension")
+        if prompt_variant == "baseline":
+            persona_id = BASELINE_PERSONA_ID
+            persona_name = BASELINE_PERSONA_NAME
 
         variant_root = _variant_root(
             self.root_dir, self.model_name, prompt_variant, mask_strategy
@@ -125,6 +129,8 @@ class ActivationStore:
 
         manifest["num_layers"] = int(per_question_vectors.shape[1])
         manifest["hidden_size"] = int(per_question_vectors.shape[2])
+        if prompt_variant == "baseline":
+            manifest["personas"] = {}
         manifest.setdefault("personas", {})[persona_id] = {
             "name": persona_name,
             "sample_ids": list(sample_ids),
@@ -164,9 +170,7 @@ class ActivationStore:
 
         sample_ids = entry.get("sample_ids")
         if not isinstance(sample_ids, list):
-            raise ValueError(
-                f"manifest entry for {persona_id} is missing sample ids"
-            )
+            raise ValueError(f"manifest entry for {persona_id} is missing sample ids")
         if len(sample_ids) != vectors.shape[0]:
             raise ValueError(
                 f"sample ids for {persona_id!r} do not match tensor length"

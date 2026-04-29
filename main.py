@@ -16,9 +16,10 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
-    import persona_vectors.activations as activations_mod
     from persona_vectors.extraction import run_extraction
 
+    # HACK: This is the alternative version to avoid OOM but is much slower
+    # import persona_vectors.activations as activations_mod
     # activations_mod._LAYER_CHUNK_SIZE = 8 if cfg.remote else None
 
     model = StandardizedTransformer(cfg.model)
@@ -43,14 +44,23 @@ def extract_activations(cfg: ExtractConfig) -> None:
             verbose=cfg.verbose,
         )
         for r in results:
-            print("Saved %s/%s → %s", r.persona_name, r.variant, r.output_dir)
+            print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
 
 
 def analyze_activations(cfg: AnalyzeConfig) -> None:
-    # TODO: Load activations from disk for a specified model.
-    # TODO: Compute similarity (e.g., cosine, dot).
-    # TODO: Run PCA on activations and save plots/artifacts.
-    raise NotImplementedError("Analysis not implemented yet")
+    from persona_vectors.analysis import run_saved_activation_analysis
+
+    outputs = run_saved_activation_analysis(
+        model_name=cfg.model,
+        activations_dir=cfg.activations_dir,
+        output_dir=cfg.output_dir,
+        variant=cfg.variant,
+        mask_strategy=cfg.mask_strategy,
+        persona_ids=cfg.persona_ids,
+        layers=cfg.layers,
+    )
+    for label, path in outputs.items():
+        print(f"{label}: {path}")
 
 
 def steer_activations(cfg: SteerConfig) -> None:
@@ -89,9 +99,13 @@ def main() -> None:
         extract_activations(cfg)
     elif args.command == "analyze":
         cfg = AnalyzeConfig(
-            activations_path=args.out,
-            output_dir=args.out,
-            similarity=args.similarity,
+            model=args.model,
+            activations_dir=Path(args.activations_dir),
+            output_dir=Path(args.out),
+            variant=args.variant,
+            mask_strategy=args.mask_strategy,
+            persona_ids=args.persona_id,
+            layers=args.layers,
         )
         analyze_activations(cfg)
     elif args.command == "steer":

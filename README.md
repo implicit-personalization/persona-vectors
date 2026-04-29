@@ -13,7 +13,7 @@ Given a set of personas and evaluation questions, this project:
 
 1. Formats each persona as a system prompt (short `templated` or long `biography`)
 2. Extracts hidden states at each layer with configurable token masking
-3. Averages those hidden states across questions to produce a **persona vector** per layer
+3. Saves per-question, per-layer hidden states, then averages them into persona-level views for analysis
 
 The resulting vectors can be compared across layers (cosine similarity) and eventually used for steering experiments.
 
@@ -61,6 +61,9 @@ uv run python -m notebooks.notebook_extract
 # Load saved activations / compare variants
 uv run python -m notebooks.notebook_compare
 
+# Build interactive persona-mean PCA and similarity plots from saved activations
+uv run python main.py analyze --model google/gemma-2-9b-it --variant biography --mask-strategy answer_mean
+
 # Compute a steering vector from saved activations
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
 ```
@@ -100,17 +103,20 @@ artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
 The manifest stores compact sample ids (`qa.qid`) instead of full question text,
 plus tensor shape fields used for validation.
 
+The `baseline` variant uses the persona-less Assistant prompt and is stored
+once under the shared baseline persona id. Compare views can add it as an
+Assistant reference alongside templated or biography persona samples.
+
 ## CLI
 
-`extract` and `steer` are implemented. `analyze` is parsed but still raises
-`NotImplementedError`.
+`extract`, `analyze`, and `steer` are implemented.
 
 ```bash
 # Extract activations
 python main.py extract --model google/gemma-2-2b-it
 
-# Analyze saved activations (not implemented yet)
-python main.py analyze --out ./plots --similarity cosine
+# Analyze saved activations
+python main.py analyze --model google/gemma-2-9b-it --variant biography --mask-strategy answer_mean --out ./plots
 
 # Run steering (example)
 python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id 005e1868-4e17-47e3-94fa-0d20e8d93662

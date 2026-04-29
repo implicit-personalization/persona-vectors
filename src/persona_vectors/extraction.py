@@ -7,6 +7,8 @@ from typing import Callable
 import torch
 from nnterp import StandardizedTransformer
 from persona_data.prompts import (
+    BASELINE_PERSONA_ID,
+    BASELINE_PERSONA_NAME,
     format_mc_question,
     format_messages,
     mc_correct_letter,
@@ -327,7 +329,7 @@ def prepare_inputs(
     return prepared
 
 
-def _prepare_inputs_for_strategy(
+def prepare_inputs_for_strategy(
     tokenizer,
     system_prompt: str,
     qa_pairs: list[QAPair],
@@ -479,7 +481,7 @@ def run_extraction(
 
     for variant in variants:
         system_prompt = system_prompt_for_variant(persona, variant)
-        prepared = _prepare_inputs_for_strategy(
+        prepared = prepare_inputs_for_strategy(
             tokenizer=model.tokenizer,
             system_prompt=system_prompt,
             qa_pairs=qa_pairs,
@@ -504,8 +506,8 @@ def run_extraction(
 
         artifact_dir = store.save(
             variant,
-            persona.id,
-            persona.name,
+            BASELINE_PERSONA_ID if variant == "baseline" else persona.id,
+            BASELINE_PERSONA_NAME if variant == "baseline" else persona.name,
             vectors,
             [p.sample_id for p in prepared],
             mask_strategy=mask_strategy,
@@ -516,7 +518,9 @@ def run_extraction(
                 variant=variant,
                 output_dir=artifact_dir,
                 n_questions=vectors.shape[0],
-                persona_name=persona.name,
+                persona_name=(
+                    BASELINE_PERSONA_NAME if variant == "baseline" else persona.name
+                ),
             )
         )
 

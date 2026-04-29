@@ -87,6 +87,7 @@ def extract_activations(
     backend = _build_backend(model, remote, on_status)
 
     if _LAYER_CHUNK_SIZE is None:
+        # NOTE: Default branch of the code -> OOM on long biographies
         with torch.no_grad(), model.session(remote=remote, backend=backend):
             all_hs: list[torch.Tensor] = nnsight.save([])
 

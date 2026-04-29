@@ -69,7 +69,9 @@ qa_pairs = dataset.get_qa(persona.id)[:8]
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
-# %% Extract activations for all prompt variants (including baseline with empty persona)
+# %% Extract activations for all prompt variants
+# Baseline uses the persona-less Assistant prompt and is saved once under the
+# shared baseline persona id.
 # RUN_NAME = "run_01"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 results = run_extraction(

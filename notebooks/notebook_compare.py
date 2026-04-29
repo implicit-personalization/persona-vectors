@@ -2,8 +2,10 @@
 
 """Layer-wise cosine similarity between prompt variants.
 
-Compares all pairs of available variants (templated, biography, baseline)
-for one or more personas. Each persona gets its own set of traces.
+Compares all pairs of available persona variants (templated, biography) for
+one or more personas. The shared baseline artifact is not part of this
+per-persona variant intersection; use the UI PCA/UMAP/similarity views to add
+it as an Assistant reference sample.
 
 Research notes:
 - Centering activations per layer along the feature dimension can change
@@ -17,6 +19,7 @@ from itertools import combinations
 
 import torch
 from dotenv import load_dotenv
+from persona_data.prompts import BASELINE_PERSONA_ID
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
@@ -56,12 +59,23 @@ dataset_table.add_row("Model Name", acts.model_name)
 console.print(dataset_table)
 
 # %% Discover which variants are available
+comparison_variants = [
+    variant for variant in SUPPORTED_VARIANTS if variant != "baseline"
+]
 available_variants = [
     variant
-    for variant in SUPPORTED_VARIANTS
+    for variant in comparison_variants
     if list_personas(acts.root_dir, MODEL_NAME, [variant], mask_strategy=MASK_STRATEGY)
 ]
-console.print(f"Available variants: {available_variants}")
+baseline_available = BASELINE_PERSONA_ID in list_personas(
+    acts.root_dir,
+    MODEL_NAME,
+    ["baseline"],
+    mask_strategy=MASK_STRATEGY,
+    warn_missing=False,
+)
+console.print(f"Available comparison variants: {available_variants}")
+console.print(f"Baseline reference available: {baseline_available}")
 
 persona_ids = list_personas(
     acts.root_dir, MODEL_NAME, available_variants, mask_strategy=MASK_STRATEGY
