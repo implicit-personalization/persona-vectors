@@ -36,9 +36,7 @@ torch.set_grad_enabled(False)
 REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
-INCLUDE_BASELINE_REFERENCE = True
 SIMILARITY_VARIANT = "biography"
-LAYERS: list[int] | None = None
 
 # %% Load dataset and Activations
 dataset = SynthPersonaDataset()
@@ -59,15 +57,6 @@ available_variants = [
     if list_personas(acts.root_dir, MODEL_NAME, [variant], mask_strategy=MASK_STRATEGY)
 ]
 console.print(f"Available comparison variants: {available_variants}")
-baseline_available = BASELINE_PERSONA_ID in list_personas(
-    acts.root_dir,
-    MODEL_NAME,
-    [BASELINE_PERSONA_ID],
-    mask_strategy=MASK_STRATEGY,
-    warn_missing=False,
-)
-include_baseline = INCLUDE_BASELINE_REFERENCE and baseline_available
-console.print(f"Baseline reference available: {baseline_available}")
 
 persona_ids = list_personas(
     acts.root_dir, MODEL_NAME, available_variants, mask_strategy=MASK_STRATEGY
@@ -118,13 +107,13 @@ avg_variant_means = {
     for variant in available_variants
 }
 avg_plot_means = dict(avg_variant_means)
-if include_baseline:
-    baseline_vectors, _ = acts.load(
-        BASELINE_PERSONA_ID,
-        BASELINE_PERSONA_ID,
-        mask_strategy=MASK_STRATEGY,
-    )
-    avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().mean(dim=0)
+
+baseline_vectors, _ = acts.load(
+    BASELINE_PERSONA_ID,
+    BASELINE_PERSONA_ID,
+    mask_strategy=MASK_STRATEGY,
+)
+avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().mean(dim=0)
 
 pair_traces = [
     (f"{left} vs {right}", avg_plot_means[left], avg_plot_means[right])
@@ -133,10 +122,7 @@ pair_traces = [
 
 plot_layer_similarity(
     pair_traces,
-    title=(
-        "Layer-wise Cosine Similarity — Averaged across personas"
-        + (" + baseline" if include_baseline else "")
-    ),
+    title=("Layer-wise Cosine Similarity — Averaged across personas"),
     show=True,
 )
 
@@ -152,23 +138,17 @@ samples = load_persona_mean_samples(
     similarity_variant,
     mask_strategy=MASK_STRATEGY,
     persona_ids=persona_ids,
-    include_baseline=include_baseline,
+    include_baseline=True,
 )
 
 build_layered_figure(
     samples,
     "similarity",
-    layers=LAYERS,
-    title=(
-        "Centered similarity — "
-        f"{similarity_variant} — personas averaged over questions"
-        + (" + baseline" if include_baseline else "")
-    ),
+    title=f"Centered similarity — {similarity_variant} — personas averaged over questions",
 ).show()
 
 build_pair_similarity_figure(
     samples,
-    layers=LAYERS,
     title=(
         "Pair similarity trajectories — "
         f"{similarity_variant} — personas averaged over questions"
