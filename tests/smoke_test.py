@@ -13,16 +13,18 @@ from persona_vectors.analysis import (
 from persona_vectors.artifacts import (
     DEFAULT_MASK_STRATEGY,
     ActivationStore,
-    list_personas,
     model_dir_name,
 )
-from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
+from persona_vectors.plots import (
+    build_layered_figure,
+    build_pair_similarity_figure,
+)
 from persona_vectors.steering import compute_steering_vector
 
 print("✓ imports OK")
 
 with tempfile.TemporaryDirectory() as tmp:
-    store = ActivationStore("test/model", root_dir=tmp)
+    store = ActivationStore("test/model", root_dir=tmp, mask_strategy="answer_previous")
     vectors = torch.arange(3 * 4 * 8, dtype=torch.float32).reshape(3, 4, 8)
     sample_ids = ["q0", "q1", "q2"]
 
@@ -32,7 +34,6 @@ with tempfile.TemporaryDirectory() as tmp:
         "Test Persona",
         vectors,
         sample_ids,
-        mask_strategy="answer_previous",
     )
     expected_dir = store.root_dir / "test__model" / "answer_previous" / "templated"
     assert saved_dir == expected_dir
@@ -44,14 +45,14 @@ with tempfile.TemporaryDirectory() as tmp:
         "sample_ids": sample_ids,
     }
 
-    loaded_vectors, loaded_sample_ids = store.load(
-        "templated", "persona-001", mask_strategy="answer_previous"
-    )
+    loaded_vectors, loaded_sample_ids = store.load("templated", "persona-001")
     assert torch.allclose(loaded_vectors, vectors)
     assert loaded_sample_ids == sample_ids
-    assert list_personas(
-        tmp, "test/model", ["templated"], mask_strategy="answer_previous"
-    ) == ["persona-001"]
+    assert store.list_personas(["templated"]) == ["persona-001"]
+    assert store.available_variants(["templated", "biography"]) == ["templated"]
+    assert store.persona_names(["persona-001"], variants=["templated"]) == {
+        "persona-001": "Test Persona"
+    }
 
     assert DEFAULT_MASK_STRATEGY == "answer_mean"
     assert model_dir_name("org/model") == "org__model"
@@ -62,7 +63,6 @@ with tempfile.TemporaryDirectory() as tmp:
         BASELINE_PERSONA_NAME,
         vectors,
         sample_ids,
-        mask_strategy="answer_previous",
     )
     other_vectors = vectors + 1
     store.save(
@@ -71,11 +71,8 @@ with tempfile.TemporaryDirectory() as tmp:
         "Stale Persona",
         other_vectors,
         sample_ids,
-        mask_strategy="answer_previous",
     )
-    assert list_personas(
-        tmp, "test/model", ["baseline"], mask_strategy="answer_previous"
-    ) == [BASELINE_PERSONA_ID]
+    assert store.list_personas(["baseline"]) == [BASELINE_PERSONA_ID]
 
 with tempfile.TemporaryDirectory() as tmp:
     store = ActivationStore("test/model", root_dir=tmp)
@@ -90,16 +87,13 @@ with tempfile.TemporaryDirectory() as tmp:
             f"Test Persona {idx + 1}",
             vectors,
             sample_ids,
-            mask_strategy="answer_mean",
         )
 
-    pm = load_persona_mean_samples(tmp, "test/model", "biography", "answer_mean")
+    pm = load_persona_mean_samples(store, "biography")
     assert pm.vectors.shape == (2, 4, 8)
     vm = load_variant_mean_samples(
-        tmp,
-        "test/model",
+        store,
         ["biography"],
-        "answer_mean",
         persona_ids=["persona-001", "persona-002"],
     )
     assert vm["biography"].vectors.shape == (2, 4, 8)

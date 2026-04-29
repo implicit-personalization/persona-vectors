@@ -11,11 +11,8 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import (
-    load_persona_mean_samples,
-    load_variant_mean_samples,
-)
-from persona_vectors.artifacts import PERSONA_VARIANTS, ActivationStore, list_personas
+from persona_vectors.analysis import load_persona_mean_samples, load_variant_mean_samples
+from persona_vectors.artifacts import ActivationStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
     build_layered_figure,
@@ -38,7 +35,7 @@ SIMILARITY_VARIANT = "biography"
 
 # %% Load dataset and Activations
 dataset = SynthPersonaDataset()
-acts = ActivationStore(MODEL_NAME)
+acts = ActivationStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
@@ -49,26 +46,19 @@ dataset_table.add_row("Model Name", acts.model_name)
 console.print(dataset_table)
 
 # %% Discover which variants are available
-available_variants = [
-    variant
-    for variant in PERSONA_VARIANTS
-    if list_personas(acts.root_dir, MODEL_NAME, [variant], mask_strategy=MASK_STRATEGY)
-]
+available_variants = acts.available_variants()
 console.print(f"Available comparison variants: {available_variants}")
 
-persona_ids = list_personas(
-    acts.root_dir, MODEL_NAME, available_variants, mask_strategy=MASK_STRATEGY
-)
+persona_ids = acts.list_personas(available_variants)
 console.print(f"Personas with all variants: {len(persona_ids)}")
 
 # %% Load mean activations per variant per persona
 variant_samples = load_variant_mean_samples(
-    acts.root_dir,
-    MODEL_NAME,
+    acts,
     available_variants,
-    mask_strategy=MASK_STRATEGY,
     persona_ids=persona_ids,
 )
+
 persona_labels = next(iter(variant_samples.values())).labels
 
 # %% Plot all persona/variant-pair traces together
@@ -100,7 +90,6 @@ avg_plot_means = dict(avg_variant_means)
 baseline_vectors, _ = acts.load(
     BASELINE_PERSONA_ID,
     BASELINE_PERSONA_ID,
-    mask_strategy=MASK_STRATEGY,
 )
 # Add the baseline to the ones that are plotted
 avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().squeeze(dim=0)
@@ -117,23 +106,21 @@ plot_layer_similarity(
 )
 
 # %% Similarity matrix and pair trajectories, matching the UI comparison view
-samples = load_persona_mean_samples(
-    acts.root_dir,
-    MODEL_NAME,
+similarity_samples = load_persona_mean_samples(
+    acts,
     SIMILARITY_VARIANT,
-    mask_strategy=MASK_STRATEGY,
     persona_ids=persona_ids,
     include_baseline=True,
 )
 
 build_layered_figure(
-    samples,
+    similarity_samples,
     "similarity",
     title=f"Centered similarity — {SIMILARITY_VARIANT} — personas averaged over questions",
 ).show()
 
 build_pair_similarity_figure(
-    samples,
+    similarity_samples,
     title=(
         "Pair similarity trajectories — "
         f"{SIMILARITY_VARIANT} — personas averaged over questions"

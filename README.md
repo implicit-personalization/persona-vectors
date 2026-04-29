@@ -83,7 +83,8 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 3. Save them to disk
 4. Mask and average the selected token spans
 
-`notebook_compare.py` loads saved activations via `ActivationStore` and compares variants.
+`notebook_compare.py` uses `ActivationStore` to discover saved variants/personas,
+then compares shared persona means across variants.
 
 `notebook_steer.py` loads saved activations and computes a steering vector for a
 selected persona.

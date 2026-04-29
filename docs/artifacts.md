@@ -29,7 +29,10 @@ persona-space comparisons.
 ```python
 from persona_vectors.artifacts import ActivationStore
 
-store = ActivationStore("google/gemma-2-2b-it")
+store = ActivationStore(
+    "google/gemma-2-2b-it",
+    mask_strategy="answer_previous",
+)
 
 store.save(
     prompt_variant="templated",
@@ -37,28 +40,42 @@ store.save(
     persona_name=persona.name,
     per_question_vectors=activations,
     sample_ids=[qa.qid for qa in qa_pairs],
-    mask_strategy="answer_previous",
 )
 
 vectors, sample_ids = store.load(
     "templated",
     persona.id,
-    mask_strategy="answer_previous",
+)
+
+available_variants = store.available_variants(
+    ["templated", "biography"],
+)
+persona_ids = store.list_personas(available_variants)
+persona_names = store.persona_names(
+    persona_ids,
+    variants=available_variants,
 )
 ```
 
 ## Query Helpers
 
-- `list_personas()`: persona ids available across all requested variants for a mask strategy
-- `list_layers()`: shared layer indices
-- `load_persona_names()`: display names from saved metadata
+Use the `ActivationStore` methods for common discovery:
 
-All query helpers accept `mask_strategy`, defaulting to `answer_mean`.
-`store.save()` writes one persona safetensors file and updates `manifest.json`.
+- `store.available_variants()`: candidate variants with at least one saved persona
+- `store.list_personas()`: persona ids available across all requested variants
+- `store.persona_names()`: display names from saved metadata
 
-When `list_personas()` is called with multiple variants, it returns only personas
-present in every requested variant. If some personas exist for only a subset of
-those variants, it warns that they were skipped.
+`ActivationStore` defaults to `answer_mean`; pass `mask_strategy=...` once when
+constructing the store, or override it on an individual method call.
+By default, `available_variants()` checks `PERSONA_VARIANTS`; pass
+`variants=...` to the store constructor if a workflow should use a different
+candidate set.
+`store.persona_names(persona_ids)` returns names in the input persona order, so
+`list(names.values())` is stable on supported Python versions.
+
+When listing personas across multiple variants, the result includes only
+personas present in every requested variant. If some personas exist for only a
+subset of those variants, it warns that they were skipped.
 
 ## File Format
 

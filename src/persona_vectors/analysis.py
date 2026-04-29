@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from persona_data.prompts import BASELINE_PERSONA_ID
 from sklearn.decomposition import PCA
 
-from persona_vectors.artifacts import ActivationStore, list_personas, load_persona_names
+from persona_vectors.artifacts import ActivationStore
 
 
 @dataclass(frozen=True)
@@ -22,15 +22,13 @@ class LayeredSamples:
 def _load_variant_samples(
     store: ActivationStore,
     variant: str,
-    mask_strategy: object,
+    mask_strategy: object | None,
     persona_ids: list[str],
 ) -> tuple[list[torch.Tensor], list[str], list[str]]:
     """Load one mean-over-questions sample per persona for a single variant."""
-    persona_names = load_persona_names(
-        store.root_dir,
-        store.model_name,
-        [variant],
+    persona_names = store.persona_names(
         persona_ids,
+        variants=[variant],
         mask_strategy=mask_strategy,
     )
     vectors: list[torch.Tensor] = []
@@ -52,10 +50,9 @@ def _load_variant_samples(
 
 
 def load_persona_mean_samples(
-    root_dir: str | Path,
-    model_name: str,
+    store: ActivationStore,
     variant: str,
-    mask_strategy: object,
+    mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
     *,
     include_baseline: bool = False,
@@ -63,10 +60,10 @@ def load_persona_mean_samples(
     """Load one mean activation sample per persona.
 
     Args:
-        root_dir: Activation artifact root, usually ``artifacts/activations``.
-        model_name: HuggingFace model id used at extraction time.
+        store: ActivationStore configured for the model/artifact root to load.
         variant: Prompt variant to load.
-        mask_strategy: Saved mask strategy to load.
+        mask_strategy: Optional per-call override; omitted values use the
+            store's default mask strategy.
         persona_ids: Optional subset. If omitted, all personas present for the
             variant/mask strategy are loaded.
         include_baseline: If True, append the persona-less Assistant baseline
@@ -74,15 +71,12 @@ def load_persona_mean_samples(
     """
 
     if persona_ids is None:
-        persona_ids = list_personas(
-            root_dir, model_name, [variant], mask_strategy=mask_strategy
-        )
+        persona_ids = store.list_personas([variant], mask_strategy=mask_strategy)
     if not persona_ids:
         raise FileNotFoundError(
-            f"No personas found for {model_name!r} / {variant!r} / {mask_strategy!r}"
+            f"No personas found for {store.model_name!r} / {variant!r} / {mask_strategy!r}"
         )
 
-    store = ActivationStore(model_name, root_dir=root_dir)
     vectors, labels, hover_text = _load_variant_samples(
         store, variant, mask_strategy, persona_ids
     )
@@ -99,24 +93,31 @@ def load_persona_mean_samples(
 
 
 def load_variant_mean_samples(
-    root_dir: str | Path,
-    model_name: str,
-    variants: list[str],
-    mask_strategy: object,
+    store: ActivationStore,
+    variants: list[str] | tuple[str, ...],
+    mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> dict[str, LayeredSamples]:
-    """Load mean activation samples for multiple variants in a shared persona order."""
+    """Load mean activation samples for multiple variants in a shared persona order.
 
-    if not variants:
+    Every returned ``LayeredSamples`` uses the same persona order, which keeps
+    variant-to-variant comparisons aligned by row index.
+    """
+
+    requested_variants = list(variants)
+    if not requested_variants:
         raise ValueError("At least one variant is required")
+    if persona_ids is None:
+        persona_ids = store.list_personas(
+            requested_variants, mask_strategy=mask_strategy
+        )
     if not persona_ids:
         raise FileNotFoundError(
-            f"No shared personas found for {model_name!r} / {variants!r} / {mask_strategy!r}"
+            f"No shared personas found for {store.model_name!r} / {requested_variants!r} / {mask_strategy!r}"
         )
 
-    store = ActivationStore(model_name, root_dir=root_dir)
     samples_by_variant = {}
-    for variant in variants:
+    for variant in requested_variants:
         vectors, labels, hover_text = _load_variant_samples(
             store, variant, mask_strategy, persona_ids
         )
@@ -220,12 +221,15 @@ def run_saved_activation_analysis(
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    store = ActivationStore(
+        model_name,
+        root_dir=activations_dir,
+        mask_strategy=mask_strategy,
+    )
 
     samples = load_persona_mean_samples(
-        activations_dir,
-        model_name,
+        store,
         variant,
-        mask_strategy=mask_strategy,
         persona_ids=persona_ids,
     )
     figure_specs = [("persona_mean", "pca"), ("persona_mean", "similarity")]

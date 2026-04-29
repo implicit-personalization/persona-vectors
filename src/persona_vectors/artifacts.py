@@ -76,13 +76,24 @@ def _variant_manifests(
 class ActivationStore:
     """Artifact storage for masked-mean activation vectors."""
 
-    def __init__(self, model_name: str, root_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        root_dir: str | Path | None = None,
+        mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+        variants: list[str] | tuple[str, ...] = PERSONA_VARIANTS,
+    ) -> None:
         self.model_name = model_name
+        self.mask_strategy = mask_strategy
+        self.variants = tuple(variants)
         self.root_dir = (
             Path(root_dir)
             if root_dir is not None
             else Path(os.environ.get("ARTIFACTS_DIR", "artifacts")) / "activations"
         )
+
+    def _mask_strategy(self, mask_strategy: object | None) -> object:
+        return self.mask_strategy if mask_strategy is None else mask_strategy
 
     def save(
         self,
@@ -91,7 +102,7 @@ class ActivationStore:
         persona_name: str,
         per_question_vectors: torch.Tensor,
         sample_ids: list[str],
-        mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+        mask_strategy: object | None = None,
     ) -> Path:
         if per_question_vectors.ndim != 3:
             raise ValueError(
@@ -104,7 +115,10 @@ class ActivationStore:
             persona_name = BASELINE_PERSONA_NAME
 
         variant_root = _variant_root(
-            self.root_dir, self.model_name, prompt_variant, mask_strategy
+            self.root_dir,
+            self.model_name,
+            prompt_variant,
+            self._mask_strategy(mask_strategy),
         )
         variant_root.mkdir(parents=True, exist_ok=True)
 
@@ -143,9 +157,9 @@ class ActivationStore:
         self,
         prompt_variant: str,
         persona_id: str,
-        mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+        mask_strategy: object | None = None,
     ) -> tuple[torch.Tensor, list[str]]:
-        requested = _normalize_mask_strategy(mask_strategy)
+        requested = _normalize_mask_strategy(self._mask_strategy(mask_strategy))
         variant_root = _variant_root(
             self.root_dir, self.model_name, prompt_variant, requested
         )
@@ -177,6 +191,60 @@ class ActivationStore:
                 f"sample ids for {persona_id!r} do not match tensor length"
             )
         return vectors, [str(sample_id) for sample_id in sample_ids]
+
+    def list_personas(
+        self,
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+        warn_missing: bool = True,
+    ) -> list[str]:
+        """Return persona ids available in every requested variant."""
+
+        requested_variants = self.variants if variants is None else variants
+        return list_personas(
+            self.root_dir,
+            self.model_name,
+            list(requested_variants),
+            mask_strategy=self._mask_strategy(mask_strategy),
+            warn_missing=warn_missing,
+        )
+
+    def persona_names(
+        self,
+        persona_ids: list[str],
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> dict[str, str]:
+        """Return display names for known persona ids from saved manifests.
+
+        Results follow ``persona_ids`` order, so ``list(names.values())`` is
+        stable on supported Python versions.
+        """
+
+        requested_variants = self.variants if variants is None else variants
+        return load_persona_names(
+            self.root_dir,
+            self.model_name,
+            list(requested_variants),
+            persona_ids,
+            mask_strategy=self._mask_strategy(mask_strategy),
+        )
+
+    def available_variants(
+        self,
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> list[str]:
+        """Return candidate variants that have at least one saved persona."""
+
+        candidate_variants = self.variants if variants is None else variants
+        return [
+            variant
+            for variant in candidate_variants
+            if self.list_personas(
+                [variant], mask_strategy=mask_strategy, warn_missing=False
+            )
+        ]
 
 
 def list_personas(
