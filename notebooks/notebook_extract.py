@@ -71,7 +71,7 @@ print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 
 # %% Extract activations for all prompt variants
-# RUN_NAME = "run_01"
+RUN_NAME = "run_01"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 results = run_extraction(
     model=model,
@@ -82,7 +82,7 @@ results = run_extraction(
     mask_strategy=MASK_STRATEGY,
     remote=REMOTE,
     verbose=True,
-    # activations_dir=f"artifacts/activations/{RUN_NAME}",
+    activations_dir=f"artifacts/activations/{RUN_NAME}",
 )
 
 for r in results:
@@ -98,6 +98,7 @@ baseline_results = run_extraction(
     mask_strategy=MASK_STRATEGY,
     remote=REMOTE,
     verbose=True,
+    activations_dir=f"artifacts/activations/{RUN_NAME}",
 )
 
 for r in baseline_results:

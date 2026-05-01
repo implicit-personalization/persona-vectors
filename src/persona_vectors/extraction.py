@@ -11,7 +11,7 @@ from persona_data.prompts import (
     BASELINE_PERSONA_NAME,
     format_mc_question,
     format_messages,
-    format_roleplay_prompt,
+    format_prompt,
     mc_correct_letter,
 )
 from persona_data.synth_persona import PersonaData, QAPair
@@ -93,6 +93,14 @@ class PreparedInput:
     offset_mapping: list[tuple[int, int]]
     input_ids: torch.Tensor
     token_mask: torch.Tensor
+
+
+@dataclass(frozen=True)
+class TokenSegment:
+    text: str
+    role: str
+    is_special: bool
+    is_masked: bool
 
 
 def _build_mask(
@@ -196,67 +204,75 @@ def _build_prompt_spans(
     )
 
 
-def _token_style_for_index(
-    p: PreparedInput, token_idx: int, special_ids: set[int]
-) -> str:
+def _token_role(p: PreparedInput, token_idx: int) -> str:
     if p.spans.response.token_start <= token_idx < p.spans.response.token_end:
-        style = _RESPONSE_STYLE
-    elif p.spans.question.token_start <= token_idx < p.spans.question.token_end:
-        style = _QUESTION_STYLE
-    elif p.spans.template.token_start <= token_idx < p.spans.template.token_end:
-        style = _TEMPLATE_STYLE
-    else:
-        style = "dim"
+        return "response"
+    if p.spans.question.token_start <= token_idx < p.spans.question.token_end:
+        return "question"
+    if p.spans.template.token_start <= token_idx < p.spans.template.token_end:
+        return "template"
+    return "other"
 
-    if int(p.input_ids[token_idx]) in special_ids:
+
+def preview_token_segments(
+    p: PreparedInput, tokenizer, *, max_tokens: int = 200
+) -> list[TokenSegment]:
+    """Return token preview segments without tying rendering to Rich or HTML."""
+    seq_len = int(p.input_ids.shape[0])
+    special_ids = set(tokenizer.all_special_ids)
+    head = max_tokens if max_tokens > 0 else seq_len
+    tail = 8 if max_tokens <= 0 else max(8, max_tokens // 4)
+    answer_extra = 8 if max_tokens <= 0 else max(8, max_tokens // 4)
+    prefix_end = min(p.spans.template.token_start + head, seq_len)
+    tail_start = min(max(prefix_end, p.spans.template.token_end - tail), seq_len)
+    answer_end = min(seq_len, p.spans.response.token_end + answer_extra)
+
+    indices: list[int | None] = list(range(0, prefix_end))
+    if prefix_end < tail_start:
+        indices.append(None)
+    indices.extend(range(tail_start, answer_end))
+    if answer_end < seq_len:
+        indices.append(None)
+
+    segments: list[TokenSegment] = []
+    for token_idx in indices:
+        if token_idx is None:
+            segments.append(TokenSegment(" … ", "other", False, False))
+            continue
+        token_char_start, token_char_end = p.offset_mapping[token_idx]
+        text = p.prompt_text[token_char_start:token_char_end]
+        if not text:
+            text = tokenizer.convert_ids_to_tokens([int(p.input_ids[token_idx])])[0]
+        is_special = int(p.input_ids[token_idx]) in special_ids
+        segments.append(
+            TokenSegment(
+                text=text,
+                role=_token_role(p, token_idx),
+                is_special=is_special,
+                is_masked=bool(p.token_mask[token_idx]),
+            )
+        )
+    return segments
+
+
+def _segment_style(segment: TokenSegment) -> str:
+    styles = {
+        "response": _RESPONSE_STYLE,
+        "question": _QUESTION_STYLE,
+        "template": _TEMPLATE_STYLE,
+    }
+    style = styles.get(segment.role, "dim")
+    if segment.is_special:
         style = _SPECIAL_STYLE
-    if p.token_mask[token_idx]:
+    if segment.is_masked:
         style = f"{style} {_MASK_BG}"
     return style
 
 
-def _render_token_range(
-    rendered: Text,
-    p: PreparedInput,
-    tokenizer,
-    special_ids: set[int],
-    start: int,
-    end: int,
-) -> None:
-    for token_idx in range(start, end):
-        token_char_start, token_char_end = p.offset_mapping[token_idx]
-        raw = p.prompt_text[token_char_start:token_char_end]
-        if not raw:
-            raw = tokenizer.convert_ids_to_tokens([int(p.input_ids[token_idx])])[0]
-        rendered.append(raw, style=_token_style_for_index(p, token_idx, special_ids))
-
-
 def _render_prompt_preview(p: PreparedInput, tokenizer, max_tokens: int = 200) -> Text:
-    seq_len = int(p.input_ids.shape[0])
-    special_ids = set(tokenizer.all_special_ids)
     rendered = Text()
-
-    head = max_tokens if max_tokens > 0 else seq_len
-    tail = 8 if max_tokens <= 0 else max(8, max_tokens // 4)
-    answer_extra = 8 if max_tokens <= 0 else max(8, max_tokens // 4)
-
-    # Show first head tokens from the template start (beginning of biography)
-    prefix_end = min(p.spans.template.token_start + head, seq_len)
-    # Anchor tail at template.token_end so we always see the biography end and
-    # the special tokens that follow it (e.g. <end_of_turn>, <start_of_turn>user)
-    tail_start = min(max(prefix_end, p.spans.template.token_end - tail), seq_len)
-    answer_end = min(seq_len, p.spans.response.token_end + answer_extra)
-
-    _render_token_range(rendered, p, tokenizer, special_ids, 0, prefix_end)
-
-    if prefix_end < tail_start:
-        rendered.append(" … ", style="dim")
-
-    _render_token_range(rendered, p, tokenizer, special_ids, tail_start, answer_end)
-
-    if answer_end < seq_len:
-        rendered.append(" …", style="dim")
-
+    for segment in preview_token_segments(p, tokenizer, max_tokens=max_tokens):
+        rendered.append(segment.text, style=_segment_style(segment))
     return rendered
 
 
@@ -486,12 +502,12 @@ def run_extraction(
 
     for variant in variants:
         if variant == BASELINE_PERSONA_ID:
-            system_prompt = format_roleplay_prompt()
+            system_prompt = format_prompt()
             persona_id, persona_name = BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
         else:
             if persona is None:
                 raise ValueError(f"variant {variant!r} requires a persona")
-            system_prompt = format_roleplay_prompt(getattr(persona, f"{variant}_view"))
+            system_prompt = format_prompt(persona, variant)  # type: ignore[arg-type]
             persona_id, persona_name = persona.id, persona.name
 
         prepared = prepare_inputs_for_strategy(
