@@ -69,17 +69,17 @@ run_extraction(..., activations_dir="artifacts/activations/run_001")
 
 ### Long biographies / OOM
 
-If a single forward pass over the full biography OOMs (large model + long
-context), pass `chunk_size=N` to slice the trace into `N`-layer chunks and
-carry the residual stream forward via `model.skip_layers`. Slower, but
-bounds peak memory:
+Remote NDIF extraction first tries the fast path: one `model.session(...)` for
+the selected persona/variant, with one `model.trace(...)` per prepared question.
 
-```python
-run_extraction(..., chunk_size=8)
-```
+If that remote fast path raises an `OutOfMemoryError`, `extract_activations()`
+automatically retries the whole persona/variant with chunked extraction. The
+chunk size is currently chosen as `max(1, model.num_layers // 4)`.
 
-The same knob is exposed on the CLI as `--chunk-size`:
+Chunked extraction slices each question across layer chunks and carries the
+boundary residual stream forward with `model.skip_layers`. This bounds peak
+memory, but it is slower because it performs one NDIF round trip per question
+per layer chunk.
 
-```bash
-python main.py extract --model google/gemma-2-9b-it --variants biography baseline --chunk-size 8 --remote
-```
+Local OOMs are not retried automatically, and the current CLI does not expose a
+manual `--chunk-size` option.

@@ -13,7 +13,7 @@ all QA pairs for the persona.
 
   steering_vector = mean_over_questions(biography_h) - mean_over_questions(templated_h)
 
-Output saved to: artifacts/vectors/{persona_id}.safetensors
+Output saved to: artifacts/vectors/{persona_id}/steering_vector.safetensors
 """
 
 import json

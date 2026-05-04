@@ -37,8 +37,8 @@ persona-vectors/
 └── main.py                      # CLI entry point
 ```
 
-Dataset loading (`SynthPersonaDataset`, `PersonaGuessDataset`) and environment
-helpers come from the sibling [persona-data](../persona-data) package.
+Dataset loading (`SynthPersonaDataset`) and environment helpers come from the
+sibling [persona-data](../persona-data) package.
 
 For local development, uncomment the `path` source in `pyproject.toml` and keep
 `persona-data` checked out next to this repo.
@@ -76,7 +76,7 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 
 ### Notebooks
 
-`notebook_extract.py` runs the full flow end to end:
+`notebook_extract.py` runs a small end-to-end extraction example:
 
 1. Load dataset questions and answers
 2. Extract per-question activations
@@ -115,11 +115,16 @@ biography persona samples.
 `extract`, `analyze`, and `steer` are implemented.
 
 ```bash
-# Extract activations (defaults to all variants, including baseline)
+# Extract activations
+# Defaults to all supported variants: templated, biography, and baseline.
 python main.py extract --model google/gemma-2-2b-it
 
 # Pick specific variants — 'baseline' is just another variant and is run once
 python main.py extract --model google/gemma-2-2b-it --variants biography baseline
+
+# Run remotely on NDIF. If the remote fast path OOMs, extraction automatically
+# retries that persona/variant with layer-chunked traces.
+python main.py extract --model google/gemma-2-9b-it --remote
 
 # Analyze saved activations
 python main.py analyze --model google/gemma-2-9b-it --variant biography --mask-strategy answer_mean --out ./plots
