@@ -94,10 +94,12 @@ def extract_activations(
         if not remote or "OutOfMemoryError" not in e.tb_string:
             raise
         chunk_size = max(1, model.num_layers // 4)
-        print(
+        message = (
             f"NDIF OOM on single-trace path; retrying with chunked extraction "
             f"(chunk_size={chunk_size})."
         )
+        if on_status is not None:
+            on_status("local", "retry", message)
         return _extract_chunked(
             model, input_ids_list, masks, remote, on_status, chunk_size=chunk_size
         )

@@ -26,6 +26,8 @@ def extract_activations(cfg: ExtractConfig) -> None:
         if cfg.persona_id
         else list(dataset)
     )
+    if cfg.persona_id and not personas:
+        raise ValueError(f"No persona found with id {cfg.persona_id!r}")
 
     persona_variants = tuple(v for v in cfg.variants if v != BASELINE_PERSONA_ID)
     run_baseline = BASELINE_PERSONA_ID in cfg.variants
@@ -39,6 +41,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
     )
 
     if persona_variants:
+        extracted_persona_variants = False
         for persona in tqdm(personas, desc="personas", unit="persona"):
             qa_pairs = list(dataset.get_qa(persona.id))
             if not qa_pairs:
@@ -49,7 +52,13 @@ def extract_activations(cfg: ExtractConfig) -> None:
                 persona=persona,
                 **common,
             ):
+                extracted_persona_variants = True
                 print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
+        if not extracted_persona_variants:
+            print(
+                "No QA pairs found for selected persona(s); "
+                "no persona variants extracted."
+            )
 
     if run_baseline:
         # Baseline is persona-less; one run, sharing the first persona's QA pairs.
