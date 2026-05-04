@@ -296,7 +296,7 @@ def prepare_inputs(
     prepared: list[PreparedInput] = []
     special_ids = set(tokenizer.all_special_ids)
     for qa in qa_pairs:
-        if qa.answer_format == "choice" and qa.correct_choice_index is not None:
+        if qa.item_type == "mcq" and qa.correct_choice_index is not None:
             user_content = format_mc_question(qa)
             answer_content = mc_correct_letter(qa)
         else:
@@ -465,7 +465,6 @@ def run_extraction(
     on_status: Callable | None = None,
     verbose: bool = False,
     activations_dir: str | Path | None = None,
-    chunk_size: int | None = None,
 ) -> list[ExtractionResult]:
     """Extract and save per-question activation vectors for each variant.
 
@@ -488,8 +487,6 @@ def run_extraction(
             the forward pass.
         activations_dir: Root directory for saved activations. Pass a unique
             subdirectory to keep multiple runs separate.
-        chunk_size: If set, slice each forward pass into chunks of this many
-            layers to bound peak memory. Slower; use for long biographies.
 
     Returns:
         One ExtractionResult per variant, in the order requested.
@@ -531,7 +528,6 @@ def run_extraction(
             token_masks=[p.token_mask for p in prepared],
             remote=remote,
             on_status=on_status,
-            chunk_size=chunk_size,
         )
 
         artifact_dir = store.save(

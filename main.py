@@ -36,7 +36,6 @@ def extract_activations(cfg: ExtractConfig) -> None:
         mask_strategy=cfg.mask_strategy,
         remote=cfg.remote,
         verbose=cfg.verbose,
-        chunk_size=cfg.chunk_size,
     )
 
     if persona_variants:
@@ -117,7 +116,6 @@ def main() -> None:
             persona_id=args.persona_id,
             remote=args.remote,
             verbose=args.verbose,
-            chunk_size=args.chunk_size,
         )
         extract_activations(cfg)
     elif args.command == "analyze":

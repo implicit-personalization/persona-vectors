@@ -167,8 +167,6 @@ def plot_scree(
 
 
 def _validate_layers(vectors: torch.Tensor, layers: list[int] | None) -> list[int]:
-    if vectors.ndim != 3:
-        raise ValueError("vectors must have shape (n_samples, num_layers, hidden_size)")
     num_layers = int(vectors.shape[1])
     selected = list(range(num_layers)) if layers is None else list(layers)
     invalid = [layer for layer in selected if layer < 0 or layer >= num_layers]

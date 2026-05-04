@@ -19,34 +19,41 @@ class LayeredSamples:
     hover_text: list[str]
 
 
+def _resolve_personas(
+    store: ActivationStore,
+    variants: list[str],
+    mask_strategy: object | None,
+    persona_ids: list[str] | None,
+) -> list[str]:
+    if persona_ids is None:
+        persona_ids = store.list_personas(variants, mask_strategy=mask_strategy)
+    if not persona_ids:
+        raise FileNotFoundError(
+            f"No personas found for {store.model_name!r} / {variants!r} / {mask_strategy!r}"
+        )
+    return persona_ids
+
+
 def _load_variant_samples(
     store: ActivationStore,
     variant: str,
     mask_strategy: object | None,
     persona_ids: list[str],
-) -> tuple[list[torch.Tensor], list[str], list[str]]:
-    """Load one mean-over-questions sample per persona for a single variant."""
+) -> LayeredSamples:
+    """One mean-over-questions sample per persona for a single variant."""
     persona_names = store.persona_names(
-        persona_ids,
-        variants=[variant],
-        mask_strategy=mask_strategy,
+        persona_ids, variants=[variant], mask_strategy=mask_strategy
     )
-    vectors: list[torch.Tensor] = []
-    labels: list[str] = []
-    hover_text: list[str] = []
+    vectors, labels, hover_text = [], [], []
     for persona_id in persona_ids:
         acts, _ = store.load(variant, persona_id, mask_strategy=mask_strategy)
-        if acts.ndim != 3:
-            raise ValueError(
-                f"Expected {persona_id!r} activations to have shape (n_samples, n_layers, hidden)"
-            )
         name = persona_names.get(persona_id, persona_id)
         vectors.append(acts.float().mean(dim=0))
         labels.append(name)
         hover_text.append(
             f"Persona: {name}<br>ID: {persona_id}<br>Questions averaged: {acts.shape[0]}"
         )
-    return vectors, labels, hover_text
+    return LayeredSamples(torch.stack(vectors), labels, hover_text)
 
 
 def load_persona_mean_samples(
@@ -57,39 +64,23 @@ def load_persona_mean_samples(
     *,
     include_baseline: bool = False,
 ) -> LayeredSamples:
-    """Load one mean activation sample per persona.
+    """Load one mean activation sample per persona for a single variant.
 
-    Args:
-        store: ActivationStore configured for the model/artifact root to load.
-        variant: Prompt variant to load.
-        mask_strategy: Optional per-call override; omitted values use the
-            store's default mask strategy.
-        persona_ids: Optional subset. If omitted, all personas present for the
-            variant/mask strategy are loaded.
-        include_baseline: If True, append the persona-less Assistant baseline
-            (loaded from the ``baseline`` artifact group) as one extra sample.
+    If ``include_baseline`` is True, the persona-less Assistant baseline is
+    appended as one extra sample.
     """
-
-    if persona_ids is None:
-        persona_ids = store.list_personas([variant], mask_strategy=mask_strategy)
-    if not persona_ids:
-        raise FileNotFoundError(
-            f"No personas found for {store.model_name!r} / {variant!r} / {mask_strategy!r}"
-        )
-
-    vectors, labels, hover_text = _load_variant_samples(
-        store, variant, mask_strategy, persona_ids
-    )
-
+    persona_ids = _resolve_personas(store, [variant], mask_strategy, persona_ids)
+    samples = _load_variant_samples(store, variant, mask_strategy, persona_ids)
     if include_baseline:
-        bl_vectors, bl_labels, bl_hover = _load_variant_samples(
+        baseline = _load_variant_samples(
             store, BASELINE_PERSONA_ID, mask_strategy, [BASELINE_PERSONA_ID]
         )
-        vectors.extend(bl_vectors)
-        labels.extend(bl_labels)
-        hover_text.extend(bl_hover)
-
-    return LayeredSamples(torch.stack(vectors), labels, hover_text)
+        samples = LayeredSamples(
+            torch.cat([samples.vectors, baseline.vectors], dim=0),
+            samples.labels + baseline.labels,
+            samples.hover_text + baseline.hover_text,
+        )
+    return samples
 
 
 def load_variant_mean_samples(
@@ -98,33 +89,17 @@ def load_variant_mean_samples(
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> dict[str, LayeredSamples]:
-    """Load mean activation samples for multiple variants in a shared persona order.
-
-    Every returned ``LayeredSamples`` uses the same persona order, which keeps
-    variant-to-variant comparisons aligned by row index.
-    """
-
+    """Load mean activation samples for multiple variants in a shared persona order."""
     requested_variants = list(variants)
     if not requested_variants:
         raise ValueError("At least one variant is required")
-    if persona_ids is None:
-        persona_ids = store.list_personas(
-            requested_variants, mask_strategy=mask_strategy
-        )
-    if not persona_ids:
-        raise FileNotFoundError(
-            f"No shared personas found for {store.model_name!r} / {requested_variants!r} / {mask_strategy!r}"
-        )
-
-    samples_by_variant = {}
-    for variant in requested_variants:
-        vectors, labels, hover_text = _load_variant_samples(
-            store, variant, mask_strategy, persona_ids
-        )
-        samples_by_variant[variant] = LayeredSamples(
-            torch.stack(vectors), labels, hover_text
-        )
-    return samples_by_variant
+    persona_ids = _resolve_personas(
+        store, requested_variants, mask_strategy, persona_ids
+    )
+    return {
+        variant: _load_variant_samples(store, variant, mask_strategy, persona_ids)
+        for variant in requested_variants
+    }
 
 
 def _center_features(samples: torch.Tensor) -> torch.Tensor:

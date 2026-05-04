@@ -2,7 +2,11 @@ from typing import Callable
 
 import nnsight
 import torch
-from nnsight.intervention.backends.remote import JobStatusDisplay, RemoteBackend
+from nnsight.intervention.backends.remote import (
+    JobStatusDisplay,
+    RemoteBackend,
+    RemoteException,
+)
 from nnterp import StandardizedTransformer
 
 
@@ -46,9 +50,12 @@ def extract_activations(
     token_masks: list[torch.Tensor],
     remote: bool = False,
     on_status: Callable[[str, str, str], None] | None = None,
-    chunk_size: int | None = None,
 ) -> torch.Tensor:
     """Run forward passes and return mean hidden states over masked tokens per layer.
+
+    On remote (NDIF) execution, if the server raises an OOM the fast path is
+    transparently retried with a layer-sliced trace that bounds peak memory.
+    Local OOMs propagate.
 
     Args:
         model: The standardized nnterp model.
@@ -65,16 +72,10 @@ def extract_activations(
             called on every NDIF status update. Only used when remote=True. Useful
             for surfacing job progress in a UI (e.g. Streamlit) without capturing
             stdout. The normal terminal output from nnsight is still printed.
-        chunk_size: If set, run each forward pass in slices of this many layers,
-            carrying the boundary residual stream forward via ``model.skip_layers``.
-            Slower but bounds peak memory — use it for long biographies that OOM
-            on the default single-trace path.
     """
 
     if len(input_ids_list) != len(token_masks):
         raise ValueError("input_ids_list and token_masks must have the same length")
-    if chunk_size is not None and chunk_size <= 0:
-        raise ValueError("chunk_size must be positive")
 
     masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
     if not all(m.any() for m in masks):
@@ -87,41 +88,70 @@ def extract_activations(
                 f"input ids length {ids.shape[0]} does not match mask length {mask.shape[0]}"
             )
 
+    try:
+        return _extract_single_trace(model, input_ids_list, masks, remote, on_status)
+    except RemoteException as e:
+        if not remote or "OutOfMemoryError" not in e.tb_string:
+            raise
+        chunk_size = max(1, model.num_layers // 4)
+        print(
+            f"NDIF OOM on single-trace path; retrying with chunked extraction "
+            f"(chunk_size={chunk_size})."
+        )
+        return _extract_chunked(
+            model, input_ids_list, masks, remote, on_status, chunk_size=chunk_size
+        )
+
+
+def _extract_single_trace(
+    model: StandardizedTransformer,
+    input_ids_list: list[torch.Tensor],
+    masks: list[torch.Tensor],
+    remote: bool,
+    on_status: Callable[[str, str, str], None] | None,
+) -> torch.Tensor:
     backend = _build_backend(model, remote, on_status)
+    with torch.no_grad(), model.session(remote=remote, backend=backend):
+        all_hs: list[torch.Tensor] = nnsight.save([])
 
-    if chunk_size is None:
-        # NOTE: Default branch — single trace per sample. Faster, but can OOM
-        # on long biographies; pass ``chunk_size`` to opt into the slower
-        # layer-sliced path below.
-        with torch.no_grad(), model.session(remote=remote, backend=backend):
-            all_hs: list[torch.Tensor] = nnsight.save([])
+        for ids, mask in zip(input_ids_list, masks):
+            saved_hs: list[torch.Tensor] = []
+            # Pre-tokenized ids are passed straight through — no double-BOS.
+            with model.trace(ids.unsqueeze(0)) as tracer:
+                # All layers live on the same device, so move the mask once.
+                mask_on_device = mask.to(device=model.layers_output[0].device)
+                for layer_idx in range(model.num_layers):
+                    # Extract activations: (1, seq_len, hidden_size):
+                    #   remove batch dim: (seq_len, hidden_size)
+                    #   mask them: (num_masked, hidden_size)
+                    #   mean pool: (hidden_size,)
+                    layer_mean = model.layers_output[layer_idx][0, mask_on_device].mean(
+                        dim=0
+                    )
+                    saved_hs.append(layer_mean.detach().cpu())
 
-            for ids, mask in zip(input_ids_list, masks):
-                saved_hs: list[torch.Tensor] = []
-                # Pre-tokenized ids are passed straight through — no double-BOS.
-                with model.trace(ids.unsqueeze(0)) as tracer:
-                    # All layers live on the same device, so move the mask once.
-                    mask_on_device = mask.to(device=model.layers_output[0].device)
-                    for layer_idx in range(model.num_layers):
-                        # Extract activations: (1, seq_len, hidden_size):
-                        #   remove batch dim: (seq_len, hidden_size)
-                        #   mask them: (num_masked, hidden_size)
-                        #   mean pool: (hidden_size,)
-                        layer_mean = model.layers_output[layer_idx][
-                            0, mask_on_device
-                        ].mean(dim=0)
-                        saved_hs.append(layer_mean.detach().cpu())
+                per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
+                # Extraction only needs residual activations; skipping the
+                # LM head avoids materializing full-sequence logits on NDIF.
+                tracer.stop()
 
-                    per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
-                    # Extraction only needs residual activations; skipping the
-                    # LM head avoids materializing full-sequence logits on NDIF.
-                    tracer.stop()
+            all_hs.append(per_text_hs)
 
-                all_hs.append(per_text_hs)
+    # Shape: (n_text, num_layers, hidden_size)
+    return torch.stack(all_hs, dim=0)
 
-        # Shape: (n_text, num_layers, hidden_size)
-        return torch.stack(all_hs, dim=0)
 
+def _extract_chunked(
+    model: StandardizedTransformer,
+    input_ids_list: list[torch.Tensor],
+    masks: list[torch.Tensor],
+    remote: bool,
+    on_status: Callable[[str, str, str], None] | None,
+    chunk_size: int,
+) -> torch.Tensor:
+    """Slice each forward pass across layers, carrying the boundary residual
+    forward via ``model.skip_layers``. Slower (one NDIF round-trip per chunk)
+    but bounds peak memory so long biographies fit."""
     all_hs: list[torch.Tensor] = []
     with torch.no_grad():
         for ids, mask in zip(input_ids_list, masks):

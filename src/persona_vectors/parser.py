@@ -23,7 +23,6 @@ class ExtractConfig:
     persona_id: str | None = None
     remote: bool = False
     verbose: bool = False
-    chunk_size: int | None = None
 
 
 @dataclass
@@ -79,15 +78,6 @@ def build_extract_parser(subparsers) -> None:
     )
     extract.add_argument(
         "--verbose", action="store_true", help="Print extraction previews"
-    )
-    extract.add_argument(
-        "--chunk-size",
-        type=int,
-        default=None,
-        help=(
-            "Slice each forward pass into this many layers to bound peak memory "
-            "(slower; use for long biographies). Default: single trace per sample."
-        ),
     )
 
 
