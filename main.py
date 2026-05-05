@@ -36,14 +36,17 @@ def extract_activations(cfg: ExtractConfig) -> None:
         model=model,
         model_name=cfg.model,
         mask_strategy=cfg.mask_strategy,
-        remote=cfg.remote,
+        remote=cfg.backend == "remote",
         verbose=cfg.verbose,
     )
 
     if persona_variants:
         extracted_persona_variants = False
         for persona in tqdm(personas, desc="personas", unit="persona"):
-            qa_pairs = list(dataset.get_qa(persona.id))
+            # TODO: This should have support for train test split
+            qa_pairs = list(
+                dataset.get_qa(persona.id, item_type="frq", scope="individual")
+            )
             if not qa_pairs:
                 continue
             for r in run_extraction(
@@ -123,7 +126,7 @@ def main() -> None:
             variants=args.variants,
             mask_strategy=args.mask_strategy,
             persona_id=args.persona_id,
-            remote=args.remote,
+            backend=args.backend,
             verbose=args.verbose,
         )
         extract_activations(cfg)

@@ -31,7 +31,7 @@ if REMOTE:
     # Meta device — no weights downloaded locally; execution happens on NDIF servers.
     # print(nnsight.ndif_status())
     # print(nnsight.ndif.compare())
-    # print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
+    print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
     # HACK: For now do it like this becuase of the bug
     # model = StandardizedTransformer(MODEL_NAME, remote=True)
     model = StandardizedTransformer(MODEL_NAME)
@@ -64,9 +64,13 @@ dataset_table.add_row("Persona Name", persona.name)
 dataset_table.add_row("Age", str(persona.persona["age"]))
 console.print(dataset_table)
 
+# %% Split questions in train test
+# train_qa, test_qa = dataset.train_test_split(persona.id)
+
 # %% Pick persona and get QA pairs
 # qa_pairs = dataset.get_qa(persona.id, scope="individual", item_type="frq")  # full run
-qa_pairs = dataset.get_qa(persona.id, scope="individual", item_type="frq")[:8]
+qa_pairs = dataset.get_qa(persona.id, item_type="mcq", scope="shared")  # full run
+# qa_pairs = dataset.get_qa(persona.id, scope="individual", item_type="frq")[:8]
 print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
 print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
 

@@ -7,10 +7,13 @@ main.py stays a thin wiring layer.
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, get_args
 
 from persona_vectors.artifacts import SUPPORTED_VARIANTS
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.steering import STEER_LAYER
+
+Backend = Literal["local", "remote"]
 
 # ── Configs ──────────────────────────────────────────────────────────────────
 
@@ -21,7 +24,7 @@ class ExtractConfig:
     variants: list[str]
     mask_strategy: MaskStrategy
     persona_id: str | None = None
-    remote: bool = False
+    backend: Backend = "local"
     verbose: bool = False
 
 
@@ -74,7 +77,10 @@ def build_extract_parser(subparsers) -> None:
         "--persona-id", default=None, help="Extract only this persona (default: all)"
     )
     extract.add_argument(
-        "--remote", action="store_true", help="Execute on NDIF remote servers"
+        "--backend",
+        choices=get_args(Backend),
+        default="local",
+        help="Execution backend (default: local). 'remote' runs on NDIF.",
     )
     extract.add_argument(
         "--verbose", action="store_true", help="Print extraction previews"
