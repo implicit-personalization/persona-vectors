@@ -32,7 +32,7 @@ if REMOTE:
     # print(nnsight.ndif_status())
     # print(nnsight.ndif.compare())
     print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
-    # HACK: For now do it like this becuase of the bug
+    # Work around the current remote initialization issue.
     # model = StandardizedTransformer(MODEL_NAME, remote=True)
     model = StandardizedTransformer(MODEL_NAME)
 else:

@@ -2,7 +2,7 @@ import gc
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal, cast
 
 import torch
 from nnterp import StandardizedTransformer
@@ -504,7 +504,8 @@ def run_extraction(
         else:
             if persona is None:
                 raise ValueError(f"variant {variant!r} requires a persona")
-            system_prompt = format_prompt(persona, variant)  # type: ignore[arg-type]
+            persona_variant = cast(Literal["templated", "biography"], variant)
+            system_prompt = format_prompt(persona, persona_variant)
             persona_id, persona_name = persona.id, persona.name
 
         prepared = prepare_inputs_for_strategy(
