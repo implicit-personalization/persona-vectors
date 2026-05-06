@@ -120,16 +120,9 @@ def _extract_single_trace(
             saved_hs: list[torch.Tensor] = []
             # Pre-tokenized ids are passed straight through — no double-BOS.
             with model.trace(ids.unsqueeze(0)) as tracer:
-                # All layers live on the same device, so move the mask once.
-                mask_on_device = mask.to(device=model.layers_output[0].device)
                 for layer_idx in range(model.num_layers):
-                    # Extract activations: (1, seq_len, hidden_size):
-                    #   remove batch dim: (seq_len, hidden_size)
-                    #   mask them: (num_masked, hidden_size)
-                    #   mean pool: (hidden_size,)
-                    layer_mean = model.layers_output[layer_idx][0, mask_on_device].mean(
-                        dim=0
-                    )
+                    layer_out = model.layers_output[layer_idx][0]
+                    layer_mean = layer_out[mask.to(device=layer_out.device)].mean(dim=0)
                     saved_hs.append(layer_mean.detach().cpu())
 
                 per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
@@ -165,21 +158,16 @@ def _extract_chunked(
                 chunk_backend = _build_backend(model, remote, on_status)
                 with model.session(remote=remote, backend=chunk_backend):
                     with model.trace(ids.unsqueeze(0)) as tracer:
-                        # All layers in a trace live on the same device.
-                        layer_device = (
-                            torch.device("cuda") if remote else model.layers[0].device
-                        )
                         if boundary is not None:
+                            start_device = model.layers_output[start_layer][0].device
                             model.skip_layers(
-                                0, start_layer - 1, skip_with=boundary.to(layer_device)
+                                0, start_layer - 1, skip_with=boundary.to(start_device)
                             )
 
-                        mask_on_device = mask.to(device=layer_device)
                         saved_hs = []
                         for layer_idx in range(start_layer, end_layer + 1):
-                            layer_mean = model.layers_output[layer_idx][
-                                0, mask_on_device
-                            ].mean(dim=0)
+                            layer_out = model.layers_output[layer_idx][0]
+                            layer_mean = layer_out[mask.to(device=layer_out.device)].mean(dim=0)
                             saved_hs.append(layer_mean.detach().cpu())
 
                         per_chunk_hs = nnsight.save(torch.stack(saved_hs, dim=0))
