@@ -1,7 +1,7 @@
 # Steering
 
-Compute persona steering vectors from pre-extracted activations and apply them
-to steer model behavior toward a specific persona.
+Compute persona steering vectors from pre-extracted activations for steering
+experiments toward a specific persona.
 Core module: `src/persona_vectors/steering.py`
 
 ---

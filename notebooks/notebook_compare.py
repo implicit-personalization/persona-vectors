@@ -6,12 +6,15 @@ from itertools import combinations
 
 import torch
 from dotenv import load_dotenv
-from persona_data.prompts import BASELINE_PERSONA_ID
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import load_persona_mean_samples, load_variant_mean_samples
+from persona_vectors.analysis import (
+    list_comparison_personas,
+    load_persona_mean_samples,
+    load_variant_mean_samples,
+)
 from persona_vectors.artifacts import ActivationStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
@@ -32,6 +35,7 @@ REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 SIMILARITY_VARIANT = "biography"
+INCLUDE_BASELINE = False
 
 # %% Load dataset and Activations
 dataset = SynthPersonaDataset()
@@ -49,7 +53,11 @@ console.print(dataset_table)
 available_variants = acts.available_variants()
 console.print(f"Available comparison variants: {available_variants}")
 
-persona_ids = acts.list_personas(available_variants)
+persona_ids = list_comparison_personas(
+    acts,
+    available_variants,
+    include_baseline=INCLUDE_BASELINE,
+)
 console.print(f"Personas with all variants: {len(persona_ids)}")
 
 # %% Load mean activations per variant per persona
@@ -85,18 +93,10 @@ plot_layer_similarity(
 avg_variant_means = {
     variant: samples.vectors.mean(dim=0) for variant, samples in variant_samples.items()
 }
-avg_plot_means = dict(avg_variant_means)
-
-baseline_vectors, _ = acts.load(
-    BASELINE_PERSONA_ID,
-    BASELINE_PERSONA_ID,
-)
-# Add the baseline to the ones that are plotted
-avg_plot_means[BASELINE_PERSONA_ID] = baseline_vectors.float().squeeze(dim=0)
 
 pair_traces = [
-    (f"{left} vs {right}", avg_plot_means[left], avg_plot_means[right])
-    for left, right in combinations(avg_plot_means, 2)
+    (f"{left} vs {right}", avg_variant_means[left], avg_variant_means[right])
+    for left, right in combinations(avg_variant_means, 2)
 ]
 
 plot_layer_similarity(
@@ -110,7 +110,6 @@ similarity_samples = load_persona_mean_samples(
     acts,
     SIMILARITY_VARIANT,
     persona_ids=persona_ids,
-    include_baseline=True,
 )
 
 build_layered_figure(

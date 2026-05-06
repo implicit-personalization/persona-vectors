@@ -7,14 +7,17 @@ from typing import Callable, Literal, cast
 import torch
 from nnterp import StandardizedTransformer
 from persona_data.prompts import (
-    BASELINE_PERSONA_ID,
-    BASELINE_PERSONA_NAME,
     format_mc_question,
     format_messages,
     format_prompt,
     mc_correct_letter,
 )
-from persona_data.synth_persona import PersonaData, QAPair
+from persona_data.synth_persona import (
+    BASELINE_PERSONA_ID,
+    PersonaData,
+    QAPair,
+    SynthPersonaDataset,
+)
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -351,51 +354,24 @@ def prepare_inputs_for_strategy(
     qa_pairs: list[QAPair],
     mask_strategy: MaskStrategy,
 ) -> list[PreparedInput]:
-    """Prepare the smallest useful batch for the requested mask strategy."""
+    """Prepare the smallest useful batch for the requested mask strategy.
 
-    if mask_strategy in (MaskStrategy.PERSONA_MEAN, MaskStrategy.PERSONA_LAST):
-        prompt_text = system_prompt.strip()
-        if not prompt_text:
-            raise ValueError(
-                "persona mask strategies require a non-empty system prompt"
-            )
-
-        encoding = tokenizer(
-            prompt_text,
-            return_offsets_mapping=True,
-            return_tensors="pt",
-            add_special_tokens=False,
-        )
-        input_ids = encoding.input_ids[0]
-        offsets = [tuple(pair) for pair in encoding.offset_mapping[0].tolist()]
-        spans = _char_span_to_token_span(offsets, 0, len(prompt_text))
-        prompt_spans = PromptSpans(template=spans, question=spans, response=spans)
-        mask = _build_mask(
-            input_ids.shape[0],
-            prompt_spans,
-            mask_strategy,
-            input_ids=input_ids,
-            special_ids=set(tokenizer.all_special_ids),
-        )
-        return [
-            PreparedInput(
-                sample_id="prompt_only",
-                question="prompt_only",
-                prompt_text=prompt_text,
-                spans=prompt_spans,
-                offset_mapping=offsets,
-                input_ids=input_ids,
-                token_mask=mask,
-            )
-        ]
-
+    Persona masks (``persona_mean`` / ``persona_last``) ignore QA tokens, so
+    we only run the first QA pair through the full pipeline — the resulting
+    template-span vector is identical no matter which question is paired.
+    """
     if not qa_pairs:
         raise ValueError("No QA pairs selected for extraction")
 
+    persona_only = mask_strategy in (
+        MaskStrategy.PERSONA_MEAN,
+        MaskStrategy.PERSONA_LAST,
+    )
+    selected = qa_pairs[:1] if persona_only else qa_pairs
     return prepare_inputs(
         tokenizer=tokenizer,
         system_prompt=system_prompt,
-        qa_pairs=qa_pairs,
+        qa_pairs=selected,
         mask_strategy=mask_strategy,
     )
 
@@ -444,6 +420,58 @@ def preview_prepared_inputs(
         )
 
 
+def select_personas_with_qa(
+    dataset: SynthPersonaDataset,
+    persona_id: str | None = None,
+    *,
+    include_baseline: bool = True,
+) -> list[tuple[PersonaData, list[QAPair]]]:
+    """Select (persona, qa_pairs) tuples for extraction.
+
+    This function only selects from personas already loaded in ``dataset``. If
+    ``SynthPersonaDataset(sample_size=...)`` sliced out the Assistant baseline,
+    ``include_baseline=True`` cannot recover it; load the dataset without that
+    slice, or pass ``persona_id=BASELINE_PERSONA_ID`` to a full dataset.
+
+    - ``persona_id=None``: all loaded personas, optionally including the loaded
+      Assistant baseline.
+    - ``persona_id=<id>``: just that loaded persona. ``include_baseline`` is
+      ignored.
+
+    QA pairs come from ``train_test_split`` for normal personas and from the
+    shared MCQ pool for the baseline (which has no per-persona train split).
+    Personas with no matching QA pairs are skipped.
+    """
+    if persona_id is not None:
+        if persona_id == BASELINE_PERSONA_ID and dataset.baseline is not None:
+            personas = [dataset.baseline]
+        else:
+            match = next((p for p in dataset if p.id == persona_id), None)
+            if match is None:
+                raise ValueError(f"No persona found with id {persona_id!r}")
+            personas = [match]
+    else:
+        personas = list(dataset)
+        if (
+            include_baseline
+            and dataset.baseline is not None
+            and not any(p.id == BASELINE_PERSONA_ID for p in personas)
+        ):
+            personas.append(dataset.baseline)
+
+    runs: list[tuple[PersonaData, list[QAPair]]] = []
+    for persona in personas:
+        if persona.id == BASELINE_PERSONA_ID:
+            qa_pairs = list(
+                dataset.get_qa(BASELINE_PERSONA_ID, item_type="mcq", scope="shared")
+            )
+        else:
+            qa_pairs, _ = dataset.train_test_split(persona.id)
+        if qa_pairs:
+            runs.append((persona, qa_pairs))
+    return runs
+
+
 def _free_memory() -> None:
     """Release temporary tensors between variants to keep memory bounded."""
     gc.collect()
@@ -468,16 +496,15 @@ def run_extraction(
 ) -> list[ExtractionResult]:
     """Extract and save per-question activation vectors for each variant.
 
-    The ``baseline`` variant uses the persona-less Assistant prompt and is
-    saved under the shared ``BASELINE_PERSONA_ID``; every other variant reads
-    ``<variant>_view`` from ``persona`` and saves under that persona's id.
+    Each variant reads ``<variant>_view`` from ``persona``. The Assistant
+    baseline is just another ``PersonaData`` with the usual views.
 
     Args:
         model: Loaded standardized nnterp model.
         model_name: HuggingFace model identifier used for artifact paths.
         qa_pairs: Question-answer pairs to run extraction on.
         variants: Variants to extract. See ``SUPPORTED_VARIANTS``.
-        persona: Required for non-baseline variants; ignored for ``baseline``.
+        persona: Persona used to render the requested variants.
         mask_strategy: Which tokens should contribute to the averaged hidden
             state. See :class:`MaskStrategy`.
         remote: Whether to execute on NDIF.
@@ -497,16 +524,13 @@ def run_extraction(
     store = ActivationStore(model_name, root_dir=activations_dir)
     results: list[ExtractionResult] = []
 
+    if persona is None:
+        raise ValueError("run_extraction requires a PersonaData")
+
     for variant in variants:
-        if variant == BASELINE_PERSONA_ID:
-            system_prompt = format_prompt()
-            persona_id, persona_name = BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
-        else:
-            if persona is None:
-                raise ValueError(f"variant {variant!r} requires a persona")
-            persona_variant = cast(Literal["templated", "biography"], variant)
-            system_prompt = format_prompt(persona, persona_variant)
-            persona_id, persona_name = persona.id, persona.name
+        persona_variant = cast(Literal["templated", "biography"], variant)
+        system_prompt = format_prompt(persona, persona_variant)
+        persona_id, persona_name = persona.id, persona.name
 
         prepared = prepare_inputs_for_strategy(
             tokenizer=model.tokenizer,

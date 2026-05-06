@@ -44,6 +44,9 @@ Set `NDIF_API_KEY` in `.env` if you want to use remote execution for large model
 # Extract activations (run this first)
 uv run python -m notebooks.notebook_extract
 
+# Or extract via the CLI. Use --backend remote for NDIF.
+uv run python main.py extract --model google/gemma-2-9b-it --backend remote
+
 # Same extraction flow with token-mask preview and a short sample run
 # (set verbose=True in the notebook)
 

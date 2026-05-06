@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from persona_data.prompts import BASELINE_PERSONA_ID
+from persona_data.synth_persona import BASELINE_PERSONA_ID
 from sklearn.decomposition import PCA
 
 from persona_vectors.artifacts import ActivationStore
@@ -17,6 +17,23 @@ class LayeredSamples:
     vectors: torch.Tensor
     labels: list[str]
     hover_text: list[str]
+
+
+def list_comparison_personas(
+    store: ActivationStore,
+    variants: list[str] | tuple[str, ...],
+    mask_strategy: object | None = None,
+    *,
+    include_baseline: bool = False,
+) -> list[str]:
+    """Return shared persona ids for comparisons, with baseline filtering."""
+
+    persona_ids = store.list_personas(variants, mask_strategy=mask_strategy)
+    if include_baseline:
+        return persona_ids
+    return [
+        persona_id for persona_id in persona_ids if persona_id != BASELINE_PERSONA_ID
+    ]
 
 
 def _resolve_personas(
@@ -61,26 +78,10 @@ def load_persona_mean_samples(
     variant: str,
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
-    *,
-    include_baseline: bool = False,
 ) -> LayeredSamples:
-    """Load one mean activation sample per persona for a single variant.
-
-    If ``include_baseline`` is True, the persona-less Assistant baseline is
-    appended as one extra sample.
-    """
+    """Load one mean activation sample per persona for a single variant."""
     persona_ids = _resolve_personas(store, [variant], mask_strategy, persona_ids)
-    samples = _load_variant_samples(store, variant, mask_strategy, persona_ids)
-    if include_baseline:
-        baseline = _load_variant_samples(
-            store, BASELINE_PERSONA_ID, mask_strategy, [BASELINE_PERSONA_ID]
-        )
-        samples = LayeredSamples(
-            torch.cat([samples.vectors, baseline.vectors], dim=0),
-            samples.labels + baseline.labels,
-            samples.hover_text + baseline.hover_text,
-        )
-    return samples
+    return _load_variant_samples(store, variant, mask_strategy, persona_ids)
 
 
 def load_variant_mean_samples(
@@ -184,6 +185,7 @@ def run_saved_activation_analysis(
     variant: str,
     mask_strategy: object,
     persona_ids: list[str] | None = None,
+    include_baseline: bool = False,
     layers: list[int] | None = None,
 ) -> dict[str, Path]:
     """Create interactive PCA and similarity HTML files from saved activations."""
@@ -202,11 +204,13 @@ def run_saved_activation_analysis(
         mask_strategy=mask_strategy,
     )
 
-    samples = load_persona_mean_samples(
-        store,
-        variant,
-        persona_ids=persona_ids,
-    )
+    if persona_ids is None:
+        persona_ids = list_comparison_personas(
+            store,
+            [variant],
+            include_baseline=include_baseline,
+        )
+    samples = load_persona_mean_samples(store, variant, persona_ids=persona_ids)
     figure_specs = [("persona_mean", "pca"), ("persona_mean", "similarity")]
     title_suffix = {"pca": "PCA", "similarity": "centered cosine similarity"}
     outputs: dict[str, Path] = {}

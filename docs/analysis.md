@@ -15,7 +15,7 @@ Shape conventions match the rest of the codebase:
 - Saved vectors: `(n_questions, num_layers, hidden_size)`
 - Per-persona mean: `(num_layers, hidden_size)`
 
-### `load_persona_mean_samples(..., include_baseline=False)`
+### `load_persona_mean_samples(...)`
 
 Loads saved activation tensors and returns the mean vectors used by plotting
 and numerical analysis. Most UI/notebook code should call the plot helpers

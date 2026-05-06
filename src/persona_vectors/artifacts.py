@@ -4,11 +4,10 @@ import warnings
 from pathlib import Path
 
 import torch
-from persona_data.prompts import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 from safetensors.torch import load_file, save_file
 
 PERSONA_VARIANTS: tuple[str, ...] = ("templated", "biography")
-SUPPORTED_VARIANTS: tuple[str, ...] = (*PERSONA_VARIANTS, BASELINE_PERSONA_ID)
+SUPPORTED_VARIANTS: tuple[str, ...] = PERSONA_VARIANTS
 DEFAULT_MASK_STRATEGY = "answer_mean"
 _MANIFEST_FILENAME = "manifest.json"
 _TENSOR_KEY = "activations"
@@ -110,10 +109,6 @@ class ActivationStore:
             )
         if len(sample_ids) != per_question_vectors.shape[0]:
             raise ValueError("number of sample ids must match first tensor dimension")
-        if prompt_variant == BASELINE_PERSONA_ID:
-            persona_id = BASELINE_PERSONA_ID
-            persona_name = BASELINE_PERSONA_NAME
-
         variant_root = _variant_root(
             self.root_dir,
             self.model_name,
@@ -144,8 +139,6 @@ class ActivationStore:
 
         manifest["num_layers"] = int(per_question_vectors.shape[1])
         manifest["hidden_size"] = int(per_question_vectors.shape[2])
-        if prompt_variant == BASELINE_PERSONA_ID:
-            manifest["personas"] = {}
         manifest.setdefault("personas", {})[persona_id] = {
             "name": persona_name,
             "sample_ids": list(sample_ids),

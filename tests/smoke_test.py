@@ -2,10 +2,11 @@ import json
 import tempfile
 
 import torch
-from persona_data.prompts import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
+from persona_data.synth_persona import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
+    list_comparison_personas,
     load_persona_mean_samples,
     load_variant_mean_samples,
     run_saved_activation_analysis,
@@ -58,21 +59,20 @@ with tempfile.TemporaryDirectory() as tmp:
     assert model_dir_name("org/model") == "org__model"
 
     store.save(
-        "baseline",
+        "templated",
         BASELINE_PERSONA_ID,
         BASELINE_PERSONA_NAME,
         vectors,
         sample_ids,
     )
-    other_vectors = vectors + 1
-    store.save(
-        "baseline",
-        "stale-persona-id",
-        "Stale Persona",
-        other_vectors,
-        sample_ids,
-    )
-    assert store.list_personas(["baseline"]) == [BASELINE_PERSONA_ID]
+    assert store.list_personas(["templated"]) == [
+        BASELINE_PERSONA_ID,
+        "persona-001",
+    ]
+    assert list_comparison_personas(store, ["templated"]) == ["persona-001"]
+    assert list_comparison_personas(
+        store, ["templated"], include_baseline=True
+    ) == [BASELINE_PERSONA_ID, "persona-001"]
 
 with tempfile.TemporaryDirectory() as tmp:
     store = ActivationStore("test/model", root_dir=tmp)

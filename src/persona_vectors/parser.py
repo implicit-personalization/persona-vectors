@@ -36,6 +36,7 @@ class AnalyzeConfig:
     variant: str
     mask_strategy: MaskStrategy
     persona_ids: list[str] | None
+    include_baseline: bool
     layers: list[int] | None
 
 
@@ -60,11 +61,7 @@ def build_extract_parser(subparsers) -> None:
         nargs="+",
         default=list(SUPPORTED_VARIANTS),
         choices=SUPPORTED_VARIANTS,
-        help=(
-            "Variants to extract (default: all). 'baseline' is the shared "
-            "persona-less Assistant prompt and is run once across the first "
-            "selected persona's QA pairs."
-        ),
+        help="Prompt views to extract (default: all).",
     )
     extract.add_argument(
         "--mask-strategy",
@@ -74,7 +71,9 @@ def build_extract_parser(subparsers) -> None:
         help="Which tokens to average (default: answer_mean)",
     )
     extract.add_argument(
-        "--persona-id", default=None, help="Extract only this persona (default: all)"
+        "--persona-id",
+        default=None,
+        help="Extract only this persona, e.g. baseline_assistant (default: all)",
     )
     extract.add_argument(
         "--backend",
@@ -118,6 +117,11 @@ def build_analyze_parser(subparsers) -> None:
         nargs="+",
         default=None,
         help="Analyze only these persona UUIDs (default: all available)",
+    )
+    analyze.add_argument(
+        "--include-baseline",
+        action="store_true",
+        help="Include the persona-less Assistant baseline in discovered comparisons.",
     )
     analyze.add_argument(
         "--layers",

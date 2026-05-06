@@ -2,13 +2,16 @@ import torch
 from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
 from persona_data.environment import set_seed
-from persona_data.prompts import BASELINE_PERSONA_ID
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.artifacts import PERSONA_VARIANTS
-from persona_vectors.extraction import MaskStrategy, run_extraction
+from persona_vectors.extraction import (
+    MaskStrategy,
+    run_extraction,
+    select_personas_with_qa,
+)
 
 console = Console()
 
@@ -52,58 +55,37 @@ model_table.add_row("Layers", str(NUM_LAYERS))
 model_table.add_row("Hidden Size", str(D_MODEL))
 console.print(model_table)
 
-# %% Load dataset from HuggingFace
-dataset = SynthPersonaDataset(sample_size=1)
-persona = dataset[0]
+# %% Load dataset and select runs (small persona-only smoke run)
+dataset = SynthPersonaDataset(sample_size=3)
+runs = [
+    (p, qa[:8]) for p, qa in select_personas_with_qa(dataset, include_baseline=False)
+]
+
+# To extract the Assistant baseline instead, load the full dataset and select:
+# runs = select_personas_with_qa(SynthPersonaDataset(), persona_id="baseline_assistant")
 
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
 dataset_table.add_column("Value", style="magenta")
 dataset_table.add_row("Total Personas", str(len(dataset)))
-dataset_table.add_row("Persona Name", persona.name)
-dataset_table.add_row("Age", str(persona.persona["age"]))
+for persona, qa_pairs in runs:
+    dataset_table.add_row(persona.name, f"{len(qa_pairs)} QA")
 console.print(dataset_table)
 
-# %% Split questions in train test
-# train_qa, test_qa = dataset.train_test_split(persona.id)
-
-# %% Pick persona and get QA pairs
-# qa_pairs = dataset.get_qa(persona.id, scope="individual", item_type="frq")  # full run
-qa_pairs = dataset.get_qa(persona.id, item_type="mcq", scope="shared")  # full run
-# qa_pairs = dataset.get_qa(persona.id, scope="individual", item_type="frq")[:8]
-print(f"Using {len(qa_pairs)} QA pairs for {persona.name}")
-print(f"QIDs: {[qa.qid for qa in qa_pairs]}")
-
 # %% Extract activations for all prompt variants
-RUN_NAME = "run_01"
+# RUN_NAME = "run_01"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
-results = run_extraction(
-    model=model,
-    model_name=MODEL_NAME,
-    qa_pairs=qa_pairs,
-    variants=PERSONA_VARIANTS,
-    persona=persona,
-    mask_strategy=MASK_STRATEGY,
-    remote=REMOTE,
-    verbose=True,
-    activations_dir=f"artifacts/activations/{RUN_NAME}",
-)
-
-for r in results:
-    print(f"Saved {r.variant} activations to {r.output_dir} ({r.n_questions} examples)")
-
-# %% Extract the shared persona-less Assistant baseline
-# Baseline reuses the same QA pairs but drops the persona prefix; only run once.
-baseline_results = run_extraction(
-    model=model,
-    model_name=MODEL_NAME,
-    qa_pairs=qa_pairs,
-    variants=(BASELINE_PERSONA_ID,),
-    mask_strategy=MASK_STRATEGY,
-    remote=REMOTE,
-    verbose=True,
-    activations_dir=f"artifacts/activations/{RUN_NAME}",
-)
-
-for r in baseline_results:
-    print(f"Saved {r.variant} activations to {r.output_dir} ({r.n_questions} examples)")
+for persona, qa_pairs in runs:
+    print(f"\n→ {persona.name}: {[qa.qid for qa in qa_pairs]}")
+    for r in run_extraction(
+        model=model,
+        model_name=MODEL_NAME,
+        qa_pairs=qa_pairs,
+        variants=PERSONA_VARIANTS,
+        persona=persona,
+        mask_strategy=MASK_STRATEGY,
+        remote=REMOTE,
+        verbose=True,
+        # activations_dir=f"artifacts/activations/{RUN_NAME}",
+    ):
+        print(f"Saved {r.variant} → {r.output_dir} ({r.n_questions} examples)")

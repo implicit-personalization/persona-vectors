@@ -14,68 +14,26 @@ from persona_vectors.parser import (
 
 def extract_activations(cfg: ExtractConfig) -> None:
     from nnterp import StandardizedTransformer
-    from persona_data.prompts import BASELINE_PERSONA_ID
     from persona_data.synth_persona import SynthPersonaDataset
 
-    from persona_vectors.extraction import run_extraction
+    from persona_vectors.extraction import run_extraction, select_personas_with_qa
 
     model = StandardizedTransformer(cfg.model)
-    dataset = SynthPersonaDataset()
-    personas = (
-        [p for p in dataset if p.id == cfg.persona_id]
-        if cfg.persona_id
-        else list(dataset)
-    )
-    if cfg.persona_id and not personas:
-        raise ValueError(f"No persona found with id {cfg.persona_id!r}")
+    runs = select_personas_with_qa(SynthPersonaDataset(), cfg.persona_id)
+    if not runs:
+        print("No QA pairs found for selected persona(s); nothing extracted.")
+        return
 
-    persona_variants = tuple(v for v in cfg.variants if v != BASELINE_PERSONA_ID)
-    run_baseline = BASELINE_PERSONA_ID in cfg.variants
-
-    common = dict(
-        model=model,
-        model_name=cfg.model,
-        mask_strategy=cfg.mask_strategy,
-        remote=cfg.backend == "remote",
-        verbose=cfg.verbose,
-    )
-
-    if persona_variants:
-        extracted_persona_variants = False
-        for persona in tqdm(personas, desc="personas", unit="persona"):
-            # TODO: This should have support for train test split
-            qa_pairs = list(
-                dataset.get_qa(persona.id, item_type="frq", scope="individual")
-            )
-            if not qa_pairs:
-                continue
-            for r in run_extraction(
-                qa_pairs=qa_pairs,
-                variants=persona_variants,
-                persona=persona,
-                **common,
-            ):
-                extracted_persona_variants = True
-                print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
-        if not extracted_persona_variants:
-            print(
-                "No QA pairs found for selected persona(s); "
-                "no persona variants extracted."
-            )
-
-    if run_baseline:
-        # Baseline is persona-less; one run, sharing the first persona's QA pairs.
-        baseline_qa_pairs = next(
-            (qa for qa in (list(dataset.get_qa(p.id)) for p in personas) if qa),
-            None,
-        )
-        if baseline_qa_pairs is None:
-            print("Skipping baseline: no QA pairs available.")
-            return
+    for persona, qa_pairs in tqdm(runs, desc="personas", unit="persona"):
         for r in run_extraction(
-            qa_pairs=baseline_qa_pairs,
-            variants=(BASELINE_PERSONA_ID,),
-            **common,
+            model=model,
+            model_name=cfg.model,
+            qa_pairs=qa_pairs,
+            variants=tuple(cfg.variants),
+            persona=persona,
+            mask_strategy=cfg.mask_strategy,
+            remote=cfg.backend == "remote",
+            verbose=cfg.verbose,
         ):
             print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
 
@@ -90,6 +48,7 @@ def analyze_activations(cfg: AnalyzeConfig) -> None:
         variant=cfg.variant,
         mask_strategy=cfg.mask_strategy,
         persona_ids=cfg.persona_ids,
+        include_baseline=cfg.include_baseline,
         layers=cfg.layers,
     )
     for label, path in outputs.items():
@@ -138,6 +97,7 @@ def main() -> None:
             variant=args.variant,
             mask_strategy=args.mask_strategy,
             persona_ids=args.persona_id,
+            include_baseline=args.include_baseline,
             layers=args.layers,
         )
         analyze_activations(cfg)

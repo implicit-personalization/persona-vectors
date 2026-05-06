@@ -59,7 +59,7 @@ Each element returned by `prepare_inputs()` bundles a formatted sample together 
 
 ## Note
 
-For NDIF runs, instantiate the model without `device_map` or `dtype` so it loads on the meta device.
+For NDIF runs, pass `remote=True` to `extract_activations()` and set `NDIF_API_KEY` in your environment.
 
 To keep multiple extraction runs separate, pass `activations_dir` to `run_extraction()`:
 
