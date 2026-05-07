@@ -13,7 +13,7 @@ Given a set of personas and evaluation questions, this project:
 
 1. Formats each persona as a system prompt (short `templated` or long `biography`)
 2. Extracts hidden states at each layer with configurable token masking
-3. Saves per-question, per-layer hidden states, then averages them into persona-level views for analysis
+3. Averages masked hidden states across QA pairs and saves one persona-level vector per layer
 
 The resulting vectors can be compared across layers (cosine similarity) and eventually used for steering experiments.
 
@@ -79,9 +79,9 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 `notebook_extract.py` runs a small end-to-end extraction example:
 
 1. Load dataset questions and answers
-2. Extract per-question activations
-3. Save them to disk
-4. Mask and average the selected token spans
+2. Build masks for the selected token spans
+3. Extract activations and average them across QA pairs
+4. Save the persona-level activation tensor to disk
 
 `notebook_compare.py` uses `ActivationStore` to discover saved variants/personas,
 then compares shared persona means across variants.
@@ -102,7 +102,8 @@ artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
 `<model_dir>` is the model name with `/` replaced by `__`.
 
 The manifest stores compact sample ids (`qa.qid`) instead of full question text,
-plus tensor shape fields used for validation.
+plus tensor shape fields used for validation. Each safetensors file contains a
+single `activations` tensor with shape `(num_layers, hidden_size)`.
 
 ## CLI
 

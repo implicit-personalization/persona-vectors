@@ -51,7 +51,7 @@ def extract_activations(
     remote: bool = False,
     on_status: Callable[[str, str, str], None] | None = None,
 ) -> torch.Tensor:
-    """Run forward passes and return mean hidden states over masked tokens per layer.
+    """Run forward passes and return the mean hidden state over all samples and masked tokens per layer.
 
     On remote (NDIF) execution, if the server raises an OOM the fast path is
     transparently retried with a layer-sliced trace that bounds peak memory.
@@ -72,10 +72,16 @@ def extract_activations(
             called on every NDIF status update. Only used when remote=True. Useful
             for surfacing job progress in a UI (e.g. Streamlit) without capturing
             stdout. The normal terminal output from nnsight is still printed.
+
+    Returns:
+        Tensor of shape ``(num_layers, hidden_size)`` — the mean over all
+        samples (and over the masked tokens within each sample).
     """
 
     if len(input_ids_list) != len(token_masks):
         raise ValueError("input_ids_list and token_masks must have the same length")
+    if not input_ids_list:
+        raise ValueError("input_ids_list must contain at least one sample")
 
     masks = [torch.as_tensor(m, dtype=torch.bool) for m in token_masks]
     if not all(m.any() for m in masks):
@@ -114,7 +120,7 @@ def _extract_single_trace(
 ) -> torch.Tensor:
     backend = _build_backend(model, remote, on_status)
     with torch.no_grad(), model.session(remote=remote, backend=backend):
-        all_hs: list[torch.Tensor] = nnsight.save([])
+        per_sample_hs: list[torch.Tensor] = []
 
         for ids, mask in zip(input_ids_list, masks):
             saved_hs: list[torch.Tensor] = []
@@ -125,15 +131,17 @@ def _extract_single_trace(
                     layer_mean = layer_out[mask.to(device=layer_out.device)].mean(dim=0)
                     saved_hs.append(layer_mean.detach().cpu())
 
-                per_text_hs = nnsight.save(torch.stack(saved_hs, dim=0))
+                per_text_hs = torch.stack(saved_hs, dim=0)
                 # Extraction only needs residual activations; skipping the
                 # LM head avoids materializing full-sequence logits on NDIF.
                 tracer.stop()
 
-            all_hs.append(per_text_hs)
+            per_sample_hs.append(per_text_hs)
 
-    # Shape: (n_text, num_layers, hidden_size)
-    return torch.stack(all_hs, dim=0)
+        # Shape: (num_layers, hidden_size) — mean across samples.
+        persona_vectors = torch.stack(per_sample_hs, dim=0).mean(dim=0).save()
+
+    return persona_vectors
 
 
 def _extract_chunked(
@@ -147,7 +155,7 @@ def _extract_chunked(
     """Slice each forward pass across layers, carrying the boundary residual
     forward via ``model.skip_layers``. Slower (one NDIF round-trip per chunk)
     but bounds peak memory so long biographies fit."""
-    all_hs: list[torch.Tensor] = []
+    persona_sum: torch.Tensor | None = None
     with torch.no_grad():
         for ids, mask in zip(input_ids_list, masks):
             chunk_hs: list[torch.Tensor] = []
@@ -167,7 +175,9 @@ def _extract_chunked(
                         saved_hs = []
                         for layer_idx in range(start_layer, end_layer + 1):
                             layer_out = model.layers_output[layer_idx][0]
-                            layer_mean = layer_out[mask.to(device=layer_out.device)].mean(dim=0)
+                            layer_mean = layer_out[
+                                mask.to(device=layer_out.device)
+                            ].mean(dim=0)
                             saved_hs.append(layer_mean.detach().cpu())
 
                         per_chunk_hs = nnsight.save(torch.stack(saved_hs, dim=0))
@@ -181,7 +191,10 @@ def _extract_chunked(
                 chunk_hs.append(per_chunk_hs)
                 boundary = next_boundary
 
-            all_hs.append(torch.cat(chunk_hs, dim=0))
+            sample_hs = torch.cat(chunk_hs, dim=0)
+            persona_sum = sample_hs if persona_sum is None else persona_sum + sample_hs
 
-    # Shape: (n_text, num_layers, hidden_size)
-    return torch.stack(all_hs, dim=0)
+    # Shape: (num_layers, hidden_size) — mean across samples
+    if persona_sum is None:
+        raise ValueError("input_ids_list must contain at least one sample")
+    return persona_sum / len(input_ids_list)

@@ -1,7 +1,7 @@
 # Analysis
 
-Per-layer analyses over saved activations. Analysis views use one mean vector
-per persona, computed by averaging that persona's extracted question samples.
+Per-layer analyses over saved activations. Analysis views use one saved vector
+per persona; extraction has already averaged across that persona's QA samples.
 
 Core module: `src/persona_vectors/analysis.py`
 Plots: `src/persona_vectors/plots.py`
@@ -12,12 +12,12 @@ Reference notebook: `notebooks/notebook_compare.py`
 These lower-level functions operate on tensors loaded from `ActivationStore`.
 Shape conventions match the rest of the codebase:
 
-- Saved vectors: `(n_questions, num_layers, hidden_size)`
-- Per-persona mean: `(num_layers, hidden_size)`
+- Saved persona vector: `(num_layers, hidden_size)`
+- Layered sample collection: `(n_personas, num_layers, hidden_size)`
 
 ### `load_persona_mean_samples(...)`
 
-Loads saved activation tensors and returns the mean vectors used by plotting
+Loads saved activation tensors and returns the persona vectors used by plotting
 and numerical analysis. Most UI/notebook code should call the plot helpers
 below instead of handling this object directly.
 
@@ -85,7 +85,7 @@ python main.py analyze \
 
 This writes interactive HTML files with layer dropdowns:
 
-- `persona_mean_pca`: one point per persona, averaged over questions
+- `persona_mean_pca`: one point per persona from the saved persona-level mean
 - `persona_mean_similarity`: centered persona cosine heatmap by layer
 - `persona_pair_similarity`: persona-pair similarity trajectories across layers
 - `pca_scree`: PCA explained-variance curves for selected or representative layers

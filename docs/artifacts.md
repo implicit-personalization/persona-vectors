@@ -36,11 +36,11 @@ store.save(
     prompt_variant="templated",
     persona_id=persona.id,
     persona_name=persona.name,
-    per_question_vectors=activations,
+    vectors=activations,
     sample_ids=[qa.qid for qa in qa_pairs],
 )
 
-vectors, sample_ids = store.load(
+vectors = store.load(
     "templated",
     persona.id,
 )
@@ -77,8 +77,12 @@ subset of those variants, it warns that they were skipped.
 
 ## File Format
 
-- `<persona_id>.safetensors`: one `activations` tensor with shape `(n_samples, n_layers, d_model)`
+- `<persona_id>.safetensors`: one `activations` tensor with shape `(num_layers, hidden_size)`
 - `manifest.json`: tensor shape fields and per-persona `name`/`sample_ids`
+
+Extraction averages across QA pairs before saving. `sample_ids` remain in the
+manifest for provenance, but `ActivationStore.load()` returns only the saved
+activation tensor.
 
 ## Utility
 

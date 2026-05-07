@@ -115,13 +115,13 @@ similarity_samples = load_persona_mean_samples(
 build_layered_figure(
     similarity_samples,
     "similarity",
-    title=f"Centered similarity — {SIMILARITY_VARIANT} — personas averaged over questions",
+    title=f"Centered similarity — {SIMILARITY_VARIANT} — persona mean activations",
 ).show()
 
 build_pair_similarity_figure(
     similarity_samples,
     title=(
         "Pair similarity trajectories — "
-        f"{SIMILARITY_VARIANT} — personas averaged over questions"
+        f"{SIMILARITY_VARIANT} — persona mean activations"
     ),
 ).show()

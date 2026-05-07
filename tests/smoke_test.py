@@ -26,7 +26,7 @@ print("✓ imports OK")
 
 with tempfile.TemporaryDirectory() as tmp:
     store = ActivationStore("test/model", root_dir=tmp, mask_strategy="answer_previous")
-    vectors = torch.arange(3 * 4 * 8, dtype=torch.float32).reshape(3, 4, 8)
+    vectors = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8)
     sample_ids = ["q0", "q1", "q2"]
 
     saved_dir = store.save(
@@ -46,9 +46,8 @@ with tempfile.TemporaryDirectory() as tmp:
         "sample_ids": sample_ids,
     }
 
-    loaded_vectors, loaded_sample_ids = store.load("templated", "persona-001")
+    loaded_vectors = store.load("templated", "persona-001")
     assert torch.allclose(loaded_vectors, vectors)
-    assert loaded_sample_ids == sample_ids
     assert store.list_personas(["templated"]) == ["persona-001"]
     assert store.available_variants(["templated", "biography"]) == ["templated"]
     assert store.persona_names(["persona-001"], variants=["templated"]) == {
@@ -78,9 +77,7 @@ with tempfile.TemporaryDirectory() as tmp:
     store = ActivationStore("test/model", root_dir=tmp)
     sample_ids = ["q0", "q1", "q2"]
     for idx, persona_id in enumerate(["persona-001", "persona-002"]):
-        vectors = (
-            torch.arange(3 * 4 * 8, dtype=torch.float32).reshape(3, 4, 8) + idx * 100
-        )
+        vectors = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8) + idx * 100
         store.save(
             "biography",
             persona_id,
@@ -121,8 +118,8 @@ with tempfile.TemporaryDirectory() as tmp:
 with tempfile.TemporaryDirectory() as tmp:
     store = ActivationStore("test/model", root_dir=tmp)
     sample_ids = ["q0", "q1"]
-    templated = torch.zeros(2, 3, 4)
-    biography = torch.ones(2, 3, 4)
+    templated = torch.zeros(3, 4)
+    biography = torch.ones(3, 4)
     store.save(
         "templated",
         "persona-001",
@@ -150,6 +147,5 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     assert sv["steering_vector"].shape == (1, 1, 4)
     assert torch.allclose(sv["steering_vector"], torch.ones(1, 1, 4))
-    assert sv["n_qa_pairs"] == 2
 
 print("✓ smoke test passed")

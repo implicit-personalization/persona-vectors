@@ -99,16 +99,27 @@ class ActivationStore:
         prompt_variant: str,
         persona_id: str,
         persona_name: str,
-        per_question_vectors: torch.Tensor,
+        vectors: torch.Tensor,
         sample_ids: list[str],
         mask_strategy: object | None = None,
     ) -> Path:
-        if per_question_vectors.ndim != 3:
+        """Save the mean activation vector for a persona.
+
+        Args:
+            prompt_variant: Prompt variant key (e.g. ``"templated"``).
+            persona_id: Stable persona identifier.
+            persona_name: Human-readable display name.
+            vectors: Mean activation tensor of shape ``(num_layers, hidden_size)``,
+                already averaged across questions and masked tokens.
+            sample_ids: QA sample ids that were averaged into ``vectors`` — kept
+                in the manifest for provenance, not used for indexing.
+            mask_strategy: Mask strategy used during extraction. Defaults to the
+                store's configured strategy.
+        """
+        if vectors.ndim != 2:
             raise ValueError(
-                "per_question_vectors must have shape (n_samples, num_layers, hidden_size)"
+                "vectors must have shape (num_layers, hidden_size)"
             )
-        if len(sample_ids) != per_question_vectors.shape[0]:
-            raise ValueError("number of sample ids must match first tensor dimension")
         variant_root = _variant_root(
             self.root_dir,
             self.model_name,
@@ -122,23 +133,23 @@ class ActivationStore:
             _load_manifest(variant_root)
             if manifest_path.exists()
             else {
-                "num_layers": int(per_question_vectors.shape[1]),
-                "hidden_size": int(per_question_vectors.shape[2]),
+                "num_layers": int(vectors.shape[0]),
+                "hidden_size": int(vectors.shape[1]),
                 "personas": {},
             }
         )
         if manifest.get("num_layers") != int(
-            per_question_vectors.shape[1]
-        ) or manifest.get("hidden_size") != int(per_question_vectors.shape[2]):
+            vectors.shape[0]
+        ) or manifest.get("hidden_size") != int(vectors.shape[1]):
             raise ValueError(
                 f"tensor shape for {persona_id!r} does not match existing artifact manifest"
             )
 
         tensor_path = _persona_tensor_path(variant_root, persona_id)
-        save_file({_TENSOR_KEY: per_question_vectors.detach().cpu()}, str(tensor_path))
+        save_file({_TENSOR_KEY: vectors.detach().cpu()}, str(tensor_path))
 
-        manifest["num_layers"] = int(per_question_vectors.shape[1])
-        manifest["hidden_size"] = int(per_question_vectors.shape[2])
+        manifest["num_layers"] = int(vectors.shape[0])
+        manifest["hidden_size"] = int(vectors.shape[1])
         manifest.setdefault("personas", {})[persona_id] = {
             "name": persona_name,
             "sample_ids": list(sample_ids),
@@ -151,7 +162,16 @@ class ActivationStore:
         prompt_variant: str,
         persona_id: str,
         mask_strategy: object | None = None,
-    ) -> tuple[torch.Tensor, list[str]]:
+    ) -> torch.Tensor:
+        """Load the mean activation vector for a persona.
+
+        Returns:
+            Tensor of shape ``(num_layers, hidden_size)`` — the mean activation
+            already averaged across questions and masked tokens at extraction time.
+
+        Raises:
+            FileNotFoundError: If no artifact exists for the requested combination.
+        """
         requested = _normalize_mask_strategy(self._mask_strategy(mask_strategy))
         variant_root = _variant_root(
             self.root_dir, self.model_name, prompt_variant, requested
@@ -171,19 +191,11 @@ class ActivationStore:
             raise FileNotFoundError(f"Missing {_TENSOR_KEY!r} tensor in {tensor_path}")
 
         vectors = tensors[_TENSOR_KEY]
-        if vectors.ndim != 3:
+        if vectors.ndim != 2:
             raise ValueError(
-                f"tensor for {persona_id!r} must have shape (n_samples, num_layers, hidden_size)"
+                f"tensor for {persona_id!r} must have shape (num_layers, hidden_size)"
             )
-
-        sample_ids = entry.get("sample_ids")
-        if not isinstance(sample_ids, list):
-            raise ValueError(f"manifest entry for {persona_id} is missing sample ids")
-        if len(sample_ids) != vectors.shape[0]:
-            raise ValueError(
-                f"sample ids for {persona_id!r} do not match tensor length"
-            )
-        return vectors, [str(sample_id) for sample_id in sample_ids]
+        return vectors
 
     def list_personas(
         self,

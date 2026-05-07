@@ -1,6 +1,6 @@
 # Activation Extraction
 
-Extract hidden states from a model and average them over selected tokens.
+Extract hidden states from a model and average them over selected tokens and QA pairs.
 Use `extract_activations()` for the low-level primitive and `run_extraction()` for the full persona flow.
 Core modules: `src/persona_vectors/activations.py` and `src/persona_vectors/extraction.py`
 
@@ -22,7 +22,7 @@ activations = extract_activations(
 ## Key Functions
 
 - `prepare_inputs()`: formats QA pairs and builds token masks, returning a list of `PreparedInput`
-- `extract_activations()`: runs the forward pass and returns the masked-mean hidden states
+- `extract_activations()`: runs the forward pass and returns one `(num_layers, hidden_size)` mean tensor
 - `run_extraction()`: full persona/variant flow used by the CLI and `notebook_extract.py`
 - `preview_prepared_inputs()`: pretty-prints prepared samples with masked tokens highlighted (useful when iterating on a new `MaskStrategy`)
 
@@ -66,6 +66,12 @@ To keep multiple extraction runs separate, pass `activations_dir` to `run_extrac
 ```python
 run_extraction(..., activations_dir="artifacts/activations/run_001")
 ```
+
+`run_extraction()` saves one activation tensor per persona and prompt variant.
+The tensor has shape `(num_layers, hidden_size)`: each layer vector is already
+averaged over all prepared QA pairs and over the tokens selected by the mask
+strategy. The manifest still records the contributing QA `sample_ids` for
+provenance.
 
 ### Long biographies / OOM
 

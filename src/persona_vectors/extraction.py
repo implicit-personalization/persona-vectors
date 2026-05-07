@@ -494,7 +494,12 @@ def run_extraction(
     verbose: bool = False,
     activations_dir: str | Path | None = None,
 ) -> list[ExtractionResult]:
-    """Extract and save per-question activation vectors for each variant.
+    """Extract and save a mean activation vector per variant for the persona.
+
+    Runs a forward pass for each QA pair, computes the masked-token mean
+    hidden state at each layer, then averages across all QA pairs before
+    saving. The saved artifact is a single ``(num_layers, hidden_size)``
+    tensor per persona per variant.
 
     Each variant reads ``<variant>_view`` from ``persona``. The Assistant
     baseline is just another ``PersonaData`` with the usual views.
@@ -568,7 +573,7 @@ def run_extraction(
             ExtractionResult(
                 variant=variant,
                 output_dir=artifact_dir,
-                n_questions=vectors.shape[0],
+                n_questions=len(prepared),
                 persona_name=persona_name,
             )
         )

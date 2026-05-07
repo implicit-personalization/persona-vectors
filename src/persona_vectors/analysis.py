@@ -57,19 +57,17 @@ def _load_variant_samples(
     mask_strategy: object | None,
     persona_ids: list[str],
 ) -> LayeredSamples:
-    """One mean-over-questions sample per persona for a single variant."""
+    """One activation sample per persona for a single variant."""
     persona_names = store.persona_names(
         persona_ids, variants=[variant], mask_strategy=mask_strategy
     )
     vectors, labels, hover_text = [], [], []
     for persona_id in persona_ids:
-        acts, _ = store.load(variant, persona_id, mask_strategy=mask_strategy)
+        acts = store.load(variant, persona_id, mask_strategy=mask_strategy)
         name = persona_names.get(persona_id, persona_id)
-        vectors.append(acts.float().mean(dim=0))
+        vectors.append(acts.float())
         labels.append(name)
-        hover_text.append(
-            f"Persona: {name}<br>ID: {persona_id}<br>Questions averaged: {acts.shape[0]}"
-        )
+        hover_text.append(f"Persona: {name}<br>ID: {persona_id}")
     return LayeredSamples(torch.stack(vectors), labels, hover_text)
 
 
@@ -79,7 +77,11 @@ def load_persona_mean_samples(
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> LayeredSamples:
-    """Load one mean activation sample per persona for a single variant."""
+    """Load one activation sample per persona for a single variant.
+
+    Each sample is a ``(num_layers, hidden_size)`` tensor — the mean already
+    computed at extraction time across all QA pairs and masked tokens.
+    """
     persona_ids = _resolve_personas(store, [variant], mask_strategy, persona_ids)
     return _load_variant_samples(store, variant, mask_strategy, persona_ids)
 
@@ -90,7 +92,11 @@ def load_variant_mean_samples(
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> dict[str, LayeredSamples]:
-    """Load mean activation samples for multiple variants in a shared persona order."""
+    """Load activation samples for multiple variants in a shared persona order.
+
+    Returns a dict mapping variant name to a ``LayeredSamples`` where each
+    entry is a ``(num_layers, hidden_size)`` tensor per persona.
+    """
     requested_variants = list(variants)
     if not requested_variants:
         raise ValueError("At least one variant is required")
