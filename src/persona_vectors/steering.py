@@ -9,9 +9,10 @@ For each persona:
   positive prompt  ->  Biography + Question + Answer
 
 Load the saved mean response-token hidden states at STEER_LAYER. The activation
-artifacts are already averaged across QA pairs and masked tokens.
+artifacts are already averaged across QA pairs and masked tokens, so each one
+is a single (num_layers, hidden_size) tensor per (variant, persona).
 
-  steering_vector = mean_over_questions(biography_h) - mean_over_questions(templated_h)
+  steering_vector = biography_h[layer] - templated_h[layer]
 
 Output saved to: artifacts/vectors/{persona_id}/steering_vector.safetensors
 """

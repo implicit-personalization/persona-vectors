@@ -7,11 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.artifacts import PERSONA_VARIANTS
-from persona_vectors.extraction import (
-    MaskStrategy,
-    run_extraction,
-    select_personas_with_qa,
-)
+from persona_vectors.extraction import MaskStrategy, run_extraction
 
 console = Console()
 
@@ -56,23 +52,37 @@ model_table.add_row("Hidden Size", str(D_MODEL))
 console.print(model_table)
 
 # %% Load dataset and select runs (small persona-only smoke run)
+# SynthPersonaDataset(sample_size=N) keeps the leading N personas from the
+# HF JSONL. We then take the train side of train_test_split per persona:
+#   - train: individual FRQs (free-response), leakage-filtered against the MCQ bank
+#   - test:  shared MCQs (same item bank for every persona) -- not used here
+# n_train caps the train slice; pass None for every non-leaking FRQ.
+N_TRAIN = 8
 dataset = SynthPersonaDataset(sample_size=3)
 runs = [
-    (p, qa[:8]) for p, qa in select_personas_with_qa(dataset, include_baseline=False)
+    (persona, dataset.train_test_split(persona.id, n_train=N_TRAIN)[0])
+    for persona in dataset
 ]
+runs = [(p, qa) for p, qa in runs if qa]  # drop personas with no train QAs
 
-# To extract the Assistant baseline instead, load the full dataset and select:
+# To extract the Assistant baseline instead (uses the shared MCQ pool, no train split):
+# from persona_vectors.extraction import select_personas_with_qa
 # runs = select_personas_with_qa(SynthPersonaDataset(), persona_id="baseline_assistant")
 
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
 dataset_table.add_column("Value", style="magenta")
 dataset_table.add_row("Total Personas", str(len(dataset)))
+dataset_table.add_row("Train cap (n_train)", str(N_TRAIN))
 for persona, qa_pairs in runs:
-    dataset_table.add_row(persona.name, f"{len(qa_pairs)} QA")
+    dataset_table.add_row(persona.name, f"{len(qa_pairs)} train QA")
 console.print(dataset_table)
 
 # %% Extract activations for all prompt variants
+# For each persona, run a forward pass per QA pair across both prompt variants
+# (templated, biography), then save the response-token mean -- averaged over
+# masked tokens *and* over QA pairs -- as a single (num_layers, hidden_size)
+# tensor per (variant, persona). Steering uses the diff at STEER_LAYER.
 # RUN_NAME = "run_01"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 for persona, qa_pairs in runs:

@@ -43,17 +43,19 @@ uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --l
 
 ## Method: Contrastive Mean-Diff
 
-For each QA pair, two prompt variants are used:
+For each persona, two prompt variants are extracted:
 
 - **Positive (biography):** Full persona biography as system prompt + QA
 - **Negative (templated):** Generic templated prompt + QA
 
-The masked activations are extracted at a target layer for both variants. By
-default this averages answer tokens; with `answer_previous`, it uses the token
-position immediately before the first answer token. The steering vector is:
+Extraction already averages the masked hidden states across QA pairs and
+masked tokens, so each saved artifact is a single `(num_layers, hidden_size)`
+tensor. The default mask is `answer_mean` (every assistant-answer token);
+`answer_previous` uses the position immediately before the first answer
+token. At a chosen layer the steering vector is:
 
 ```
-steering_vector = mean_over_questions(biography_h) - mean_over_questions(templated_h)
+steering_vector = biography_h[layer] - templated_h[layer]
 ```
 
 Adding this vector to the residual stream at inference shifts model behavior
@@ -77,8 +79,10 @@ sv_dict = compute_steering_vector(
 
 Returns a dict with:
 - `steering_vector`: shape `[1, 1, d_model]`
-- `suggested_alpha`: scaling coefficient (`20 * mean_rms / ||sv||`)
-- `persona_id`, `layer`, `model_id`, `n_qa_pairs`: metadata
+- `suggested_alpha`: scaling coefficient (`20 * mean_rms / ||sv||`), where
+  `mean_rms` is the RMS of the negative (templated) mean activation at the
+  chosen layer
+- `persona_id`, `layer`, `model_id`, `hidden_size`: metadata
 
 ### save_steering_vector()
 
@@ -108,7 +112,7 @@ alpha = sv_dict["suggested_alpha"]
 ```
 artifacts/vectors/{persona_id}/
 ├── steering_vector.safetensors   # steering_vector tensor
-└── metadata.json                 # suggested_alpha, layer, model_id, n_qa_pairs
+└── metadata.json                 # suggested_alpha, layer, model_id, hidden_size
 ```
 
 The `metadata.json` file also records `suggested_alpha`.

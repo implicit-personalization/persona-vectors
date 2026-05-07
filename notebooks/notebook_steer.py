@@ -38,12 +38,11 @@ persona = first_persona
 store = ActivationStore(MODEL_NAME)
 
 # %% Load activations for both variants
+# store.load() returns a tensor of shape (num_layers, hidden_size) -- the
+# response-token mean already averaged over QA pairs at extraction time.
 results = {}
 for variant in ["templated", "biography"]:
-    per_question_activations, _ = store.load(
-        variant, persona.id, mask_strategy=MASK_STRATEGY
-    )
-    results[variant] = per_question_activations
+    results[variant] = store.load(variant, persona.id, mask_strategy=MASK_STRATEGY)
 
 print(f"Biography activations shape: {results['biography'].shape}")
 print(f"Templated activations shape: {results['templated'].shape}")
@@ -63,7 +62,7 @@ if sv_dict:
     print(f"\nSteering vector shape: {sv.shape}")
     print(f"Suggested alpha: {sv_dict['suggested_alpha']:.4f}")
     print(f"L2 norm: {sv.squeeze().norm().item():.6f}")
-    print(f"QA pairs used: {sv_dict['n_qa_pairs']}")
+    print(f"Hidden size: {sv_dict['hidden_size']}")
 
 # %% Save steering vector as safetensors
 if sv_dict:
