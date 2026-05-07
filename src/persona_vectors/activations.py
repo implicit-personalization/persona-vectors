@@ -1,6 +1,7 @@
 import time
 from typing import Callable
 
+import httpx
 import nnsight
 import socketio.exceptions
 import torch
@@ -10,6 +11,12 @@ from nnsight.intervention.backends.remote import (
     RemoteException,
 )
 from nnterp import StandardizedTransformer
+
+NETWORK_ERRORS = (
+    socketio.exceptions.ConnectionError,
+    TimeoutError,
+    httpx.TransportError,
+)
 
 
 class _CallbackJobStatusDisplay(JobStatusDisplay):
@@ -96,10 +103,7 @@ def extract_activations(
                 f"input ids length {ids.shape[0]} does not match mask length {mask.shape[0]}"
             )
 
-    # NDIF can drop the WebSocket mid-download (transient network hiccup).
-    # When that happens the session is fully lost and the job must be re-submitted.
-    # We retry up to 3 times with exponential backoff (30s, 60s) before giving up.
-    _NETWORK_ERRORS = (socketio.exceptions.ConnectionError, TimeoutError)
+    # Remote sessions are lost on websocket or artifact-download failures.
     max_retries = 3 if remote else 1
     for attempt in range(max_retries):
         try:
@@ -117,7 +121,7 @@ def extract_activations(
             return _extract_chunked(
                 model, input_ids_list, masks, remote, on_status, chunk_size=chunk_size
             )
-        except _NETWORK_ERRORS as e:
+        except NETWORK_ERRORS as e:
             if attempt == max_retries - 1:
                 raise
             wait = 30 * (2 ** attempt)  # 30s, 60s

@@ -62,7 +62,7 @@ def build_extract_parser(subparsers) -> None:
         nargs="+",
         default=list(SUPPORTED_VARIANTS),
         choices=SUPPORTED_VARIANTS,
-        help="Prompt views to extract (default: all).",
+        help="Prompt variant(s) to extract (default: all).",
     )
     extract.add_argument(
         "--mask-strategy",

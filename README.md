@@ -120,6 +120,9 @@ python main.py extract --model google/gemma-2-2b-it --persona-id baseline_assist
 # Pick specific variants
 python main.py extract --model google/gemma-2-2b-it --variants biography
 
+# Re-run personas already present in the local manifest
+python main.py extract --model google/gemma-2-2b-it --persona-id baseline_assistant --force
+
 # Run remotely on NDIF. If the remote fast path OOMs, extraction automatically
 # retries that persona/variant with layer-chunked traces.
 python main.py extract --model google/gemma-2-9b-it --backend remote
@@ -148,6 +151,13 @@ uv run python scripts/push_to_hf.py \
 ```
 
 Adding more personas later: re-run `extract` (skips personas already in the local manifest; pass `--force` to re-run them), then re-run the push script.
+
+`scripts/extraction.sh` extracts `baseline_assistant` plus the first `N`
+personas, then pushes to the Hub:
+
+```bash
+MODEL=google/gemma-2-9b-it N=100 BACKEND=remote VARIANT=templated scripts/extraction.sh
+```
 
 ### Loading the dataset elsewhere:
 

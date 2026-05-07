@@ -19,6 +19,30 @@ activations = extract_activations(
 )
 ```
 
+## CLI
+
+```bash
+# Extract all supported prompt variants: templated and biography.
+uv run python main.py extract --model google/gemma-2-9b-it
+
+# Extract one prompt variant.
+uv run python main.py extract --model google/gemma-2-9b-it --variants biography
+
+# Extract one persona or the Assistant baseline.
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID>
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id baseline_assistant
+
+# Re-run personas already listed in the local manifest.
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> --force
+
+# Run on NDIF instead of locally.
+uv run python main.py extract --model google/gemma-2-9b-it --backend remote
+```
+
+`--variants` accepts one or more prompt variants. By default, `extract` skips
+personas already present in the local manifest; pass `--force` to re-run them.
+Use `--verbose` to print token-mask previews.
+
 ## Key Functions
 
 - `prepare_inputs()`: formats QA pairs and builds token masks, returning a list of `PreparedInput`

@@ -47,6 +47,9 @@ uv run python -m notebooks.notebook_extract
 # Or extract via the CLI. Use --backend remote for NDIF.
 uv run python main.py extract --model google/gemma-2-9b-it --backend remote
 
+# Re-run personas already present in the local manifest.
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> --force
+
 # Same extraction flow with token-mask preview and a short sample run
 # (set verbose=True in the notebook)
 
