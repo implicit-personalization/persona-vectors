@@ -23,7 +23,8 @@ class ExtractConfig:
     model: str
     variants: list[str]
     mask_strategy: MaskStrategy
-    persona_id: str | None = None
+    persona_ids: list[str] | None = None
+    sample_size: int | None = None
     backend: Backend = "local"
     verbose: bool = False
     force: bool = False
@@ -54,6 +55,13 @@ class SteerConfig:
 # Parser builders ──────────────────────────────────────────────────────────
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("expected a positive integer")
+    return parsed
+
+
 def build_extract_parser(subparsers) -> None:
     extract = subparsers.add_parser("extract", help="Extract model activations")
     extract.add_argument("--model", required=True, help="HuggingFace model ID")
@@ -71,10 +79,18 @@ def build_extract_parser(subparsers) -> None:
         default=MaskStrategy.ANSWER_MEAN,
         help="Which tokens to average (default: answer_mean)",
     )
-    extract.add_argument(
+    selection = extract.add_mutually_exclusive_group()
+    selection.add_argument(
         "--persona-id",
+        nargs="+",
         default=None,
-        help="Extract only this persona, e.g. baseline_assistant (default: all)",
+        help="Extract only these persona IDs, e.g. baseline_assistant <UUID> (default: all)",
+    )
+    selection.add_argument(
+        "--sample-size",
+        type=_positive_int,
+        default=None,
+        help="Load only the first N personas from the dataset (default: all)",
     )
     extract.add_argument(
         "--backend",

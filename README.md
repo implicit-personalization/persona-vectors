@@ -117,6 +117,12 @@ python main.py extract --model google/gemma-2-2b-it
 # Extract only the Assistant baseline
 python main.py extract --model google/gemma-2-2b-it --persona-id baseline_assistant
 
+# Extract multiple specific personas in one run
+python main.py extract --model google/gemma-2-2b-it --persona-id baseline_assistant <UUID>
+
+# Extract the first N personas from the dataset
+python main.py extract --model google/gemma-2-2b-it --sample-size 100
+
 # Pick specific variants
 python main.py extract --model google/gemma-2-2b-it --variants biography
 
@@ -150,10 +156,10 @@ uv run python scripts/push_to_hf.py \
     --repo implicit-personalization/synth-persona-vectors
 ```
 
-Adding more personas later: re-run `extract` (skips personas already in the local manifest; pass `--force` to re-run them), then re-run the push script.
+Adding more personas later: re-run `extract` (skips personas already in the local manifest; pass `--force` to re-run them). You can either pass explicit `--persona-id ...` values or use `--sample-size` for the leading-N workflow, then re-run the push script.
 
 `scripts/extraction.sh` extracts `baseline_assistant` plus the first `N`
-personas, then pushes to the Hub:
+personas in one batch, then pushes to the Hub:
 
 ```bash
 MODEL=google/gemma-2-9b-it N=100 BACKEND=remote VARIANT=templated scripts/extraction.sh

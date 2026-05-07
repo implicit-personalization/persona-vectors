@@ -32,6 +32,12 @@ uv run python main.py extract --model google/gemma-2-9b-it --variants biography
 uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID>
 uv run python main.py extract --model google/gemma-2-9b-it --persona-id baseline_assistant
 
+# Extract a set of personas in one run.
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> baseline_assistant
+
+# Extract the first N personas from the dataset.
+uv run python main.py extract --model google/gemma-2-9b-it --sample-size 100
+
 # Re-run personas already listed in the local manifest.
 uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> --force
 
@@ -39,9 +45,11 @@ uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> -
 uv run python main.py extract --model google/gemma-2-9b-it --backend remote
 ```
 
-`--variants` accepts one or more prompt variants. By default, `extract` skips
-personas already present in the local manifest; pass `--force` to re-run them.
-Use `--verbose` to print token-mask previews.
+`--variants` accepts one or more prompt variants. `extract` skips personas
+already present in the local manifest by default; pass `--force` to re-run
+them. Use `--persona-id` to select one or more explicit personas, or
+`--sample-size` to load the first N personas from the dataset. Use `--verbose`
+to print token-mask previews.
 
 ## Key Functions
 

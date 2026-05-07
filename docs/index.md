@@ -47,6 +47,12 @@ uv run python -m notebooks.notebook_extract
 # Or extract via the CLI. Use --backend remote for NDIF.
 uv run python main.py extract --model google/gemma-2-9b-it --backend remote
 
+# Extract one or more explicit personas.
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> baseline_assistant
+
+# Or load the first N personas from the dataset.
+uv run python main.py extract --model google/gemma-2-9b-it --sample-size 100
+
 # Re-run personas already present in the local manifest.
 uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> --force
 

@@ -65,9 +65,12 @@ runs = [
 ]
 runs = [(p, qa) for p, qa in runs if qa]  # drop personas with no train QAs
 
-# To extract the Assistant baseline instead (uses the shared MCQ pool, no train split):
+# To extract the Assistant baseline or a custom explicit list in one run:
 # from persona_vectors.extraction import select_personas_with_qa
-# runs = select_personas_with_qa(SynthPersonaDataset(), persona_id="baseline_assistant")
+# runs = select_personas_with_qa(
+#     SynthPersonaDataset(),
+#     persona_ids=["baseline_assistant", "<UUID>"],
+# )
 
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")

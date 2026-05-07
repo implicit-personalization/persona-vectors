@@ -19,7 +19,8 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from persona_vectors.artifacts import ActivationStore
     from persona_vectors.extraction import run_extraction, select_personas_with_qa
 
-    runs = select_personas_with_qa(SynthPersonaDataset(), cfg.persona_id)
+    dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
+    runs = select_personas_with_qa(dataset, persona_ids=cfg.persona_ids)
     if not runs:
         print("No QA pairs found for selected persona(s); nothing extracted.")
         return
@@ -96,7 +97,8 @@ def main() -> None:
             model=args.model,
             variants=args.variants,
             mask_strategy=args.mask_strategy,
-            persona_id=args.persona_id,
+            persona_ids=args.persona_id,
+            sample_size=args.sample_size,
             backend=args.backend,
             verbose=args.verbose,
             force=args.force,

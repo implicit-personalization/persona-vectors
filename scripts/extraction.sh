@@ -29,19 +29,11 @@ echo "Model=$MODEL Repo=$REPO N=$N Backend=$BACKEND Variant=$VARIANT"
 
 run_extract baseline_assistant
 
-mapfile -t PERSONA_IDS < <(uv run python - "$N" <<'EOF'
-import sys
-from persona_data.synth_persona import SynthPersonaDataset
-
-n = int(sys.argv[1])
-for persona in list(SynthPersonaDataset())[:n]:
-    print(persona.id)
-EOF
-)
-
-for persona_id in "${PERSONA_IDS[@]}"; do
-    run_extract "$persona_id"
-done
+uv run python main.py extract \
+    --model "$MODEL" \
+    --backend "$BACKEND" \
+    --variants "$VARIANT" \
+    --sample-size "$N"
 
 echo "=== Pushing to Hugging Face Hub: $REPO ==="
 uv run python scripts/push_to_hf.py --model "$MODEL" --repo "$REPO"
