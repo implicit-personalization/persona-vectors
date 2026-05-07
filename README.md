@@ -133,3 +133,28 @@ python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id 005e
 # Load steering activations extracted with a non-default mask strategy
 python main.py steer --layer 10 --model "google/gemma-2-9b-it" --persona-id <UUID> --mask-strategy answer_previous
 ```
+
+## Publishing to the Hugging Face Hub
+
+Saved activations can be packaged as a Hugging Face dataset and pushed to the
+Hub. One config per `(model, mask_strategy)` pair, with `templated` / `biography` as splits. 
+Each row is one persona with a `(num_layers, hidden_size)` vector.
+
+```bash
+# One-time: huggingface-cli login (or set HF_TOKEN in .env)
+uv run python scripts/push_to_hf.py \
+    --model google/gemma-2-9b-it \
+    --repo implicit-personalization/synth-persona-vectors
+```
+
+Adding more personas later: re-run `extract` (skips personas already in the local manifest; pass `--force` to re-run them), then re-run the push script.
+
+### Loading the dataset elsewhere:
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("implicit-personalization/synth-persona-vectors", "google__gemma-2-9b-it__answer_mean", split="biography",)
+row = ds.filter(lambda r: r["persona_id"] == "<UUID>")[0]
+# row["vector"] is a (num_layers, hidden_size) list[list[float]]
+```

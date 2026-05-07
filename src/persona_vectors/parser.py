@@ -26,6 +26,7 @@ class ExtractConfig:
     persona_id: str | None = None
     backend: Backend = "local"
     verbose: bool = False
+    force: bool = False
 
 
 @dataclass
@@ -83,6 +84,11 @@ def build_extract_parser(subparsers) -> None:
     )
     extract.add_argument(
         "--verbose", action="store_true", help="Print extraction previews"
+    )
+    extract.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-extract personas even if already present in the local manifest.",
     )
 
 

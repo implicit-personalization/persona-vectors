@@ -16,14 +16,26 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
+    from persona_vectors.artifacts import ActivationStore
     from persona_vectors.extraction import run_extraction, select_personas_with_qa
 
-    model = StandardizedTransformer(cfg.model)
     runs = select_personas_with_qa(SynthPersonaDataset(), cfg.persona_id)
     if not runs:
         print("No QA pairs found for selected persona(s); nothing extracted.")
         return
 
+    if not cfg.force:
+        done = set(
+            ActivationStore(cfg.model).list_personas(
+                cfg.variants, mask_strategy=cfg.mask_strategy, warn_missing=False
+            )
+        )
+        runs = [(p, qa) for p, qa in runs if p.id not in done]
+        if not runs:
+            print("All requested personas already extracted; pass --force to re-run.")
+            return
+
+    model = StandardizedTransformer(cfg.model)
     for persona, qa_pairs in tqdm(runs, desc="personas", unit="persona"):
         for r in run_extraction(
             model=model,
@@ -87,6 +99,7 @@ def main() -> None:
             persona_id=args.persona_id,
             backend=args.backend,
             verbose=args.verbose,
+            force=args.force,
         )
         extract_activations(cfg)
     elif args.command == "analyze":

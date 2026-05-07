@@ -1,6 +1,8 @@
+import time
 from typing import Callable
 
 import nnsight
+import socketio.exceptions
 import torch
 from nnsight.intervention.backends.remote import (
     JobStatusDisplay,
@@ -94,21 +96,36 @@ def extract_activations(
                 f"input ids length {ids.shape[0]} does not match mask length {mask.shape[0]}"
             )
 
-    try:
-        return _extract_single_trace(model, input_ids_list, masks, remote, on_status)
-    except RemoteException as e:
-        if not remote or "OutOfMemoryError" not in e.tb_string:
-            raise
-        chunk_size = max(1, model.num_layers // 4)
-        message = (
-            f"NDIF OOM on single-trace path; retrying with chunked extraction "
-            f"(chunk_size={chunk_size})."
-        )
-        if on_status is not None:
-            on_status("local", "retry", message)
-        return _extract_chunked(
-            model, input_ids_list, masks, remote, on_status, chunk_size=chunk_size
-        )
+    # NDIF can drop the WebSocket mid-download (transient network hiccup).
+    # When that happens the session is fully lost and the job must be re-submitted.
+    # We retry up to 3 times with exponential backoff (30s, 60s) before giving up.
+    _NETWORK_ERRORS = (socketio.exceptions.ConnectionError, TimeoutError)
+    max_retries = 3 if remote else 1
+    for attempt in range(max_retries):
+        try:
+            return _extract_single_trace(model, input_ids_list, masks, remote, on_status)
+        except RemoteException as e:
+            if not remote or "OutOfMemoryError" not in e.tb_string:
+                raise
+            chunk_size = max(1, model.num_layers // 4)
+            message = (
+                f"NDIF OOM on single-trace path; retrying with chunked extraction "
+                f"(chunk_size={chunk_size})."
+            )
+            if on_status is not None:
+                on_status("local", "retry", message)
+            return _extract_chunked(
+                model, input_ids_list, masks, remote, on_status, chunk_size=chunk_size
+            )
+        except _NETWORK_ERRORS as e:
+            if attempt == max_retries - 1:
+                raise
+            wait = 30 * (2 ** attempt)  # 30s, 60s
+            msg = f"NDIF connection dropped ({type(e).__name__}); retrying in {wait}s (attempt {attempt + 1}/{max_retries - 1})."
+            print(msg)
+            if on_status is not None:
+                on_status("local", "retry", msg)
+            time.sleep(wait)
 
 
 def _extract_single_trace(

@@ -440,7 +440,8 @@ def select_personas_with_qa(
 
     QA pairs come from ``train_test_split`` for normal personas and from the
     shared MCQ pool for the baseline (which has no per-persona train split).
-    Personas with no matching QA pairs are skipped.
+    Normal personas use a 50-question train cap here to keep remote extraction
+    bounded. Personas with no matching QA pairs are skipped.
     """
     if persona_id is not None:
         if persona_id == BASELINE_PERSONA_ID and dataset.baseline is not None:
@@ -466,7 +467,7 @@ def select_personas_with_qa(
                 dataset.get_qa(BASELINE_PERSONA_ID, item_type="mcq", scope="shared")
             )
         else:
-            qa_pairs, _ = dataset.train_test_split(persona.id)
+            qa_pairs, _ = dataset.train_test_split(persona.id, n_train=50)
         if qa_pairs:
             runs.append((persona, qa_pairs))
     return runs
