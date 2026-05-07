@@ -9,32 +9,33 @@ Reference notebook: `notebooks/notebook_compare.py`
 
 ## Analysis Functions
 
-These lower-level functions operate on tensors loaded from `ActivationStore`.
+These lower-level functions operate on tensors loaded from `ActivationStore` or
+`HFActivationStore`.
 Shape conventions match the rest of the codebase:
 
 - Saved persona vector: `(num_layers, hidden_size)`
 - Layered sample collection: `(n_personas, num_layers, hidden_size)`
 
-### `load_persona_mean_samples(...)`
+### `load_persona_vectors(...)`
 
 Loads saved activation tensors and returns the persona vectors used by plotting
 and numerical analysis. Most UI/notebook code should call the plot helpers
 below instead of handling this object directly.
 
-### `load_variant_mean_samples(...)`
+### `load_variant_vectors(...)`
 
-Loads mean vectors per prompt variant using the same persona order for every
+Loads persona vectors per prompt variant using the same persona order for every
 variant. This is useful for custom variant-to-variant comparisons.
 
 ```python
-from persona_vectors.analysis import load_variant_mean_samples
+from persona_vectors.analysis import load_variant_vectors
 from persona_vectors.artifacts import ActivationStore
 
 store = ActivationStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
 variants = store.available_variants()
 persona_ids = store.list_personas(variants)
 
-samples_by_variant = load_variant_mean_samples(
+samples_by_variant = load_variant_vectors(
     store,
     variants,
     persona_ids=persona_ids,
@@ -85,8 +86,8 @@ python main.py analyze \
 
 This writes interactive HTML files with layer dropdowns:
 
-- `persona_mean_pca`: one point per persona from the saved persona-level mean
-- `persona_mean_similarity`: centered persona cosine heatmap by layer
+- `persona_vector_pca`: one point per saved persona vector
+- `persona_vector_similarity`: centered persona cosine heatmap by layer
 - `persona_pair_similarity`: persona-pair similarity trajectories across layers
 - `pca_scree`: PCA explained-variance curves for selected or representative layers
 
@@ -100,37 +101,41 @@ only, so they do not need every QA pair.
 
 Layer-wise variant similarity across saved prompt variants.
 
+### `notebook_hf_compare.py`
+
+PCA and pair-similarity views loaded directly from the published Hub dataset.
+
 ## Quick example
 
 ```python
 from persona_vectors.analysis import (
     cosine_similarity_matrix,
-    load_persona_mean_samples,
+    load_persona_vectors,
     pca_explained_variance,
 )
 from persona_vectors.artifacts import ActivationStore
 
 store = ActivationStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
-samples = load_persona_mean_samples(
+samples = load_persona_vectors(
     store,
     "biography",
 )
 
 # persona similarity at a middle layer, centered to remove shared DC component
 mid = samples.vectors.shape[1] // 2
-means = samples.vectors[:, mid, :]
-print(cosine_similarity_matrix(means))
-print(pca_explained_variance(means))
+layer_vectors = samples.vectors[:, mid, :]
+print(cosine_similarity_matrix(layer_vectors))
+print(pca_explained_variance(layer_vectors))
 ```
 
 ```python
-from persona_vectors.analysis import load_persona_mean_samples
+from persona_vectors.analysis import load_persona_vectors
 from persona_vectors.artifacts import ActivationStore
 from persona_vectors.plots import build_layered_figure
 
 store = ActivationStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
 persona_ids = store.list_personas(["biography"])
-samples = load_persona_mean_samples(store, "biography", persona_ids=persona_ids)
+samples = load_persona_vectors(store, "biography", persona_ids=persona_ids)
 
 fig = build_layered_figure(
     samples,

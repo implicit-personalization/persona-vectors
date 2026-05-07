@@ -12,8 +12,8 @@ from rich.table import Table
 
 from persona_vectors.analysis import (
     list_comparison_personas,
-    load_persona_mean_samples,
-    load_variant_mean_samples,
+    load_persona_vectors,
+    load_variant_vectors,
 )
 from persona_vectors.artifacts import ActivationStore
 from persona_vectors.extraction import MaskStrategy
@@ -60,11 +60,9 @@ persona_ids = list_comparison_personas(
 )
 console.print(f"Personas with all variants: {len(persona_ids)}")
 
-# %% Load mean activations per variant per persona
-variant_samples = load_variant_mean_samples(
-    acts,
-    available_variants,
-    persona_ids=persona_ids,
+# %% Load persona vectors per variant
+variant_samples = load_variant_vectors(
+    acts, available_variants, persona_ids=persona_ids
 )
 
 persona_labels = next(iter(variant_samples.values())).labels
@@ -90,13 +88,13 @@ plot_layer_similarity(
 )
 
 # %% Plot Averaged across personas
-avg_variant_means = {
+avg_variant_vectors = {
     variant: samples.vectors.mean(dim=0) for variant, samples in variant_samples.items()
 }
 
 pair_traces = [
-    (f"{left} vs {right}", avg_variant_means[left], avg_variant_means[right])
-    for left, right in combinations(avg_variant_means, 2)
+    (f"{left} vs {right}", avg_variant_vectors[left], avg_variant_vectors[right])
+    for left, right in combinations(avg_variant_vectors, 2)
 ]
 
 plot_layer_similarity(
@@ -106,22 +104,17 @@ plot_layer_similarity(
 )
 
 # %% Similarity matrix and pair trajectories, matching the UI comparison view
-similarity_samples = load_persona_mean_samples(
-    acts,
-    SIMILARITY_VARIANT,
-    persona_ids=persona_ids,
+similarity_samples = load_persona_vectors(
+    acts, SIMILARITY_VARIANT, persona_ids=persona_ids
 )
 
 build_layered_figure(
     similarity_samples,
     "similarity",
-    title=f"Centered similarity — {SIMILARITY_VARIANT} — persona mean activations",
+    title=f"Centered similarity — {SIMILARITY_VARIANT} — persona vectors",
 ).show()
 
 build_pair_similarity_figure(
     similarity_samples,
-    title=(
-        "Pair similarity trajectories — "
-        f"{SIMILARITY_VARIANT} — persona mean activations"
-    ),
+    title=(f"Pair similarity trajectories — {SIMILARITY_VARIANT} — persona vectors"),
 ).show()

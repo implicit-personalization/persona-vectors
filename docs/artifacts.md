@@ -1,6 +1,7 @@
 # Artifacts
 
-Store and load activation tensors with `ActivationStore`.
+Store and load activation tensors with `ActivationStore`, or read a published
+Hugging Face dataset with `HFActivationStore`.
 The default root is `$ARTIFACTS_DIR/activations`, or `./artifacts/activations` if the env var is not set.
 Core module: `src/persona_vectors/artifacts.py`
 
@@ -74,6 +75,38 @@ candidate set.
 When listing personas across multiple variants, the result includes only
 personas present in every requested variant. If some personas exist for only a
 subset of those variants, it warns that they were skipped.
+
+## Hugging Face Dataset Store
+
+`HFActivationStore` reads an already-published activation dataset built by
+`scripts/push_to_hf.py`. It does not write local files and does not push data.
+
+```python
+from persona_vectors.artifacts import HFActivationStore
+
+store = HFActivationStore(
+    "implicit-personalization/synth-persona-vectors",
+    "google/gemma-2-9b-it",
+    mask_strategy="answer_mean",
+)
+
+available_variants = store.available_variants(["biography", "templated"])
+variant = available_variants[0]
+vectors = store.load(variant, "<persona_id>")
+persona_ids = store.list_personas([variant])
+names = store.persona_names(persona_ids)
+```
+
+The Hub layout mirrors the local grouping: one dataset config per
+`<model_dir>__<mask_strategy>` and one split per prompt variant. The Hub store
+is read-only, but exposes the same discovery methods as
+`ActivationStore`: `load`, `available_variants`, `list_personas`, and
+`persona_names`.
+Ask for variants in preference order if the published dataset does not have
+every local prompt variant yet.
+
+For a complete PCA/similarity example using the published dataset directly, see
+`notebooks/notebook_hf_compare.py`.
 
 ## File Format
 

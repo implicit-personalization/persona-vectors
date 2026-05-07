@@ -25,7 +25,7 @@ Dataset → Format Prompts → Build Token Masks → Extract Activations → Sav
 | Step | Doc |
 |---|---|
 | Build token masks and extract hidden states from the model | [Activation Extraction](extraction.md) |
-| Save and load activation tensors | [Artifacts](artifacts.md) |
+| Save local activation tensors or read published Hub vectors | [Artifacts](artifacts.md) |
 | Comparison and analysis views | [Analysis](analysis.md) |
 | Experimental steering vectors | [Steering](steering.md) |
 

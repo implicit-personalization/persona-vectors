@@ -1,6 +1,7 @@
 import json
 import os
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
@@ -18,7 +19,7 @@ def model_dir_name(model_name: str) -> str:
     return model_name.replace("/", "__")
 
 
-def _normalize_mask_strategy(mask_strategy: object | None) -> str:
+def normalize_mask_strategy(mask_strategy: object | None) -> str:
     if mask_strategy is None:
         return DEFAULT_MASK_STRATEGY
     return str(getattr(mask_strategy, "value", mask_strategy))
@@ -33,7 +34,7 @@ def _variant_root(
     return (
         Path(root_dir)
         / model_dir_name(model_name)
-        / _normalize_mask_strategy(mask_strategy)
+        / normalize_mask_strategy(mask_strategy)
         / prompt_variant
     )
 
@@ -70,6 +71,44 @@ def _variant_manifests(
     ):
         return []
     return [_load_manifest(root) for root in variant_roots]
+
+
+def _shared_persona_ids(
+    variant_personas: list[set[str]],
+    warn_missing: bool = True,
+) -> list[str]:
+    """Return persona ids present in every variant persona set."""
+    if not variant_personas:
+        return []
+
+    shared = set.intersection(*variant_personas)
+
+    if warn_missing and len(variant_personas) > 1:
+        all_personas = set.union(*variant_personas)
+        skipped = len(all_personas - shared)
+        if skipped:
+            warnings.warn(
+                f"Skipping {skipped} persona(s) missing one or more requested variants.",
+                stacklevel=2,
+            )
+
+    return sorted(shared)
+
+
+def _persona_names_from_variants(
+    persona_ids: list[str],
+    variants: list[str],
+    name_lookup: Callable[[str, str], str | None],
+) -> dict[str, str]:
+    """Return first non-empty display name found while scanning variants."""
+    names: dict[str, str] = {}
+    for persona_id in persona_ids:
+        for variant in variants:
+            name = name_lookup(variant, persona_id)
+            if isinstance(name, str) and name:
+                names[persona_id] = name
+                break
+    return names
 
 
 class ActivationStore:
@@ -117,9 +156,7 @@ class ActivationStore:
                 store's configured strategy.
         """
         if vectors.ndim != 2:
-            raise ValueError(
-                "vectors must have shape (num_layers, hidden_size)"
-            )
+            raise ValueError("vectors must have shape (num_layers, hidden_size)")
         variant_root = _variant_root(
             self.root_dir,
             self.model_name,
@@ -172,7 +209,7 @@ class ActivationStore:
         Raises:
             FileNotFoundError: If no artifact exists for the requested combination.
         """
-        requested = _normalize_mask_strategy(self._mask_strategy(mask_strategy))
+        requested = normalize_mask_strategy(self._mask_strategy(mask_strategy))
         variant_root = _variant_root(
             self.root_dir, self.model_name, prompt_variant, requested
         )
@@ -205,7 +242,7 @@ class ActivationStore:
     ) -> list[str]:
         """Return persona ids available in every requested variant."""
 
-        requested_variants = self.variants if variants is None else variants
+        requested_variants = variants or self.variants
         return list_personas(
             self.root_dir,
             self.model_name,
@@ -226,7 +263,7 @@ class ActivationStore:
         stable on supported Python versions.
         """
 
-        requested_variants = self.variants if variants is None else variants
+        requested_variants = variants or self.variants
         return load_persona_names(
             self.root_dir,
             self.model_name,
@@ -242,7 +279,7 @@ class ActivationStore:
     ) -> list[str]:
         """Return candidate variants that have at least one saved persona."""
 
-        candidate_variants = self.variants if variants is None else variants
+        candidate_variants = variants or self.variants
         return [
             variant
             for variant in candidate_variants
@@ -250,6 +287,111 @@ class ActivationStore:
                 [variant], mask_strategy=mask_strategy, warn_missing=False
             )
         ]
+
+
+class HFActivationStore:
+    """Read activation vectors from a Hugging Face dataset.
+
+    The Hub dataset is expected to use one config per ``model__mask_strategy``
+    and one split per prompt variant, matching ``scripts/push_to_hf.py``.
+    """
+
+    def __init__(
+        self,
+        repo_id: str,
+        model_name: str,
+        mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+    ) -> None:
+        self.repo_id = repo_id
+        self.model_name = model_name
+        self.mask_strategy = normalize_mask_strategy(mask_strategy)
+        self.config_name = f"{model_dir_name(model_name)}__{self.mask_strategy}"
+        self._cache: dict[str, dict[str, dict]] = {}
+
+    def _variant(self, variant: str) -> dict[str, dict]:
+        if variant not in self._cache:
+            from datasets import load_dataset
+
+            ds = load_dataset(self.repo_id, name=self.config_name, split=variant)
+            self._cache[variant] = {row["persona_id"]: row for row in ds}
+        return self._cache[variant]
+
+    def _validate_mask_strategy(self, mask_strategy: object | None) -> None:
+        if (
+            mask_strategy is not None
+            and normalize_mask_strategy(mask_strategy) != self.mask_strategy
+        ):
+            raise ValueError(
+                f"HFActivationStore is bound to mask_strategy={self.mask_strategy!r}; "
+                f"got {mask_strategy!r}"
+            )
+
+    def available_variants(
+        self,
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> list[str]:
+        """Return Hub splits available for this model and mask strategy."""
+        from datasets import get_dataset_split_names
+
+        self._validate_mask_strategy(mask_strategy)
+        present = set(self._cache)
+        try:
+            present.update(
+                get_dataset_split_names(self.repo_id, config_name=self.config_name)
+            )
+        except (FileNotFoundError, ValueError):
+            pass
+        candidates = list(variants) if variants else sorted(present)
+        return [variant for variant in candidates if variant in present]
+
+    def load(
+        self,
+        prompt_variant: str,
+        persona_id: str,
+        mask_strategy: object | None = None,
+    ) -> torch.Tensor:
+        """Load the mean activation vector for a persona from the Hub."""
+        self._validate_mask_strategy(mask_strategy)
+        rows = self._variant(prompt_variant)
+        if persona_id not in rows:
+            raise FileNotFoundError(
+                f"{persona_id!r} not in {self.repo_id} {self.config_name}/{prompt_variant}"
+            )
+        return torch.as_tensor(rows[persona_id]["vector"], dtype=torch.float32)
+
+    def list_personas(
+        self,
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+        warn_missing: bool = False,
+    ) -> list[str]:
+        """Return persona ids available in every requested Hub split."""
+        self._validate_mask_strategy(mask_strategy)
+        requested_variants = list(variants) if variants else self.available_variants()
+        if not requested_variants:
+            return []
+        return _shared_persona_ids(
+            [set(self._variant(variant).keys()) for variant in requested_variants],
+            warn_missing=warn_missing,
+        )
+
+    def persona_names(
+        self,
+        persona_ids: list[str],
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> dict[str, str]:
+        """Return display names for known persona ids from Hub rows."""
+        self._validate_mask_strategy(mask_strategy)
+        requested_variants = list(variants) if variants else self.available_variants()
+        return _persona_names_from_variants(
+            persona_ids,
+            requested_variants,
+            lambda variant, persona_id: self._variant(variant)
+            .get(persona_id, {})
+            .get("name"),
+        )
 
 
 def list_personas(
@@ -275,22 +417,13 @@ def list_personas(
     if any(not (root / _MANIFEST_FILENAME).exists() for root in variant_roots.values()):
         return []
 
-    variant_personas = {
-        variant: set(_load_manifest(root)["personas"].keys())
-        for variant, root in variant_roots.items()
-    }
-    shared = set.intersection(*variant_personas.values())
-
-    if warn_missing and len(variant_personas) > 1:
-        all_personas = set.union(*variant_personas.values())
-        skipped = len(all_personas - shared)
-        if skipped:
-            warnings.warn(
-                f"Skipping {skipped} persona(s) missing one or more requested variants.",
-                stacklevel=2,
-            )
-
-    return sorted(shared)
+    return _shared_persona_ids(
+        [
+            set(_load_manifest(root)["personas"].keys())
+            for root in variant_roots.values()
+        ],
+        warn_missing=warn_missing,
+    )
 
 
 def load_persona_names(
@@ -309,16 +442,14 @@ def load_persona_names(
     if not manifests:
         return {}
 
-    names: dict[str, str] = {}
-    for persona_id in persona_ids:
-        for manifest in manifests:
-            entry = manifest["personas"].get(persona_id)
-            if isinstance(entry, dict):
-                name = entry.get("name")
-                if isinstance(name, str) and name:
-                    names[persona_id] = name
-                    break
-    return names
+    manifests_by_variant = dict(zip(variants, manifests, strict=False))
+
+    def lookup(variant: str, persona_id: str) -> str | None:
+        manifest = manifests_by_variant[variant]
+        entry = manifest["personas"].get(persona_id)
+        return entry.get("name") if isinstance(entry, dict) else None
+
+    return _persona_names_from_variants(persona_ids, variants, lookup)
 
 
 def list_layers(

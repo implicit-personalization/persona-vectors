@@ -7,13 +7,14 @@ from persona_data.synth_persona import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAM
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
     list_comparison_personas,
-    load_persona_mean_samples,
-    load_variant_mean_samples,
+    load_persona_vectors,
+    load_variant_vectors,
     run_saved_activation_analysis,
 )
 from persona_vectors.artifacts import (
     DEFAULT_MASK_STRATEGY,
     ActivationStore,
+    HFActivationStore,
     model_dir_name,
 )
 from persona_vectors.plots import (
@@ -21,6 +22,7 @@ from persona_vectors.plots import (
     build_pair_similarity_figure,
 )
 from persona_vectors.steering import compute_steering_vector
+
 
 def test_smoke() -> None:
     print("✓ imports OK")
@@ -54,13 +56,62 @@ def test_smoke() -> None:
         loaded_vectors = store.load("templated", "persona-001")
         assert torch.allclose(loaded_vectors, vectors)
         assert store.list_personas(["templated"]) == ["persona-001"]
+        assert store.list_personas([]) == []
         assert store.available_variants(["templated", "biography"]) == ["templated"]
+        assert store.available_variants([]) == ["templated"]
         assert store.persona_names(["persona-001"], variants=["templated"]) == {
             "persona-001": "Test Persona"
         }
 
         assert DEFAULT_MASK_STRATEGY == "answer_mean"
         assert model_dir_name("org/model") == "org__model"
+
+        hub_store = HFActivationStore("test/repo", "test/model")
+        assert hub_store.config_name == "test__model__answer_mean"
+        hub_store._cache = {
+            "templated": {
+                "persona-001": {
+                    "name": "Test Persona",
+                    "vector": vectors.tolist(),
+                },
+                "persona-002": {
+                    "name": "Other Persona",
+                    "vector": (vectors + 1).tolist(),
+                },
+            },
+            "biography": {
+                "persona-001": {
+                    "name": "Test Persona",
+                    "vector": vectors.tolist(),
+                }
+            },
+        }
+        assert hub_store.list_personas(["templated"]) == [
+            "persona-001",
+            "persona-002",
+        ]
+        assert hub_store.list_personas(["templated", "biography"]) == ["persona-001"]
+        assert hub_store.list_personas([]) == ["persona-001"]
+        assert hub_store.persona_names(["persona-001"], variants=[]) == {
+            "persona-001": "Test Persona"
+        }
+        assert hub_store.persona_names(["persona-001"], variants=["templated"]) == {
+            "persona-001": "Test Persona"
+        }
+        assert torch.allclose(hub_store.load("templated", "persona-001"), vectors)
+        for call in (
+            lambda: hub_store.load(
+                "templated", "persona-001", mask_strategy="answer_previous"
+            ),
+            lambda: hub_store.list_personas(
+                ["templated"], mask_strategy="answer_previous"
+            ),
+        ):
+            try:
+                call()
+            except ValueError:
+                continue
+            raise AssertionError("HFActivationStore should reject mismatched masks")
 
         store.save(
             "templated",
@@ -93,9 +144,9 @@ def test_smoke() -> None:
                 sample_ids,
             )
 
-        pm = load_persona_mean_samples(store, "biography")
+        pm = load_persona_vectors(store, "biography")
         assert pm.vectors.shape == (2, 4, 8)
-        vm = load_variant_mean_samples(
+        vm = load_variant_vectors(
             store,
             ["biography"],
             persona_ids=["persona-001", "persona-002"],
@@ -115,8 +166,8 @@ def test_smoke() -> None:
             layers=[0, 1],
         )
         assert {
-            "persona_mean_pca",
-            "persona_mean_similarity",
+            "persona_vector_pca",
+            "persona_vector_similarity",
             "persona_pair_similarity",
             "pca_scree",
         } <= outputs.keys()

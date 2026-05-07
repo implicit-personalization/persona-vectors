@@ -7,7 +7,9 @@ import torch.nn.functional as F
 from persona_data.synth_persona import BASELINE_PERSONA_ID
 from sklearn.decomposition import PCA
 
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import ActivationStore, HFActivationStore
+
+PersonaVectorStore = ActivationStore | HFActivationStore
 
 
 @dataclass(frozen=True)
@@ -20,7 +22,7 @@ class LayeredSamples:
 
 
 def list_comparison_personas(
-    store: ActivationStore,
+    store: PersonaVectorStore,
     variants: list[str] | tuple[str, ...],
     mask_strategy: object | None = None,
     *,
@@ -37,7 +39,7 @@ def list_comparison_personas(
 
 
 def _resolve_personas(
-    store: ActivationStore,
+    store: PersonaVectorStore,
     variants: list[str],
     mask_strategy: object | None,
     persona_ids: list[str] | None,
@@ -52,12 +54,12 @@ def _resolve_personas(
 
 
 def _load_variant_samples(
-    store: ActivationStore,
+    store: PersonaVectorStore,
     variant: str,
     mask_strategy: object | None,
     persona_ids: list[str],
 ) -> LayeredSamples:
-    """One activation sample per persona for a single variant."""
+    """One persona vector per persona for a single variant."""
     persona_names = store.persona_names(
         persona_ids, variants=[variant], mask_strategy=mask_strategy
     )
@@ -71,31 +73,31 @@ def _load_variant_samples(
     return LayeredSamples(torch.stack(vectors), labels, hover_text)
 
 
-def load_persona_mean_samples(
-    store: ActivationStore,
+def load_persona_vectors(
+    store: PersonaVectorStore,
     variant: str,
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> LayeredSamples:
-    """Load one activation sample per persona for a single variant.
+    """Load saved persona vectors for a single variant.
 
-    Each sample is a ``(num_layers, hidden_size)`` tensor — the mean already
-    computed at extraction time across all QA pairs and masked tokens.
+    Each vector is a ``(num_layers, hidden_size)`` tensor. Extraction has
+    already averaged across QA pairs and masked tokens.
     """
     persona_ids = _resolve_personas(store, [variant], mask_strategy, persona_ids)
     return _load_variant_samples(store, variant, mask_strategy, persona_ids)
 
 
-def load_variant_mean_samples(
-    store: ActivationStore,
+def load_variant_vectors(
+    store: PersonaVectorStore,
     variants: list[str] | tuple[str, ...],
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> dict[str, LayeredSamples]:
-    """Load activation samples for multiple variants in a shared persona order.
+    """Load saved persona vectors for multiple variants in a shared order.
 
     Returns a dict mapping variant name to a ``LayeredSamples`` where each
-    entry is a ``(num_layers, hidden_size)`` tensor per persona.
+    entry is one ``(num_layers, hidden_size)`` tensor per persona.
     """
     requested_variants = list(variants)
     if not requested_variants:
@@ -216,8 +218,8 @@ def run_saved_activation_analysis(
             [variant],
             include_baseline=include_baseline,
         )
-    samples = load_persona_mean_samples(store, variant, persona_ids=persona_ids)
-    figure_specs = [("persona_mean", "pca"), ("persona_mean", "similarity")]
+    samples = load_persona_vectors(store, variant, persona_ids=persona_ids)
+    figure_specs = [("persona_vector", "pca"), ("persona_vector", "similarity")]
     title_suffix = {"pca": "PCA", "similarity": "centered cosine similarity"}
     outputs: dict[str, Path] = {}
     for name, kind in figure_specs:
