@@ -30,6 +30,7 @@ persona-vectors/
 │   ├── activations.py           # Core extraction helpers
 │   ├── analysis.py              # PCA / UMAP projections and scatter plots
 │   ├── artifacts.py             # Local and Hugging Face activation artifact stores
+│   ├── preview.py               # Token-mask preview helpers for CLI/UI rendering
 │   ├── plots.py                 # Plotly figures for layer-wise analysis
 │   ├── steering.py              # Steering vector computation and application
 │   └── parser.py                # CLI argument parsing

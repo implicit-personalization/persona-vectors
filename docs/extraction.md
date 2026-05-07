@@ -2,7 +2,7 @@
 
 Extract hidden states from a model and average them over selected tokens and QA pairs.
 Use `extract_activations()` for the low-level primitive and `run_extraction()` for the full persona flow.
-Core modules: `src/persona_vectors/activations.py` and `src/persona_vectors/extraction.py`
+Core modules: `src/persona_vectors/activations.py`, `src/persona_vectors/extraction.py`, and `src/persona_vectors/preview.py`.
 
 ## Quick Start
 
@@ -56,7 +56,8 @@ to print token-mask previews.
 - `prepare_inputs()`: formats QA pairs and builds token masks, returning a list of `PreparedInput`
 - `extract_activations()`: runs the forward pass and returns one `(num_layers, hidden_size)` mean tensor
 - `run_extraction()`: full persona/variant flow used by the CLI and `notebook_extract.py`
-- `preview_prepared_inputs()`: pretty-prints prepared samples with masked tokens highlighted (useful when iterating on a new `MaskStrategy`)
+- `persona_vectors.preview.preview_prepared_inputs()`: pretty-prints prepared samples with masked tokens highlighted (useful when iterating on a new `MaskStrategy`)
+- `persona_vectors.preview.preview_token_segments()`: returns renderer-neutral token segments for UI previews
 
 ### `PreparedInput`
 
@@ -66,7 +67,7 @@ Each element returned by `prepare_inputs()` bundles a formatted sample together 
 - `input_ids`: 1-D token ids for the prompt (no added BOS; the chat template already includes it)
 - `token_mask`: boolean mask over `input_ids` — `True` values are averaged
 - `spans`: token + character ranges for the `template`, `question`, and `response` segments
-- `offset_mapping`: character offsets per token (used by the preview renderer)
+- `offset_mapping`: character offsets per token (used by `persona_vectors.preview`)
 
 ## Masking
 
