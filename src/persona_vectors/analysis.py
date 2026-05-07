@@ -272,7 +272,5 @@ def project_umap(samples: torch.Tensor) -> torch.Tensor:
         raise ImportError("umap-learn is required for UMAP projections") from exc
 
     centered = _center_features(samples)
-    embedding = umap.UMAP(n_components=2, random_state=1337).fit_transform(
-        centered.float().cpu().numpy()
-    )
+    embedding = umap.UMAP(n_components=2).fit_transform(centered.float().cpu().numpy())
     return torch.from_numpy(embedding)

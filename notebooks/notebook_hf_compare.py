@@ -7,10 +7,18 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import list_comparison_personas, load_persona_vectors
+from persona_vectors.analysis import (
+    list_comparison_personas,
+    load_persona_vectors,
+    pca_explained_variance,
+)
 from persona_vectors.artifacts import HFActivationStore
 from persona_vectors.extraction import MaskStrategy
-from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
+from persona_vectors.plots import (
+    build_layered_figure,
+    build_pair_similarity_figure,
+    plot_scree,
+)
 
 console = Console()
 
@@ -28,10 +36,7 @@ PREFERRED_VARIANTS = ["biography", "templated"]
 
 # %% Load Hub activation store
 store = HFActivationStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
-
 available_variants = store.available_variants(PREFERRED_VARIANTS)
-if not available_variants:
-    raise SystemExit(f"No Hub variants found for {store.config_name}")
 
 variant = available_variants[0]
 persona_ids = list_comparison_personas(store, [variant])
@@ -48,6 +53,19 @@ console.print(summary)
 
 # %% Load persona vectors directly from the Hub dataset
 samples = load_persona_vectors(store, variant, persona_ids=persona_ids)
+
+# %% Scree plot of PCA explained variance for a few representative layers
+# NOTE: Probably looking at this the first 5-6 components are the most important ones (encoding most of the info)
+num_layers = int(samples.vectors.shape[1])
+scree_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
+plot_scree(
+    {
+        f"layer {layer}": pca_explained_variance(samples.vectors[:, layer, :])
+        for layer in scree_layers
+    },
+    title=f"Hub PCA explained variance - {variant} persona vectors",
+    show=True,
+)
 
 # %% Simple PCA between personas
 build_layered_figure(
