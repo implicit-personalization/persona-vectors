@@ -3,13 +3,13 @@ Generate persona steering vectors from pre-extracted activations.
 
 Method: Contrastive mean-diff
 ──────────────────────────────────────────────────────────────────────────────
-For each QA pair:
+For each persona:
 
-  negative prompt  →  Templated prompt + Question + Answer
-  positive prompt  →  Biography + Question + Answer
+  negative prompt  ->  Templated prompt + Question + Answer
+  positive prompt  ->  Biography + Question + Answer
 
-Extract the MEAN of the RESPONSE TOKENS' hidden states at STEER_LAYER across
-all QA pairs for the persona.
+Load the saved mean response-token hidden states at STEER_LAYER. The activation
+artifacts are already averaged across QA pairs and masked tokens.
 
   steering_vector = mean_over_questions(biography_h) - mean_over_questions(templated_h)
 
@@ -23,7 +23,6 @@ import torch
 from rich.console import Console
 from rich.table import Table
 from safetensors.torch import load_file, save_file
-from tqdm import tqdm
 
 from persona_vectors.artifacts import ActivationStore
 
@@ -62,9 +61,9 @@ def compute_steering_vector(
     if verbose:
         print(f"\nLoading activations for {persona_id}...")
 
-    # Load both positive (biography) and negative (templated) activations
+    # Load both positive (biography) and negative (templated) activation means.
     try:
-        pos_activations, pos_sample_ids = store.load(
+        pos_activations = store.load(
             "biography", persona_id, mask_strategy=mask_strategy
         )
     except FileNotFoundError:
@@ -73,7 +72,7 @@ def compute_steering_vector(
         return {}
 
     try:
-        neg_activations, neg_sample_ids = store.load(
+        neg_activations = store.load(
             "templated", persona_id, mask_strategy=mask_strategy
         )
     except FileNotFoundError:
@@ -81,45 +80,29 @@ def compute_steering_vector(
             print("✗ Templated activations not found. Run extraction first.")
         return {}
 
-    # Verify alignment
-    if len(pos_activations) != len(neg_activations):
+    # Verify shape alignment.
+    if pos_activations.shape != neg_activations.shape:
         raise ValueError(
-            f"Mismatch: {len(pos_activations)} positive vs {len(neg_activations)} negative"
+            "Mismatch: "
+            f"{tuple(pos_activations.shape)} positive vs "
+            f"{tuple(neg_activations.shape)} negative"
+        )
+    if layer_idx < 0 or layer_idx >= pos_activations.shape[0]:
+        raise ValueError(
+            f"layer_idx {layer_idx} is out of range for {pos_activations.shape[0]} layers"
         )
 
-    pos_vectors = []
-    neg_vectors = []
-
     if verbose:
-        print("Computing response-token means...")
-    for i, (pos_act, neg_act) in enumerate(
-        tqdm(zip(pos_activations, neg_activations), disable=not verbose)
-    ):
-        if pos_sample_ids[i] != neg_sample_ids[i]:
-            print(f"Warning: sample id mismatch at index {i}")
-
-        # pos_act shape: [num_layers, hidden_size] (already masked mean over response tokens)
-        # Extract the layer we care about
-        pos_mean = pos_act[layer_idx, :]  # [hidden_size]
-        neg_mean = neg_act[layer_idx, :]  # [hidden_size]
-
-        pos_vectors.append(pos_mean)
-        neg_vectors.append(neg_mean)
-
-    # Compute steering vector
-    pos_stack = torch.stack(pos_vectors)  # [n_questions, hidden_size]
-    neg_stack = torch.stack(neg_vectors)
-
-    mean_pos = pos_stack.mean(dim=0)
-    mean_neg = neg_stack.mean(dim=0)
-
-    raw_sv = mean_pos - mean_neg
+        print("Computing steering direction...")
+    pos_mean = pos_activations[layer_idx, :].float()
+    neg_mean = neg_activations[layer_idx, :].float()
+    raw_sv = pos_mean - neg_mean
 
     # Steering vector shape: [1, 1, hidden_dim]
     steering_vector = raw_sv.unsqueeze(0).unsqueeze(0)
 
     # Calculate Alpha (20x Mean RMS of negatives)
-    mean_rms = neg_stack.pow(2).mean(dim=-1).sqrt().mean().item()
+    mean_rms = neg_mean.pow(2).mean().sqrt().item()
     sv_norm = raw_sv.norm().item()
     suggested_alpha = (20.0 * mean_rms) / (sv_norm + 1e-8)
 
@@ -133,7 +116,7 @@ def compute_steering_vector(
         table.add_row("L2 Norm", f"{sv_norm:.6f}")
         table.add_row("Mean Neg RMS", f"{mean_rms:.6f}")
         table.add_row("Suggested Alpha", f"{suggested_alpha:.4f}")
-        table.add_row("QA Pairs Used", str(len(pos_vectors)))
+        table.add_row("Hidden Size", str(pos_activations.shape[1]))
         console.print(table)
 
     return {
@@ -142,7 +125,7 @@ def compute_steering_vector(
         "persona_id": persona_id,
         "layer": layer_idx,
         "model_id": model_name,
-        "n_qa_pairs": len(pos_vectors),
+        "hidden_size": int(pos_activations.shape[1]),
     }
 
 
@@ -176,7 +159,7 @@ def save_steering_vector(
         "persona_id": sv_dict["persona_id"],
         "layer": sv_dict["layer"],
         "model_id": sv_dict["model_id"],
-        "n_qa_pairs": sv_dict["n_qa_pairs"],
+        "hidden_size": sv_dict["hidden_size"],
     }
     metadata_path = out_path / "metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2))
