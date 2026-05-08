@@ -1,3 +1,10 @@
+"""
+Extraction demo — single persona.
+
+For full runs across all personas use:
+    python -m persona_vectors extract --model google/gemma-2-9b-it --mask-strategy answer_mean --backend remote
+"""
+
 import torch
 from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
@@ -11,44 +18,29 @@ from persona_vectors.extraction import MaskStrategy, run_extraction
 
 console = Console()
 
-# %% Setup code
-# Load .env (NDIF_API_KEY, HF_HOME, etc.) before anything else
 load_dotenv()
 torch.set_grad_enabled(False)
 set_seed(1337)
 
-# %% Setting up the model
-# Use 9b for remote (production), 2b for local testing
-# REMOTE = False
 REMOTE = True
 MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 
 print(f"Loading {MODEL_NAME}...")
 if REMOTE:
     import nnsight
-
-    # Meta device — no weights downloaded locally; execution happens on NDIF servers.
-    # print(nnsight.ndif_status())
-    # print(nnsight.ndif.compare())
     print(f"{MODEL_NAME} running: {nnsight.is_model_running(MODEL_NAME)}")
-    # Work around the current remote initialization issue.
-    # model = StandardizedTransformer(MODEL_NAME, remote=True)
     model = StandardizedTransformer(MODEL_NAME)
 else:
     model = StandardizedTransformer(MODEL_NAME)
 
 tokenizer = model.tokenizer
 
-# NOTE: This is much cleaner with nnterp
-NUM_LAYERS = model.num_layers
-D_MODEL = model.hidden_size
-
 model_table = Table(title="Model Config")
 model_table.add_column("Property", style="cyan")
 model_table.add_column("Value", style="magenta")
 model_table.add_row("Model", MODEL_NAME)
-model_table.add_row("Layers", str(NUM_LAYERS))
-model_table.add_row("Hidden Size", str(D_MODEL))
+model_table.add_row("Layers", str(model.num_layers))
+model_table.add_row("Hidden Size", str(model.hidden_size))
 console.print(model_table)
 
 # %% Load dataset and select runs (small persona-only smoke run)

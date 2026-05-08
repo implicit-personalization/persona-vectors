@@ -146,7 +146,6 @@ def _extract_single_trace(
 
         for ids, mask in zip(input_ids_list, masks):
             saved_hs: list[torch.Tensor] = []
-            # Pre-tokenized ids are passed straight through — no double-BOS.
             with model.trace(ids.unsqueeze(0)) as tracer:
                 for layer_idx in range(model.num_layers):
                     layer_out = model.layers_output[layer_idx][0]
@@ -206,9 +205,6 @@ def _extract_chunked(
                         saved_hs.append(layer_mean.detach().cpu())
 
                     per_chunk_hs = torch.stack(saved_hs, dim=0)
-                    # Keep the batch dim — this becomes the input to layer
-                    # (end_layer + 1) via skip_layers, which expects
-                    # (batch, seq_len, hidden).
                     boundary = (
                         model.layers_output[end_layer]
                         if end_layer < model.num_layers - 1

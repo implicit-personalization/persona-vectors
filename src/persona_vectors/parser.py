@@ -53,7 +53,7 @@ class PushConfig:
 
 @dataclass
 class SteerConfig:
-    persona_id: str
+    persona_id: str | None
     model: str
     layer: int
     mask_strategy: MaskStrategy
@@ -196,7 +196,9 @@ def build_steer_parser(subparsers) -> None:
     steer = subparsers.add_parser(
         "steer", help="Compute steering vector from saved activations"
     )
-    steer.add_argument("--persona-id", required=True, help="Persona UUID")
+    steer.add_argument(
+        "--persona-id", default=None, help="Persona UUID (default: all with saved activations)"
+    )
     steer.add_argument("--model", default="google/gemma-2-9b-it", help="HF Model ID")
     steer.add_argument(
         "--layer", type=int, default=STEER_LAYER, help="Layer for steering vector"
