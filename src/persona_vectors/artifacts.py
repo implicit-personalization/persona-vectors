@@ -175,9 +175,9 @@ class ActivationStore:
                 "personas": {},
             }
         )
-        if manifest.get("num_layers") != int(
-            vectors.shape[0]
-        ) or manifest.get("hidden_size") != int(vectors.shape[1]):
+        if manifest.get("num_layers") != int(vectors.shape[0]) or manifest.get(
+            "hidden_size"
+        ) != int(vectors.shape[1]):
             raise ValueError(
                 f"tensor shape for {persona_id!r} does not match existing artifact manifest"
             )
@@ -293,7 +293,7 @@ class HFActivationStore:
     """Read activation vectors from a Hugging Face dataset.
 
     The Hub dataset is expected to use one config per ``model__mask_strategy``
-    and one split per prompt variant, matching ``scripts/push_to_hf.py``.
+    and one split per prompt variant, matching ``persona_vectors.hub.push_to_hub``.
     """
 
     def __init__(
@@ -388,9 +388,9 @@ class HFActivationStore:
         return _persona_names_from_variants(
             persona_ids,
             requested_variants,
-            lambda variant, persona_id: self._variant(variant)
-            .get(persona_id, {})
-            .get("name"),
+            lambda variant, persona_id: (
+                self._variant(variant).get(persona_id, {}).get("name")
+            ),
         )
 
 

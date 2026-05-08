@@ -78,8 +78,10 @@ subset of those variants, it warns that they were skipped.
 
 ## Hugging Face Dataset Store
 
-`HFActivationStore` reads an already-published activation dataset built by
-`scripts/push_to_hf.py`. It does not write local files and does not push data.
+`HFActivationStore` reads an already-published activation dataset. To publish,
+run `python main.py push --model <model> --repo <repo>` (or call
+`persona_vectors.hub.push_to_hub(...)` directly). `HFActivationStore`
+itself does not write local files and does not push data.
 
 ```python
 from persona_vectors.artifacts import HFActivationStore

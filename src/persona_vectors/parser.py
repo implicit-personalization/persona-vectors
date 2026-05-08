@@ -43,6 +43,15 @@ class AnalyzeConfig:
 
 
 @dataclass
+class PushConfig:
+    model: str
+    repo: str
+    mask_strategy: MaskStrategy
+    activations_dir: Path
+    variants: list[str] | None = None
+
+
+@dataclass
 class SteerConfig:
     persona_id: str
     model: str
@@ -154,6 +163,35 @@ def build_analyze_parser(subparsers) -> None:
     )
 
 
+def build_push_parser(subparsers) -> None:
+    push = subparsers.add_parser(
+        "push", help="Push saved activations to the Hugging Face Hub"
+    )
+    push.add_argument("--model", required=True, help="HuggingFace model ID")
+    push.add_argument(
+        "--repo", required=True, help="Target HF dataset repo (e.g. user/dataset)"
+    )
+    push.add_argument(
+        "--mask-strategy",
+        type=MaskStrategy,
+        choices=list(MaskStrategy),
+        default=MaskStrategy.ANSWER_MEAN,
+        help="Which saved activations to push (default: answer_mean)",
+    )
+    push.add_argument(
+        "--activations-dir",
+        default="artifacts/activations",
+        help="Root directory containing extracted activations",
+    )
+    push.add_argument(
+        "--variants",
+        nargs="+",
+        default=None,
+        choices=SUPPORTED_VARIANTS,
+        help="Variants to push (default: all locally-available variants).",
+    )
+
+
 def build_steer_parser(subparsers) -> None:
     steer = subparsers.add_parser(
         "steer", help="Compute steering vector from saved activations"
@@ -191,5 +229,6 @@ def build_parser() -> argparse.ArgumentParser:
     build_extract_parser(subparsers)
     build_analyze_parser(subparsers)
     build_steer_parser(subparsers)
+    build_push_parser(subparsers)
 
     return parser

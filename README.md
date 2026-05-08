@@ -148,13 +148,14 @@ variant is a split. Each row is one persona with a
 
 ```bash
 # One-time: huggingface-cli login (or set HF_TOKEN in .env)
-uv run python scripts/push_to_hf.py \
+uv run python main.py push \
     --model google/gemma-2-9b-it \
     --repo implicit-personalization/synth-persona-vectors
 ```
 
 Adding more personas later: re-run `extract` (it skips personas already in the
-local manifest unless `--force` is passed), then re-run the push script.
+local manifest unless `--force` is passed), then re-run `main.py push`.
+Python callers can use `persona_vectors.hub.push_to_hub(...)` directly.
 
 `scripts/extraction.sh` extracts `baseline_assistant` plus the first `N`
 personas in one batch, then pushes to the Hub:

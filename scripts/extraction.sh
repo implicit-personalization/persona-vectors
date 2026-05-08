@@ -36,4 +36,4 @@ uv run python main.py extract \
     --sample-size "$N"
 
 echo "=== Pushing to Hugging Face Hub: $REPO ==="
-uv run python scripts/push_to_hf.py --model "$MODEL" --repo "$REPO"
+uv run python main.py push --model "$MODEL" --repo "$REPO"

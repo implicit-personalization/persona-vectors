@@ -17,10 +17,7 @@ from persona_vectors.artifacts import (
     HFActivationStore,
     model_dir_name,
 )
-from persona_vectors.plots import (
-    build_layered_figure,
-    build_pair_similarity_figure,
-)
+from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
 from persona_vectors.steering import compute_steering_vector
 
 
@@ -41,9 +38,7 @@ def test_smoke() -> None:
             vectors,
             sample_ids,
         )
-        expected_dir = (
-            store.root_dir / "test__model" / "answer_previous" / "templated"
-        )
+        expected_dir = store.root_dir / "test__model" / "answer_previous" / "templated"
         assert saved_dir == expected_dir
         assert (expected_dir / "manifest.json").exists()
         assert (expected_dir / "persona-001.safetensors").exists()
@@ -133,9 +128,7 @@ def test_smoke() -> None:
         store = ActivationStore("test/model", root_dir=tmp)
         sample_ids = ["q0", "q1", "q2"]
         for idx, persona_id in enumerate(["persona-001", "persona-002"]):
-            vectors = (
-                torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8) + idx * 100
-            )
+            vectors = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8) + idx * 100
             store.save(
                 "biography",
                 persona_id,

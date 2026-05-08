@@ -7,6 +7,7 @@ from tqdm import tqdm
 from persona_vectors.parser import (
     AnalyzeConfig,
     ExtractConfig,
+    PushConfig,
     SteerConfig,
     build_parser,
 )
@@ -102,6 +103,21 @@ def steer_activations(cfg: SteerConfig) -> None:
     save_steering_vector(sv_dict, out_path)
 
 
+def push_activations(cfg: PushConfig) -> None:
+    from persona_vectors.hub import push_to_hub
+
+    try:
+        push_to_hub(
+            repo_id=cfg.repo,
+            model_name=cfg.model,
+            mask_strategy=cfg.mask_strategy,
+            root_dir=cfg.activations_dir,
+            variants=cfg.variants,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def main() -> None:
 
     parser = build_parser()
@@ -142,6 +158,15 @@ def main() -> None:
             out_dir=Path(args.out),
         )
         steer_activations(cfg)
+    elif args.command == "push":
+        cfg = PushConfig(
+            model=args.model,
+            repo=args.repo,
+            mask_strategy=args.mask_strategy,
+            activations_dir=Path(args.activations_dir),
+            variants=args.variants,
+        )
+        push_activations(cfg)
 
 
 if __name__ == "__main__":
