@@ -65,13 +65,8 @@ runs = [
 ]
 runs = [(p, qa) for p, qa in runs if qa]  # drop personas with no train QAs
 
-# To extract the Assistant baseline or a custom explicit list in one run:
-# from persona_vectors.extraction import select_personas_with_qa
-# runs = select_personas_with_qa(
-#     SynthPersonaDataset(),
-#     persona_ids=["baseline_assistant", "<UUID>"],
-# )
-
+# The Assistant baseline is just another row in the JSONL load it by
+# dropping sample_size, or pull it explicitly with dataset.get_persona("baseline_assistant").
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
 dataset_table.add_column("Value", style="magenta")
@@ -84,9 +79,8 @@ console.print(dataset_table)
 # %% Extract activations for all prompt variants
 # For each persona, run a forward pass per QA pair across both prompt variants
 # (templated, biography), then save the response-token mean -- averaged over
-# masked tokens *and* over QA pairs -- as a single (num_layers, hidden_size)
-# tensor per (variant, persona). Steering uses the diff at STEER_LAYER.
-# RUN_NAME = "run_01"
+# masked tokens over QA pairs -- as a single (num_layers, hidden_size) tensor per (variant, persona).
+RUN_NAME = "run_01"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 for persona, qa_pairs in runs:
     print(f"\n→ {persona.name}: {[qa.qid for qa in qa_pairs]}")
@@ -99,6 +93,6 @@ for persona, qa_pairs in runs:
         mask_strategy=MASK_STRATEGY,
         remote=REMOTE,
         verbose=True,
-        # activations_dir=f"artifacts/activations/{RUN_NAME}",
+        activations_dir=f"artifacts/activations/{RUN_NAME}",
     ):
         print(f"Saved {r.variant} → {r.output_dir} ({r.n_questions} examples)")

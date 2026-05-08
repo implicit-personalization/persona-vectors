@@ -12,12 +12,7 @@ from persona_data.prompts import (
     format_prompt,
     mc_correct_letter,
 )
-from persona_data.synth_persona import (
-    BASELINE_PERSONA_ID,
-    PersonaData,
-    QAPair,
-    SynthPersonaDataset,
-)
+from persona_data.synth_persona import PersonaData, QAPair
 
 from persona_vectors.activations import extract_activations
 from persona_vectors.artifacts import SUPPORTED_VARIANTS, ActivationStore
@@ -285,72 +280,6 @@ def prepare_inputs_for_strategy(
         qa_pairs=selected,
         mask_strategy=mask_strategy,
     )
-
-
-def select_personas_with_qa(
-    dataset: SynthPersonaDataset,
-    persona_id: str | None = None,
-    persona_ids: list[str] | None = None,
-    *,
-    include_baseline: bool = True,
-) -> list[tuple[PersonaData, list[QAPair]]]:
-    """Select (persona, qa_pairs) tuples for extraction.
-
-    This function only selects from personas already loaded in ``dataset``. If
-    ``SynthPersonaDataset(sample_size=...)`` sliced out the Assistant baseline,
-    ``include_baseline=True`` cannot recover it; load the dataset without that
-    slice, or pass ``persona_id=BASELINE_PERSONA_ID`` to a full dataset.
-
-    - ``persona_id=None`` and ``persona_ids=None``: all loaded personas,
-      optionally including the loaded Assistant baseline.
-    - ``persona_id=<id>``: just that loaded persona. ``include_baseline`` is
-      ignored.
-    - ``persona_ids=[...]``: just those loaded personas, in the requested order.
-      ``include_baseline`` is ignored.
-
-    QA pairs come from ``train_test_split`` for normal personas and from the
-    shared MCQ pool for the baseline (which has no per-persona train split).
-    Normal personas use a 50-question train cap here to keep remote extraction
-    bounded. Personas with no matching QA pairs are skipped.
-    """
-    if persona_ids is not None:
-        personas = []
-        for requested_id in persona_ids:
-            if requested_id == BASELINE_PERSONA_ID and dataset.baseline is not None:
-                personas.append(dataset.baseline)
-                continue
-            match = dataset.get_persona(requested_id)
-            if match is None:
-                raise ValueError(f"No persona found with id {requested_id!r}")
-            personas.append(match)
-    elif persona_id is not None:
-        if persona_id == BASELINE_PERSONA_ID and dataset.baseline is not None:
-            personas = [dataset.baseline]
-        else:
-            match = dataset.get_persona(persona_id)
-            if match is None:
-                raise ValueError(f"No persona found with id {persona_id!r}")
-            personas = [match]
-    else:
-        personas = list(dataset)
-        if (
-            include_baseline
-            and dataset.baseline is not None
-            and not any(p.id == BASELINE_PERSONA_ID for p in personas)
-        ):
-            personas.append(dataset.baseline)
-
-    runs: list[tuple[PersonaData, list[QAPair]]] = []
-    for persona in personas:
-        if persona.id == BASELINE_PERSONA_ID:
-            qa_pairs = list(
-                dataset.get_qa(BASELINE_PERSONA_ID, item_type="mcq", scope="shared")
-            )
-        else:
-            qa_pairs, _ = dataset.train_test_split(persona.id, n_train=50)
-        if qa_pairs:
-            runs.append((persona, qa_pairs))
-    return runs
 
 
 def _free_memory() -> None:

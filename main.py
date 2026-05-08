@@ -17,10 +17,26 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.artifacts import ActivationStore
-    from persona_vectors.extraction import run_extraction, select_personas_with_qa
+    from persona_vectors.extraction import run_extraction
 
     dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
-    runs = select_personas_with_qa(dataset, persona_ids=cfg.persona_ids)
+    # Resolve a user-supplied id list  otherwise extract every loaded persona, including baseline_assistant
+    if cfg.persona_ids is not None:
+        personas = []
+        for pid in cfg.persona_ids:
+            match = dataset.get_persona(pid)
+            if match is None:
+                raise ValueError(f"No persona found with id {pid!r}")
+            personas.append(match)
+    else:
+        personas = list(dataset)
+
+    # train_test_split returns (train, test); we use [0] (FRQs, leakage- filtered against the shared MCQ bank).
+    runs = [
+        (p, train)
+        for p in personas
+        if (train := dataset.train_test_split(p.id, n_train=50)[0])
+    ]
     if not runs:
         print("No QA pairs found for selected persona(s); nothing extracted.")
         return
