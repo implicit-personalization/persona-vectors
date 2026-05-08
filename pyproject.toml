@@ -8,7 +8,6 @@ dependencies = [
     "persona-data>=0.6.0",
     "httpx>=0.28.1",
     "nnsight>=0.7.0",
-    "nnterp>=1.3.0",
     "plotly>=6.6.0",
     "kaleido>=1.0.0",
     "scikit-learn>=1.6.0",
@@ -20,6 +19,7 @@ dependencies = [
     "tqdm>=4.67.3",
     "transformers>=5.8.0",
     "datasets>=4.8.5",
+    "nnterp",
 ]
 
 [build-system]
@@ -30,6 +30,10 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.0.3",
 ]
+
+# Nnterp dev version for VLM support 
+[tool.uv.sources]
+nnterp = { git = "https://github.com/ndif-team/nnterp.git", branch = "dev" }
 
 # Local development:
 # [tool.uv.sources]

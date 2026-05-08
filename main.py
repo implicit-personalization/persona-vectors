@@ -15,7 +15,7 @@ from persona_vectors.parser import (
 
 
 def extract_activations(cfg: ExtractConfig) -> None:
-    from nnterp import StandardizedTransformer
+    from nnterp import StandardizedTransformer, StandardizedVLM
     from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.artifacts import PersonaVectorStore
@@ -62,7 +62,12 @@ def extract_activations(cfg: ExtractConfig) -> None:
             )
             return
 
-    model = StandardizedTransformer(cfg.model)
+    from nnterp import detect_automodel
+    from transformers import AutoModelForImageTextToText
+
+    is_vlm = detect_automodel(cfg.model) is AutoModelForImageTextToText
+    model_cls = StandardizedVLM if is_vlm else StandardizedTransformer
+    model = model_cls(cfg.model)
     skipped: list[tuple[str, str]] = []
     pbar = tqdm(runs, desc="personas", unit="persona")
 
