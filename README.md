@@ -23,8 +23,7 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 persona-vectors/
 ├── notebooks/
 │   ├── notebook_extract.py      # Extraction pipeline (primary working script)
-│   ├── notebook_compare.py      # Load saved activations and compare variants
-│   ├── notebook_hf_compare.py   # Load Hub activations and run persona PCA
+│   ├── notebook_compare.py      # Compare Hub or local activation artifacts
 │   └── notebook_steer.py        # Steering experiments
 ├── src/persona_vectors/
 │   ├── activations.py           # Core extraction helpers
@@ -60,11 +59,8 @@ Python `>=3.12` is required.
 # Extract activations (run this first)
 uv run python -m notebooks.notebook_extract
 
-# Load saved activations / compare variants
+# Compare Hub artifacts, or local artifacts by uncommenting the local store
 uv run python -m notebooks.notebook_compare
-
-# Load an existing Hub dataset directly and run PCA/similarity views
-uv run python -m notebooks.notebook_hf_compare
 
 # Build interactive persona-vector PCA and similarity plots from saved activations
 uv run python main.py analyze --model google/gemma-2-9b-it --variant biography --mask-strategy answer_mean
@@ -88,11 +84,10 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 3. Extract activations and average them across QA pairs
 4. Save the persona-level activation tensor to disk
 
-`notebook_compare.py` uses `ActivationStore` to discover saved variants/personas,
-then compares shared persona vectors across variants.
-
-`notebook_hf_compare.py` uses `HFActivationStore` to load a published Hub
-dataset directly, then runs PCA and similarity views over the selected variant.
+`notebook_compare.py` uses `HFActivationStore` by default to load the published
+Hub dataset, compares shared persona vectors across variants, and runs PCA and
+similarity views. It includes commented lines for switching to local
+`ActivationStore` artifacts.
 
 `notebook_steer.py` loads saved activations and computes a steering vector for a
 selected persona.

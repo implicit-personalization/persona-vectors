@@ -108,7 +108,7 @@ Ask for variants in preference order if the published dataset does not have
 every local prompt variant yet.
 
 For a complete PCA/similarity example using the published dataset directly, see
-`notebooks/notebook_hf_compare.py`.
+`notebooks/notebook_compare.py`.
 
 ## File Format
 

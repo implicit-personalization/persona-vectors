@@ -59,7 +59,7 @@ uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> -
 # Same extraction flow with token-mask preview and a short sample run
 # (set verbose=True in the notebook)
 
-# Load saved activations and inspect comparison views
+# Inspect Hub comparison views, or local artifacts after switching the store
 uv run python -m notebooks.notebook_compare
 
 # Optional: compute an experimental steering vector from saved activations

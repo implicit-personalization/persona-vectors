@@ -99,11 +99,9 @@ only, so they do not need every QA pair.
 
 ### `notebook_compare.py`
 
-Layer-wise variant similarity across saved prompt variants.
-
-### `notebook_hf_compare.py`
-
-PCA and pair-similarity views loaded directly from the published Hub dataset.
+Layer-wise variant similarity, PCA, and pair-similarity views. It reads the
+published Hub dataset by default and includes commented lines for switching to
+local artifacts.
 
 ## Quick example
 

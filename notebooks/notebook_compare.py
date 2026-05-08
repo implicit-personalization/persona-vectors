@@ -1,26 +1,28 @@
 #!/usr/bin/env python
 
-"""Layer-wise cosine similarity between prompt variants."""
+"""Compare persona vectors from the Hub or local artifacts."""
+
+# %% Imports
 
 from itertools import combinations
 
 import torch
 from dotenv import load_dotenv
-from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.analysis import (
     list_comparison_personas,
     load_persona_vectors,
-    load_variant_vectors,
+    pca_explained_variance,
 )
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import HFActivationStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
     build_layered_figure,
     build_pair_similarity_figure,
     plot_layer_similarity,
+    plot_scree,
 )
 
 console = Console()
@@ -29,69 +31,88 @@ console = Console()
 load_dotenv()
 torch.set_grad_enabled(False)
 
-# Use 9b for remote (production), 2b for local testing
-# REMOTE = False
-REMOTE = True
-MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
+REPO_ID = "implicit-personalization/synth-persona-vectors"
+MODEL_NAME = "google/gemma-2-9b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
-SIMILARITY_VARIANT = "biography"
+VARIANTS = ["biography", "templated"]
 INCLUDE_BASELINE = False
 
-# %% Load dataset and Activations
-dataset = SynthPersonaDataset()
-acts = ActivationStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
+# %% Load activation store
+# Default: read the published Hub artifact dataset. To use local artifacts
+# instead, comment out HFActivationStore and uncomment the two local lines.
+store = HFActivationStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
+# from persona_vectors.artifacts import ActivationStore
+# store = ActivationStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 
-dataset_table = Table(title="Dataset")
-dataset_table.add_column("Property", style="cyan")
-dataset_table.add_column("Value", style="magenta")
-dataset_table.add_row("Total Personas", str(len(dataset)))
-dataset_table.add_row("First Persona", dataset[0].name)
-dataset_table.add_row("Model Name", acts.model_name)
-console.print(dataset_table)
-
-# %% Discover which variants are available
-available_variants = acts.available_variants()
-console.print(f"Available comparison variants: {available_variants}")
-
+available_variants = store.available_variants(VARIANTS)
+comparison_variants = [variant for variant in VARIANTS if variant in available_variants]
 persona_ids = list_comparison_personas(
-    acts,
-    available_variants,
+    store,
+    comparison_variants,
     include_baseline=INCLUDE_BASELINE,
 )
-console.print(f"Personas with all variants: {len(persona_ids)}")
 
-# %% Load persona vectors per variant
-variant_samples = load_variant_vectors(
-    acts, available_variants, persona_ids=persona_ids
-)
+summary = Table(title="Activation Dataset")
+summary.add_column("Property", style="cyan")
+summary.add_column("Value", style="magenta")
+summary.add_row("Store", type(store).__name__)
+summary.add_row("Repo", getattr(store, "repo_id", "local artifacts"))
+summary.add_row("Model", store.model_name)
+summary.add_row("Config", getattr(store, "config_name", str(MASK_STRATEGY)))
+summary.add_row("Available variants", ", ".join(available_variants))
+summary.add_row("Compared variants", ", ".join(comparison_variants))
+summary.add_row("Personas loaded", str(len(persona_ids)))
+console.print(summary)
 
-persona_labels = next(iter(variant_samples.values())).labels
-
-# %% Plot all persona/variant-pair traces together
-comparison_pairs = list(combinations(available_variants, 2))
-all_pair_traces = []
-
-for persona_index, persona_name in enumerate(persona_labels):
-    all_pair_traces.extend(
-        (
-            f"{persona_name}: {left} vs {right}",
-            variant_samples[left].vectors[persona_index],
-            variant_samples[right].vectors[persona_index],
-        )
-        for left, right in comparison_pairs
-    )
-
-plot_layer_similarity(
-    all_pair_traces,
-    title="Layer-wise Cosine Similarity — All personas and variant pairs",
-    show=True,
-)
-
-# %% Plot Averaged across personas
-avg_variant_vectors = {
-    variant: samples.vectors.mean(dim=0) for variant, samples in variant_samples.items()
+# %% Load persona vectors for each variant
+samples = {
+    variant: load_persona_vectors(store, variant, persona_ids=persona_ids)
+    for variant in comparison_variants
 }
 
+# %% Scree plot - PCA explained variance for representative layers
+# NOTE: Usually the first 5-6 components carry most of the visible structure.
+for variant, s in samples.items():
+    num_layers = int(s.vectors.shape[1])
+    scree_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
+    plot_scree(
+        {
+            f"layer {layer}": pca_explained_variance(s.vectors[:, layer, :])
+            for layer in scree_layers
+        },
+        title=f"PCA explained variance - {variant} persona vectors",
+        show=True,
+    )
+
+# %% PCA - layered view per variant
+for variant, s in samples.items():
+    build_layered_figure(s, "pca", title=f"PCA - {variant} persona vectors").show()
+
+# %% Centered similarity matrix - layered view per variant
+MAX_PAIR_PERSONAS = 10
+samples_small = {
+    variant: load_persona_vectors(
+        store, variant, persona_ids=persona_ids[:MAX_PAIR_PERSONAS]
+    )
+    for variant in comparison_variants
+}
+
+for variant, s in samples_small.items():
+    build_layered_figure(
+        s,
+        "similarity",
+        title=f"Centered similarity - {variant} persona vectors",
+    ).show()
+
+# %% Pair similarity - centered cosine trajectories per variant
+for variant, s in samples_small.items():
+    build_pair_similarity_figure(
+        s,
+        title=f"Pair similarity trajectories - {variant} persona vectors",
+    ).show()
+
+# %% Prompt-variant similarity - averaged across personas
+avg_variant_vectors = {variant: s.vectors.mean(dim=0) for variant, s in samples.items()}
 pair_traces = [
     (f"{left} vs {right}", avg_variant_vectors[left], avg_variant_vectors[right])
     for left, right in combinations(avg_variant_vectors, 2)
@@ -99,22 +120,28 @@ pair_traces = [
 
 plot_layer_similarity(
     pair_traces,
-    title=("Layer-wise Cosine Similarity — Averaged across personas"),
+    title="Layer-wise cosine similarity - averaged across personas",
     show=True,
 )
 
-# %% Similarity matrix and pair trajectories, matching the UI comparison view
-similarity_samples = load_persona_vectors(
-    acts, SIMILARITY_VARIANT, persona_ids=persona_ids
+# %% Prompt-variant similarity - one trace per persona
+# This is the detailed original comparison view; it can get busy with many personas.
+comparison_pairs = list(combinations(comparison_variants, 2))
+persona_labels = next(iter(samples.values())).labels
+all_pair_traces = []
+
+for persona_index, persona_name in enumerate(persona_labels):
+    all_pair_traces.extend(
+        (
+            f"{persona_name}: {left} vs {right}",
+            samples[left].vectors[persona_index],
+            samples[right].vectors[persona_index],
+        )
+        for left, right in comparison_pairs
+    )
+
+plot_layer_similarity(
+    all_pair_traces,
+    title="Layer-wise cosine similarity - all personas and variant pairs",
+    show=True,
 )
-
-build_layered_figure(
-    similarity_samples,
-    "similarity",
-    title=f"Centered similarity — {SIMILARITY_VARIANT} — persona vectors",
-).show()
-
-build_pair_similarity_figure(
-    similarity_samples,
-    title=(f"Pair similarity trajectories — {SIMILARITY_VARIANT} — persona vectors"),
-).show()

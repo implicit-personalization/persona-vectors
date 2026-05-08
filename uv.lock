@@ -1006,11 +1006,11 @@ wheels = [
 
 [[package]]
 name = "narwhals"
-version = "2.20.0"
+version = "2.21.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e9/f3/257adc69a71011b4c8cda321b00f02c5bf1980ae38ffd05a58d9632d4de8/narwhals-2.20.0.tar.gz", hash = "sha256:c10994975fa7dc5a68c2cffcddbd5908fc8ebb2d463c5bab085309c0ee1f551e", size = 627848, upload-time = "2026-04-20T12:11:45.427Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/0e/3ad61eb87088cc4932e0d851531fa82f845a6230b68b091a0e298cc7e537/narwhals-2.21.0.tar.gz", hash = "sha256:7c6e7f50528e62b7a967dd864d7e117d2955d38d4f730653ce46a9861358e2dc", size = 633083, upload-time = "2026-05-08T12:29:02.587Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/69/f24d3d1c38ad69e256138b4ec2452a8c7cf66be49dc214771ae99dd4f0a0/narwhals-2.20.0-py3-none-any.whl", hash = "sha256:16e750ea5507d4ba6e8d03455b5f93a535e0405976561baea235bca5dc9f475d", size = 449373, upload-time = "2026-04-20T12:11:43.596Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/e1/68c2256b69a314eba133673377ba9118c356f6342a0c02b61de449cf2bf2/narwhals-2.21.0-py3-none-any.whl", hash = "sha256:1e6617d0fca68ae1fda29e5397c4eaacd3ffc9fffe6bcd6ded0c690475e853be", size = 451943, upload-time = "2026-05-08T12:29:01.058Z" },
 ]
 
 [[package]]
@@ -1436,7 +1436,7 @@ wheels = [
 
 [[package]]
 name = "persona-data"
-version = "0.4.1"
+version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1445,14 +1445,14 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "torch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/9b/b9bc22cf6393cbd38529dfdc1128963c2935060f96b6896b81349bd34050/persona_data-0.4.1.tar.gz", hash = "sha256:1e98a8999f498f95eeaaa4f46931818b2b1296b5ad500a89c7ad1e87b5aa405f", size = 9294, upload-time = "2026-05-07T10:27:00.746Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/2f/099a74e54846172a20b697b46b285eb2f0004e1db530308d6b4ff1f19079/persona_data-0.4.2.tar.gz", hash = "sha256:7870292a79b3943a77c31595140de3b2243b783222590248d09891de70e7fe1b", size = 9276, upload-time = "2026-05-08T13:59:27.58Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/a9/10a586bfb4a585931dbc0f657c71a35946880cbb7b25316594042cc1a00a/persona_data-0.4.1-py3-none-any.whl", hash = "sha256:53780689988e487b68d826c0cd980dfe6bb13a340e01a10c042e4dc86f46e765", size = 11937, upload-time = "2026-05-07T10:26:59.865Z" },
+    { url = "https://files.pythonhosted.org/packages/57/03/e76a48b41ee00684a4430269007e217e70f59e2597d7c862d93cfc5ac78b/persona_data-0.4.2-py3-none-any.whl", hash = "sha256:c881d6fb71af87a6fa773284076e4cb55794db6dc447a7eb0047eee2b389c855", size = 11914, upload-time = "2026-05-08T13:59:28.198Z" },
 ]
 
 [[package]]
 name = "persona-vectors"
-version = "0.6.2"
+version = "0.6.3"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
@@ -1484,7 +1484,7 @@ requires-dist = [
     { name = "kaleido", specifier = ">=1.0.0" },
     { name = "nnsight", specifier = ">=0.7.0" },
     { name = "nnterp", specifier = ">=1.3.0" },
-    { name = "persona-data", specifier = ">=0.4.1" },
+    { name = "persona-data", specifier = ">=0.4.2" },
     { name = "plotly", specifier = ">=6.6.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "safetensors", specifier = ">=0.7.0" },
