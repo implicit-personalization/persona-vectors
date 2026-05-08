@@ -1,6 +1,7 @@
 # Persona Vectors
 
 [![Docs](https://img.shields.io/badge/docs-view-purple?logo=github)](https://implicit-personalization.github.io/persona-vectors/)
+[![PyPI](https://img.shields.io/pypi/v/persona-vectors?logo=pypi&label=PyPI)](https://pypi.org/project/persona-vectors/)
 
 Extract persona-aligned activation vectors from language models and analyze how persona prompts move hidden states.
 
