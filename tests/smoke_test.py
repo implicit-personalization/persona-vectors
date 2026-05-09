@@ -1,11 +1,13 @@
 import json
 import tempfile
 
+import pytest
 import torch
 from persona_data.synth_persona import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
+    LayeredSamples,
     list_comparison_personas,
     load_persona_vectors,
     load_variant_vectors,
@@ -19,6 +21,37 @@ from persona_vectors.artifacts import (
 )
 from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
 from persona_vectors.steering import compute_steering_vector
+
+
+def _layered_samples(n_samples: int = 5) -> LayeredSamples:
+    values = torch.arange(n_samples * 2 * 8, dtype=torch.float32).reshape(
+        n_samples, 2, 8
+    )
+    labels = [f"Persona {idx}" for idx in range(n_samples)]
+    return LayeredSamples(values, labels, labels)
+
+
+def test_projection_plots_cover_2d_and_3d() -> None:
+    samples = _layered_samples()
+
+    pca_3d = build_layered_figure(samples, "pca", layers=[0, 1], n_components=3)
+    assert pca_3d.data[0].type == "scatter3d"
+
+    umap_2d = build_layered_figure(samples, "umap", layers=[0], n_components=2)
+    assert umap_2d.data[0].type == "scatter"
+
+    umap_3d = build_layered_figure(samples, "umap", layers=[0], n_components=3)
+    assert umap_3d.data[0].type == "scatter3d"
+
+
+def test_projection_plots_validate_component_count() -> None:
+    samples = _layered_samples(n_samples=2)
+
+    with pytest.raises(ValueError, match="n_components=3"):
+        build_layered_figure(samples, "pca", layers=[0], n_components=3)
+
+    with pytest.raises(ValueError, match="UMAP requires at least 3 samples"):
+        build_layered_figure(samples, "umap", layers=[0], n_components=2)
 
 
 def test_smoke() -> None:

@@ -115,6 +115,30 @@ def _center_features(samples: torch.Tensor) -> torch.Tensor:
     return samples.float() - samples.float().mean(dim=0, keepdim=True)
 
 
+def _validate_projection(
+    samples: torch.Tensor,
+    n_components: int,
+    *,
+    method: str,
+    min_samples: int = 2,
+) -> None:
+    if samples.ndim != 2:
+        raise ValueError("samples must have shape (n_samples, hidden_size)")
+    if n_components < 1:
+        raise ValueError("n_components must be at least 1")
+
+    n_samples, n_features = samples.shape
+    if n_samples < min_samples:
+        raise ValueError(
+            f"{method} requires at least {min_samples} samples; got {n_samples}"
+        )
+    max_components = min(n_samples, n_features)
+    if n_components > max_components:
+        raise ValueError(
+            f"{method} n_components={n_components} must be <= min(n_samples, hidden_size)={max_components}"
+        )
+
+
 def cosine_similarity_matrix(
     samples: torch.Tensor, center: bool = True
 ) -> torch.Tensor:
@@ -144,8 +168,7 @@ def project_pca(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
     Returns:
         Tensor with shape (n_samples, n_components).
     """
-    if samples.ndim != 2:
-        raise ValueError("samples must have shape (n_samples, hidden_size)")
+    _validate_projection(samples, n_components, method="PCA")
 
     embedding = PCA(n_components=n_components).fit_transform(
         samples.float().cpu().numpy()
@@ -266,8 +289,7 @@ def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
     Centering removes the shared DC component before UMAP fits, matching the
     convention used by the centered cosine views.
     """
-    if samples.ndim != 2:
-        raise ValueError("samples must have shape (n_samples, hidden_size)")
+    _validate_projection(samples, n_components, method="UMAP", min_samples=3)
 
     try:
         import umap
@@ -275,7 +297,12 @@ def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
         raise ImportError("umap-learn is required for UMAP projections") from exc
 
     centered = _center_features(samples)
-    embedding = umap.UMAP(n_components=n_components).fit_transform(
-        centered.float().cpu().numpy()
-    )
+    n_neighbors = min(15, int(samples.shape[0]) - 1)
+    embedding = umap.UMAP(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        init="random",
+        random_state=42,
+        n_jobs=1,
+    ).fit_transform(centered.float().cpu().numpy())
     return torch.from_numpy(embedding)

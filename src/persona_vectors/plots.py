@@ -288,6 +288,56 @@ def _coordinate_range(coords: torch.Tensor, axis: int) -> list[float]:
     return [low - padding, high + padding]
 
 
+def _embedding_hovertemplate(
+    group_label: str,
+    x_label: str,
+    y_label: str,
+    z_label: str | None,
+) -> str:
+    template = (
+        "%{text}<br>Group: "
+        + group_label
+        + "<br>"
+        + f"{x_label}=%{{x:.4f}}<br>"
+        + f"{y_label}=%{{y:.4f}}"
+    )
+    if z_label is not None:
+        template += f"<br>{z_label}=%{{z:.4f}}"
+    return template + "<extra></extra>"
+
+
+def _embedding_trace(
+    coords: torch.Tensor,
+    indices: list[int],
+    *,
+    n_components: int,
+    name: str | None = None,
+    marker: dict | None = None,
+    text: list[str] | None = None,
+    hovertemplate: str | None = None,
+) -> go.Scatter | go.Scatter3d:
+    kwargs = {
+        "x": coords[indices, 0].tolist(),
+        "y": coords[indices, 1].tolist(),
+    }
+    if n_components == 3:
+        kwargs["z"] = coords[indices, 2].tolist()
+        trace_cls = go.Scatter3d
+    else:
+        trace_cls = go.Scatter
+
+    if name is not None:
+        kwargs["mode"] = "markers"
+        kwargs["name"] = name
+    if marker is not None:
+        kwargs["marker"] = marker
+    if text is not None:
+        kwargs["text"] = text
+    if hovertemplate is not None:
+        kwargs["hovertemplate"] = hovertemplate
+    return trace_cls(**kwargs)
+
+
 def _build_layered_embedding_figure(
     samples: LayeredSamples,
     selected_layers: list[int],
@@ -323,66 +373,39 @@ def _build_layered_embedding_figure(
         indices = label_indices[label]
         marker = dict(size=5 if is_3d else 9, opacity=0.82, color=label_colors[label])
         text = [samples.hover_text[index] for index in indices]
-        common = dict(
-            mode="markers",
-            name=label,
-            marker=marker,
-            text=text,
+        traces.append(
+            _embedding_trace(
+                first_coords,
+                indices,
+                n_components=n_components,
+                name=label,
+                marker=marker,
+                text=text,
+                hovertemplate=_embedding_hovertemplate(
+                    label, x_label, y_label, z_label if is_3d else None
+                ),
+            )
         )
-        if is_3d:
-            traces.append(
-                go.Scatter3d(
-                    x=first_coords[indices, 0].tolist(),
-                    y=first_coords[indices, 1].tolist(),
-                    z=first_coords[indices, 2].tolist(),
-                    hovertemplate=(
-                        "%{text}<br>Group: " + label + "<br>"
-                        f"{x_label}=%{{x:.4f}}<br>"
-                        f"{y_label}=%{{y:.4f}}<br>"
-                        f"{z_label}=%{{z:.4f}}<extra></extra>"
-                    ),
-                    **common,
-                )
-            )
-        else:
-            traces.append(
-                go.Scatter(
-                    x=first_coords[indices, 0].tolist(),
-                    y=first_coords[indices, 1].tolist(),
-                    hovertemplate=(
-                        "%{text}<br>Group: " + label + "<br>"
-                        f"{x_label}=%{{x:.4f}}<br>{y_label}=%{{y:.4f}}<extra></extra>"
-                    ),
-                    **common,
-                )
-            )
     frames = []
     for layer in selected_layers:
-        layer_xy = layer_coords[layer]
+        coords = layer_coords[layer]
         ranges = layer_ranges[layer]
         if is_3d:
             x_range, y_range, z_range = ranges
-            data = [
-                go.Scatter3d(
-                    x=layer_xy[label_indices[label], 0].tolist(),
-                    y=layer_xy[label_indices[label], 1].tolist(),
-                    z=layer_xy[label_indices[label], 2].tolist(),
-                )
-                for label in unique_labels
-            ]
             frame_layout = _layer_frame_layout(
                 title, layer, x_range, y_range, z_range=z_range
             )
         else:
             x_range, y_range = ranges
-            data = [
-                go.Scatter(
-                    x=layer_xy[label_indices[label], 0].tolist(),
-                    y=layer_xy[label_indices[label], 1].tolist(),
-                )
-                for label in unique_labels
-            ]
             frame_layout = _layer_frame_layout(title, layer, x_range, y_range)
+        data = [
+            _embedding_trace(
+                coords,
+                label_indices[label],
+                n_components=n_components,
+            )
+            for label in unique_labels
+        ]
         frames.append(go.Frame(name=str(layer), data=data, layout=frame_layout))
 
     fig = go.Figure(data=traces, frames=frames)
