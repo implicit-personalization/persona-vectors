@@ -88,6 +88,15 @@ for variant, s in samples.items():
 for variant, s in samples.items():
     build_layered_figure(s, "pca", title=f"PCA - {variant} persona vectors").show()
 
+# %% PCA (3D) - layered view per variant
+for variant, s in samples.items():
+    build_layered_figure(
+        s,
+        "pca",
+        title=f"PCA (3D) - {variant} persona vectors",
+        n_components=3,
+    ).show()
+
 # %% Centered similarity matrix - layered view per variant
 MAX_PAIR_PERSONAS = 10
 samples_small = {

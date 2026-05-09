@@ -251,6 +251,7 @@ def _layer_frame_layout(
     layer: int,
     x_range: list[float] | None = None,
     y_range: list[float] | None = None,
+    z_range: list[float] | None = None,
 ) -> dict:
     layout = {
         "title": {
@@ -260,6 +261,15 @@ def _layer_frame_layout(
             "yanchor": "top",
         }
     }
+    if z_range is not None:
+        scene: dict = {}
+        if x_range is not None:
+            scene["xaxis"] = {"range": x_range}
+        if y_range is not None:
+            scene["yaxis"] = {"range": y_range}
+        scene["zaxis"] = {"range": z_range}
+        layout["scene"] = scene
+        return layout
     if x_range is not None:
         layout["xaxis"] = {"range": x_range}
     if y_range is not None:
@@ -285,15 +295,17 @@ def _build_layered_embedding_figure(
     project_fn,
     x_label: str,
     y_label: str,
+    z_label: str | None = None,
+    n_components: int = 2,
 ) -> go.Figure:
+    if n_components not in (2, 3):
+        raise ValueError("n_components must be 2 or 3")
     layer_coords = {
-        layer: project_fn(samples.vectors[:, layer, :]) for layer in selected_layers
+        layer: project_fn(samples.vectors[:, layer, :], n_components=n_components)
+        for layer in selected_layers
     }
     layer_ranges = {
-        layer: (
-            _coordinate_range(coords, 0),
-            _coordinate_range(coords, 1),
-        )
+        layer: tuple(_coordinate_range(coords, axis) for axis in range(n_components))
         for layer, coords in layer_coords.items()
     }
     unique_labels = sorted(set(samples.labels), key=lambda value: value.casefold())
@@ -302,67 +314,106 @@ def _build_layered_embedding_figure(
         label: [index for index, value in enumerate(samples.labels) if value == label]
         for label in unique_labels
     }
+    is_3d = n_components == 3
 
     first_layer = selected_layers[0]
     first_coords = layer_coords[first_layer]
     traces = []
     for label in unique_labels:
         indices = label_indices[label]
-        traces.append(
-            go.Scatter(
-                x=first_coords[indices, 0].tolist(),
-                y=first_coords[indices, 1].tolist(),
-                mode="markers",
-                name=label,
-                marker=dict(
-                    size=9,
-                    opacity=0.82,
-                    color=label_colors[label],
-                ),
-                text=[samples.hover_text[index] for index in indices],
-                hovertemplate=(
-                    "%{text}<br>Group: " + label + "<br>"
-                    f"{x_label}=%{{x:.4f}}<br>{y_label}=%{{y:.4f}}<extra></extra>"
-                ),
-            )
+        marker = dict(size=5 if is_3d else 9, opacity=0.82, color=label_colors[label])
+        text = [samples.hover_text[index] for index in indices]
+        common = dict(
+            mode="markers",
+            name=label,
+            marker=marker,
+            text=text,
         )
+        if is_3d:
+            traces.append(
+                go.Scatter3d(
+                    x=first_coords[indices, 0].tolist(),
+                    y=first_coords[indices, 1].tolist(),
+                    z=first_coords[indices, 2].tolist(),
+                    hovertemplate=(
+                        "%{text}<br>Group: " + label + "<br>"
+                        f"{x_label}=%{{x:.4f}}<br>"
+                        f"{y_label}=%{{y:.4f}}<br>"
+                        f"{z_label}=%{{z:.4f}}<extra></extra>"
+                    ),
+                    **common,
+                )
+            )
+        else:
+            traces.append(
+                go.Scatter(
+                    x=first_coords[indices, 0].tolist(),
+                    y=first_coords[indices, 1].tolist(),
+                    hovertemplate=(
+                        "%{text}<br>Group: " + label + "<br>"
+                        f"{x_label}=%{{x:.4f}}<br>{y_label}=%{{y:.4f}}<extra></extra>"
+                    ),
+                    **common,
+                )
+            )
     frames = []
     for layer in selected_layers:
         layer_xy = layer_coords[layer]
-        x_range, y_range = layer_ranges[layer]
-        frames.append(
-            go.Frame(
-                name=str(layer),
-                data=[
-                    go.Scatter(
-                        x=layer_xy[label_indices[label], 0].tolist(),
-                        y=layer_xy[label_indices[label], 1].tolist(),
-                    )
-                    for label in unique_labels
-                ],
-                layout=_layer_frame_layout(title, layer, x_range, y_range),
+        ranges = layer_ranges[layer]
+        if is_3d:
+            x_range, y_range, z_range = ranges
+            data = [
+                go.Scatter3d(
+                    x=layer_xy[label_indices[label], 0].tolist(),
+                    y=layer_xy[label_indices[label], 1].tolist(),
+                    z=layer_xy[label_indices[label], 2].tolist(),
+                )
+                for label in unique_labels
+            ]
+            frame_layout = _layer_frame_layout(
+                title, layer, x_range, y_range, z_range=z_range
             )
-        )
+        else:
+            x_range, y_range = ranges
+            data = [
+                go.Scatter(
+                    x=layer_xy[label_indices[label], 0].tolist(),
+                    y=layer_xy[label_indices[label], 1].tolist(),
+                )
+                for label in unique_labels
+            ]
+            frame_layout = _layer_frame_layout(title, layer, x_range, y_range)
+        frames.append(go.Frame(name=str(layer), data=data, layout=frame_layout))
 
     fig = go.Figure(data=traces, frames=frames)
-    fig.update_layout(
+    layout_kwargs = dict(
         title={
             "text": f"{title} - Layer {first_layer}",
             "font": {"size": 24},
             "y": 0.98,
             "yanchor": "top",
         },
-        xaxis_title=x_label,
-        yaxis_title=y_label,
         template="plotly_white",
         margin=dict(t=140, b=90),
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
         updatemenus=_layer_animation_buttons(),
         sliders=_layer_slider(selected_layers),
     )
-    first_x_range, first_y_range = layer_ranges[first_layer]
-    fig.update_xaxes(range=first_x_range, zeroline=True, automargin=True)
-    fig.update_yaxes(range=first_y_range, zeroline=True, automargin=True)
+    if is_3d:
+        first_x_range, first_y_range, first_z_range = layer_ranges[first_layer]
+        layout_kwargs["scene"] = dict(
+            xaxis=dict(title=x_label, range=first_x_range),
+            yaxis=dict(title=y_label, range=first_y_range),
+            zaxis=dict(title=z_label, range=first_z_range),
+        )
+        fig.update_layout(**layout_kwargs)
+    else:
+        layout_kwargs["xaxis_title"] = x_label
+        layout_kwargs["yaxis_title"] = y_label
+        fig.update_layout(**layout_kwargs)
+        first_x_range, first_y_range = layer_ranges[first_layer]
+        fig.update_xaxes(range=first_x_range, zeroline=True, automargin=True)
+        fig.update_yaxes(range=first_y_range, zeroline=True, automargin=True)
     return fig
 
 
@@ -494,12 +545,16 @@ def build_layered_figure(
     kind: str,
     layers: list[int] | None = None,
     title: str | None = None,
+    n_components: int = 2,
 ) -> go.Figure:
     """Build an interactive per-layer PCA, UMAP, or similarity figure.
 
     This is the main plotting entry point for persona-space views. It accepts
     the ``LayeredSamples`` returned by analysis helpers and adds the shared
     layer slider/animation controls used by all layered plots.
+
+    For ``kind="pca"`` and ``kind="umap"``, ``n_components`` selects between a
+    2D scatter (default) and a 3D scatter view.
     """
 
     selected_layers = _validate_layers(samples.vectors, layers)
@@ -509,19 +564,29 @@ def build_layered_figure(
         return _build_layered_embedding_figure(
             samples,
             selected_layers,
-            title=title or "PCA by Layer",
+            title=title
+            or ("PCA by Layer" if n_components == 2 else "PCA (3D) by Layer"),
             project_fn=project_pca,
             x_label="PC1",
             y_label="PC2",
+            z_label="PC3" if n_components == 3 else None,
+            n_components=n_components,
         )
     if kind == "umap":
         return _build_layered_embedding_figure(
             samples,
             selected_layers,
-            title=title or "Centered UMAP by Layer",
+            title=title
+            or (
+                "Centered UMAP by Layer"
+                if n_components == 2
+                else "Centered UMAP (3D) by Layer"
+            ),
             project_fn=project_umap,
             x_label="UMAP 1",
             y_label="UMAP 2",
+            z_label="UMAP 3" if n_components == 3 else None,
+            n_components=n_components,
         )
     if kind == "similarity":
         return _build_layered_similarity_figure(

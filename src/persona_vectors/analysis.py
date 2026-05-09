@@ -134,19 +134,22 @@ def cosine_similarity_matrix(
     return normalized @ normalized.T
 
 
-def project_pca(samples: torch.Tensor) -> torch.Tensor:
-    """Project samples to 2D using PCA.
+def project_pca(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
+    """Project samples to ``n_components`` dimensions using PCA.
 
     Args:
         samples: Tensor with shape (n_samples, hidden_size).
+        n_components: Target embedding dimensionality (typically 2 or 3).
 
     Returns:
-        Tensor with shape (n_samples, 2).
+        Tensor with shape (n_samples, n_components).
     """
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
 
-    embedding = PCA(n_components=2).fit_transform(samples.float().cpu().numpy())
+    embedding = PCA(n_components=n_components).fit_transform(
+        samples.float().cpu().numpy()
+    )
     return torch.from_numpy(embedding)
 
 
@@ -257,8 +260,8 @@ def run_saved_activation_analysis(
     return outputs
 
 
-def project_umap(samples: torch.Tensor) -> torch.Tensor:
-    """Project samples to 2D using UMAP after centering features.
+def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
+    """Project samples to ``n_components`` dimensions using UMAP after centering features.
 
     Centering removes the shared DC component before UMAP fits, matching the
     convention used by the centered cosine views.
@@ -272,5 +275,7 @@ def project_umap(samples: torch.Tensor) -> torch.Tensor:
         raise ImportError("umap-learn is required for UMAP projections") from exc
 
     centered = _center_features(samples)
-    embedding = umap.UMAP(n_components=2).fit_transform(centered.float().cpu().numpy())
+    embedding = umap.UMAP(n_components=n_components).fit_transform(
+        centered.float().cpu().numpy()
+    )
     return torch.from_numpy(embedding)
