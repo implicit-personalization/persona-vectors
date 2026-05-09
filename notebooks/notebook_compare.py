@@ -84,17 +84,19 @@ for variant, s in samples.items():
         show=True,
     )
 
-# %% PCA - layered view per variant
-for variant, s in samples.items():
-    build_layered_figure(s, "pca", title=f"PCA - {variant} persona vectors").show()
-
-# %% PCA (3D) - layered view per variant
+# %% PCA (3D) - layered view per variant, colored by k-means (k-means++) clusters
+# Tweak N_CLUSTERS for your persona set. Clusters are fit once on the per-persona
+# mean across layers so each persona keeps one stable color across every frame
+# (per-layer re-clustering would shuffle colors as you slide).
+# For the 2D version, drop n_components=3 (2D is the default).
+N_CLUSTERS = 5
 for variant, s in samples.items():
     build_layered_figure(
         s,
         "pca",
-        title=f"PCA (3D) - {variant} persona vectors",
+        title=f"PCA (3D) - {variant} persona vectors (k-means, k={N_CLUSTERS})",
         n_components=3,
+        n_clusters=N_CLUSTERS,
     ).show()
 
 # %% Centered similarity matrix - layered view per variant

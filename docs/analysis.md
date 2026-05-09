@@ -71,7 +71,7 @@ analysis helpers, then pass the resulting `LayeredSamples` to the plot builders.
 |---|---|
 | `plot_scree(variance_by_condition, n_components=20, cumulative=True)` | Comparing PCA spectra across representative layers |
 | `plot_layer_similarity(traces, ...)` | Cosine similarity per layer across prompt variants |
-| `build_layered_figure(samples, kind, layers=...)` | Interactive PCA, UMAP, or similarity figure with layer controls |
+| `build_layered_figure(samples, kind, layers=..., n_clusters=...)` | Interactive PCA, UMAP, or similarity figure with layer controls; pass `n_clusters` to color points by k-means on the per-persona mean |
 | `build_pair_similarity_figure(samples, layers=...)` | Line trajectories for every persona pair across selected layers |
 
 ## CLI

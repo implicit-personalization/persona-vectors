@@ -9,6 +9,7 @@ from plotly.colors import qualitative
 
 from persona_vectors.analysis import (
     LayeredSamples,
+    cluster_kmeans,
     cosine_similarity_matrix,
     project_pca,
     project_umap,
@@ -338,7 +339,7 @@ def _embedding_trace(
     return trace_cls(**kwargs)
 
 
-def _build_layered_embedding_figure(
+def _build_layered_projection_figure(
     samples: LayeredSamples,
     selected_layers: list[int],
     title: str,
@@ -347,6 +348,7 @@ def _build_layered_embedding_figure(
     y_label: str,
     z_label: str | None = None,
     n_components: int = 2,
+    groups: list[str] | None = None,
 ) -> go.Figure:
     if n_components not in (2, 3):
         raise ValueError("n_components must be 2 or 3")
@@ -358,34 +360,34 @@ def _build_layered_embedding_figure(
         layer: tuple(_coordinate_range(coords, axis) for axis in range(n_components))
         for layer, coords in layer_coords.items()
     }
-    unique_labels = sorted(set(samples.labels), key=lambda value: value.casefold())
-    label_colors = _label_color_map(samples.labels)
-    label_indices = {
-        label: [index for index, value in enumerate(samples.labels) if value == label]
-        for label in unique_labels
+
+    if groups is None:
+        groups = list(samples.labels)
+    unique_groups = sorted(set(groups), key=lambda v: v.casefold())
+    group_colors = _label_color_map(groups)
+    group_indices = {
+        g: [i for i, v in enumerate(groups) if v == g] for g in unique_groups
     }
     is_3d = n_components == 3
 
-    first_layer = selected_layers[0]
-    first_coords = layer_coords[first_layer]
-    traces = []
-    for label in unique_labels:
-        indices = label_indices[label]
-        marker = dict(size=5 if is_3d else 9, opacity=0.82, color=label_colors[label])
-        text = [samples.hover_text[index] for index in indices]
-        traces.append(
-            _embedding_trace(
-                first_coords,
-                indices,
-                n_components=n_components,
-                name=label,
-                marker=marker,
-                text=text,
-                hovertemplate=_embedding_hovertemplate(
-                    label, x_label, y_label, z_label if is_3d else None
-                ),
-            )
+    def _make_trace(group: str, coords: torch.Tensor):
+        indices = group_indices[group]
+        return _embedding_trace(
+            coords,
+            indices,
+            n_components=n_components,
+            name=group,
+            marker=dict(
+                size=5 if is_3d else 9, opacity=0.82, color=group_colors[group]
+            ),
+            text=[samples.hover_text[i] for i in indices],
+            hovertemplate=_embedding_hovertemplate(
+                group, x_label, y_label, z_label if is_3d else None
+            ),
         )
+
+    first_layer = selected_layers[0]
+    traces = [_make_trace(g, layer_coords[first_layer]) for g in unique_groups]
     frames = []
     for layer in selected_layers:
         coords = layer_coords[layer]
@@ -398,14 +400,7 @@ def _build_layered_embedding_figure(
         else:
             x_range, y_range = ranges
             frame_layout = _layer_frame_layout(title, layer, x_range, y_range)
-        data = [
-            _embedding_trace(
-                coords,
-                label_indices[label],
-                n_components=n_components,
-            )
-            for label in unique_labels
-        ]
+        data = [_make_trace(g, coords) for g in unique_groups]
         frames.append(go.Frame(name=str(layer), data=data, layout=frame_layout))
 
     fig = go.Figure(data=traces, frames=frames)
@@ -569,6 +564,8 @@ def build_layered_figure(
     layers: list[int] | None = None,
     title: str | None = None,
     n_components: int = 2,
+    n_clusters: int | None = None,
+    cluster_seed: int = 0,
 ) -> go.Figure:
     """Build an interactive per-layer PCA, UMAP, or similarity figure.
 
@@ -577,14 +574,31 @@ def build_layered_figure(
     layer slider/animation controls used by all layered plots.
 
     For ``kind="pca"`` and ``kind="umap"``, ``n_components`` selects between a
-    2D scatter (default) and a 3D scatter view.
+    2D scatter (default) and a 3D scatter view. Pass ``n_clusters=k`` to color
+    points by k-means (on the per-persona mean across layers) instead of by
+    persona name; the persona name stays in the hover tooltip. Clusters are
+    fit once globally so each persona keeps one stable color across all
+    frames; per-layer re-clustering would shuffle colors arbitrarily as you
+    slide. Only valid for ``kind`` in ``{"pca", "umap"}``.
     """
 
     selected_layers = _validate_layers(samples.vectors, layers)
     if samples.vectors.shape[0] < 2:
         raise ValueError("At least two samples are required")
+
+    groups: list[str] | None = None
+    if n_clusters is not None:
+        if kind == "similarity":
+            raise ValueError("n_clusters is only valid for kind in {'pca', 'umap'}")
+        cluster_ids = cluster_kmeans(
+            samples.vectors.mean(dim=1),
+            n_clusters=n_clusters,
+            seed=cluster_seed,
+        )
+        groups = [f"Cluster {c}" for c in cluster_ids]
+
     if kind == "pca":
-        return _build_layered_embedding_figure(
+        return _build_layered_projection_figure(
             samples,
             selected_layers,
             title=title
@@ -594,9 +608,10 @@ def build_layered_figure(
             y_label="PC2",
             z_label="PC3" if n_components == 3 else None,
             n_components=n_components,
+            groups=groups,
         )
     if kind == "umap":
-        return _build_layered_embedding_figure(
+        return _build_layered_projection_figure(
             samples,
             selected_layers,
             title=title
@@ -610,6 +625,7 @@ def build_layered_figure(
             y_label="UMAP 2",
             z_label="UMAP 3" if n_components == 3 else None,
             n_components=n_components,
+            groups=groups,
         )
     if kind == "similarity":
         return _build_layered_similarity_figure(

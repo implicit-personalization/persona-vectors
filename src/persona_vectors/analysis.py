@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from persona_data.synth_persona import BASELINE_PERSONA_ID
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
 from persona_vectors.artifacts import ActivationStore, HFActivationStore
@@ -281,6 +282,22 @@ def run_saved_activation_analysis(
     scree_fig.write_html(str(scree_path))
     outputs["pca_scree"] = scree_path
     return outputs
+
+
+def cluster_kmeans(
+    samples: torch.Tensor,
+    n_clusters: int,
+    *,
+    seed: int = 0,
+) -> np.ndarray:
+    """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
+    if samples.ndim != 2:
+        raise ValueError("samples must have shape (n_samples, hidden_size)")
+    return KMeans(
+        n_clusters=n_clusters,
+        n_init="auto",
+        random_state=seed,
+    ).fit_predict(samples.float().cpu().numpy())
 
 
 def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
