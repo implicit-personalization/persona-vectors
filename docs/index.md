@@ -59,8 +59,11 @@ uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> -
 # Same extraction flow with token-mask preview and a short sample run
 # (set verbose=True in the notebook)
 
-# Inspect Hub comparison views, or local artifacts after switching the store
-uv run python -m notebooks.notebook_compare
+# PCA + cluster colorings (Hub by default; switch the store in-file for local)
+uv run python -m notebooks.notebook_pca
+
+# Pairwise similarity, dendrograms, and prompt-variant cosine views
+uv run python -m notebooks.notebook_similarity
 
 # Optional: compute an experimental steering vector from saved activations
 uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20

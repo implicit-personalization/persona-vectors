@@ -19,7 +19,11 @@ from persona_vectors.artifacts import (
     HFActivationStore,
     model_dir_name,
 )
-from persona_vectors.plots import build_layered_figure, build_pair_similarity_figure
+from persona_vectors.plots import (
+    build_layered_figure,
+    build_pair_similarity_figure,
+    plot_persona_dendrogram,
+)
 from persona_vectors.steering import compute_steering_vector
 
 
@@ -52,6 +56,19 @@ def test_projection_plots_validate_component_count() -> None:
 
     with pytest.raises(ValueError, match="UMAP requires at least 3 samples"):
         build_layered_figure(samples, "umap", layers=[0], n_components=2)
+
+
+def test_layered_dendrogram_has_layer_controls() -> None:
+    samples = _layered_samples()
+
+    fig = plot_persona_dendrogram(samples, layered=True, layers=[0, 1])
+
+    assert [frame.name for frame in fig.frames] == ["0", "1"]
+    assert fig.layout.sliders[0].steps[0].label == "0"
+    assert fig.layout.sliders[0].pad.t == 115
+    assert fig.layout.updatemenus[0].buttons[0].label == "Play"
+    assert fig.layout.margin.b == 260
+    assert all(frame.layout.yaxis.range is not None for frame in fig.frames)
 
 
 def test_smoke() -> None:

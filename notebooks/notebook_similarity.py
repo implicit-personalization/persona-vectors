@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
-"""Compare persona vectors from the Hub or local artifacts."""
+"""Pairwise similarity, dendrogram, and prompt-variant views over persona vectors.
+
+For PCA and clustering colorings see ``notebook_pca.py``.
+"""
 
 # %% Imports
-
 from itertools import combinations
 
 import torch
@@ -11,18 +13,14 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import (
-    list_comparison_personas,
-    load_persona_vectors,
-    pca_explained_variance,
-)
+from persona_vectors.analysis import list_comparison_personas, load_persona_vectors
 from persona_vectors.artifacts import HFActivationStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
     build_layered_figure,
     build_pair_similarity_figure,
     plot_layer_similarity,
-    plot_scree,
+    plot_persona_dendrogram,
 )
 
 console = Console()
@@ -36,6 +34,7 @@ MODEL_NAME = "google/gemma-2-9b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 VARIANTS = ["biography", "templated"]
 INCLUDE_BASELINE = False
+MAX_SAMPLE_PERSONAS = 15
 
 # %% Load activation store
 # Default: read the published Hub artifact dataset. To use local artifacts
@@ -51,6 +50,7 @@ persona_ids = list_comparison_personas(
     comparison_variants,
     include_baseline=INCLUDE_BASELINE,
 )
+sample_persona_ids = persona_ids[:MAX_SAMPLE_PERSONAS]
 
 summary = Table(title="Activation Dataset")
 summary.add_column("Property", style="cyan")
@@ -61,54 +61,28 @@ summary.add_row("Model", store.model_name)
 summary.add_row("Config", getattr(store, "config_name", str(MASK_STRATEGY)))
 summary.add_row("Available variants", ", ".join(available_variants))
 summary.add_row("Compared variants", ", ".join(comparison_variants))
-summary.add_row("Personas loaded", str(len(persona_ids)))
+summary.add_row("Personas sampled", str(len(sample_persona_ids)))
 console.print(summary)
 
-# %% Load persona vectors for each variant
+# %% Load persona vectors for the sampled personas
 samples = {
-    variant: load_persona_vectors(store, variant, persona_ids=persona_ids)
+    variant: load_persona_vectors(store, variant, persona_ids=sample_persona_ids)
     for variant in comparison_variants
 }
 
-# %% Scree plot - PCA explained variance for representative layers
-# NOTE: Usually the first 5-6 components carry most of the visible structure.
+# %% Ward dendrogram - sampled personas, layered view per variant
+# Uses the same layer slider controls as the PCA/UMAP/similarity figures.
 for variant, s in samples.items():
-    num_layers = int(s.vectors.shape[1])
-    scree_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
-    plot_scree(
-        {
-            f"layer {layer}": pca_explained_variance(s.vectors[:, layer, :])
-            for layer in scree_layers
-        },
-        title=f"PCA explained variance - {variant} persona vectors",
-        show=True,
-    )
-
-# %% PCA (3D) - layered view per variant, colored by k-means (k-means++) clusters
-# Tweak N_CLUSTERS for your persona set. Clusters are fit once on the per-persona
-# mean across layers so each persona keeps one stable color across every frame
-# (per-layer re-clustering would shuffle colors as you slide).
-# For the 2D version, drop n_components=3 (2D is the default).
-N_CLUSTERS = 5
-for variant, s in samples.items():
-    build_layered_figure(
+    plot_persona_dendrogram(
         s,
-        "pca",
-        title=f"PCA (3D) - {variant} persona vectors (k-means, k={N_CLUSTERS})",
-        n_components=3,
-        n_clusters=N_CLUSTERS,
+        layered=True,
+        title=f"Ward dendrogram - {variant} persona vectors",
     ).show()
 
 # %% Centered similarity matrix - layered view per variant
-MAX_PAIR_PERSONAS = 10
-samples_small = {
-    variant: load_persona_vectors(
-        store, variant, persona_ids=persona_ids[:MAX_PAIR_PERSONAS]
-    )
-    for variant in comparison_variants
-}
-
-for variant, s in samples_small.items():
+# Uses the same sampled personas as the dendrogram, so the notebook stays small
+# enough to run quickly in tests.
+for variant, s in samples.items():
     build_layered_figure(
         s,
         "similarity",
@@ -116,7 +90,7 @@ for variant, s in samples_small.items():
     ).show()
 
 # %% Pair similarity - centered cosine trajectories per variant
-for variant, s in samples_small.items():
+for variant, s in samples.items():
     build_pair_similarity_figure(
         s,
         title=f"Pair similarity trajectories - {variant} persona vectors",
@@ -136,7 +110,7 @@ plot_layer_similarity(
 )
 
 # %% Prompt-variant similarity - one trace per persona
-# This is the detailed original comparison view; it can get busy with many personas.
+# Detailed per-persona view; gets busy with many personas.
 comparison_pairs = list(combinations(comparison_variants, 2))
 persona_labels = next(iter(samples.values())).labels
 all_pair_traces = []
@@ -154,5 +128,5 @@ for persona_index, persona_name in enumerate(persona_labels):
 plot_layer_similarity(
     all_pair_traces,
     title="Layer-wise cosine similarity - all personas and variant pairs",
-    show=True,
+    show=False,
 )

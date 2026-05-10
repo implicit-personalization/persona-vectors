@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from persona_data.synth_persona import BASELINE_PERSONA_ID
-from sklearn.cluster import KMeans
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
 from persona_vectors.artifacts import ActivationStore, HFActivationStore
@@ -284,20 +284,38 @@ def run_saved_activation_analysis(
     return outputs
 
 
-def cluster_kmeans(
-    samples: torch.Tensor,
-    n_clusters: int,
-    *,
-    seed: int = 0,
-) -> np.ndarray:
-    """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
+def _cluster_input(samples: torch.Tensor) -> np.ndarray:
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
-    return KMeans(
-        n_clusters=n_clusters,
-        n_init="auto",
-        random_state=seed,
-    ).fit_predict(samples.float().cpu().numpy())
+    return samples.float().cpu().numpy()
+
+
+def cluster_kmeans(
+    samples: torch.Tensor, n_clusters: int, *, seed: int = 0
+) -> np.ndarray:
+    """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
+    return KMeans(n_clusters=n_clusters, n_init="auto", random_state=seed).fit_predict(
+        _cluster_input(samples)
+    )
+
+
+def cluster_agglomerative_ward(samples: torch.Tensor, n_clusters: int) -> np.ndarray:
+    """Hierarchical cluster labels using Ward linkage."""
+    return AgglomerativeClustering(n_clusters=n_clusters, linkage="ward").fit_predict(
+        _cluster_input(samples)
+    )
+
+
+def cluster_hdbscan(
+    samples: torch.Tensor,
+    *,
+    min_cluster_size: int = 2,
+    min_samples: int | None = None,
+) -> np.ndarray:
+    """HDBSCAN cluster labels; ``-1`` marks noise points (no chosen ``k``)."""
+    return HDBSCAN(
+        min_cluster_size=min_cluster_size, min_samples=min_samples, copy=True
+    ).fit_predict(_cluster_input(samples))
 
 
 def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:

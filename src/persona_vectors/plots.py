@@ -9,6 +9,7 @@ from plotly.colors import qualitative
 
 from persona_vectors.analysis import (
     LayeredSamples,
+    cluster_hdbscan,
     cluster_kmeans,
     cosine_similarity_matrix,
     project_pca,
@@ -178,12 +179,12 @@ def _validate_layers(vectors: torch.Tensor, layers: list[int] | None) -> list[in
     return selected
 
 
-def _layer_slider(selected_layers: list[int]) -> list[dict]:
+def _layer_slider(selected_layers: list[int], pad_t: int = 45) -> list[dict]:
     return [
         dict(
             active=0,
             currentvalue=dict(prefix="Layer "),
-            pad=dict(t=45),
+            pad=dict(t=pad_t),
             steps=[
                 dict(
                     label=str(layer),
@@ -287,6 +288,18 @@ def _coordinate_range(coords: torch.Tensor, axis: int) -> list[float]:
     else:
         padding = (high - low) * 0.08
     return [low - padding, high + padding]
+
+
+def _trace_y_range(traces) -> list[float]:
+    high = 0.0
+    for trace in traces:
+        for value in trace.y:
+            if value is None:
+                continue
+            numeric = float(value)
+            if np.isfinite(numeric):
+                high = max(high, numeric)
+    return [0.0, high * 1.08 if high > 0 else 1.0]
 
 
 def _embedding_hovertemplate(
@@ -558,6 +571,163 @@ def build_pair_similarity_figure(
     return fig
 
 
+def plot_hdbscan_cluster_counts(
+    samples_by_variant: dict[str, LayeredSamples],
+    *,
+    min_cluster_size: int = 2,
+    layers: list[int] | None = None,
+    title: str = "HDBSCAN clusters by layer",
+) -> go.Figure:
+    """Per-layer HDBSCAN cluster count, one trace per variant.
+
+    Hover also shows the number of points HDBSCAN labels as noise at that layer.
+    """
+    fig = go.Figure()
+    colors = _label_color_map(list(samples_by_variant))
+    for variant, samples in samples_by_variant.items():
+        selected = _validate_layers(samples.vectors, layers)
+        counts, noise = [], []
+        for layer in selected:
+            ids = cluster_hdbscan(
+                samples.vectors[:, layer, :], min_cluster_size=min_cluster_size
+            )
+            counts.append(len(set(ids) - {-1}))
+            noise.append(int((ids == -1).sum()))
+        fig.add_trace(
+            go.Scatter(
+                x=selected,
+                y=counts,
+                mode="lines+markers",
+                name=variant,
+                line=dict(color=colors[variant]),
+                customdata=noise,
+                hovertemplate=(
+                    f"{variant}<br>Layer %{{x}}<br>"
+                    "Clusters: %{y}<br>Noise points: %{customdata}<extra></extra>"
+                ),
+            )
+        )
+    fig.update_layout(
+        title=title,
+        xaxis_title="Layer",
+        yaxis_title="Cluster count",
+        template="plotly_white",
+        hovermode="x",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
+    )
+    return fig
+
+
+def plot_persona_dendrogram(
+    samples: LayeredSamples,
+    *,
+    layer: int | None = None,
+    layers: list[int] | None = None,
+    layered: bool = False,
+    title: str | None = None,
+) -> go.Figure:
+    """Hierarchical-linkage dendrogram over personas.
+
+    Computed by default on the per-persona mean activation across all layers,
+    matching the global clustering convention; pass ``layer`` for a single
+    layer. Pass ``layered=True`` to build an interactive per-layer dendrogram
+    with the shared layer slider/animation controls. Uses Ward linkage. Width
+    auto-scales with the persona count so labels stay readable.
+    """
+    from plotly.figure_factory import create_dendrogram
+    from scipy.cluster.hierarchy import linkage
+
+    if layer is not None and (layered or layers is not None):
+        raise ValueError("Pass either layer or layered/layers, not both")
+
+    if layered or layers is not None:
+        selected_layers = _validate_layers(samples.vectors, layers)
+        n = len(samples.labels)
+        plot_title = title or "Ward dendrogram"
+        layer_figs = {
+            selected_layer: create_dendrogram(
+                samples.vectors[:, selected_layer, :].float().cpu().numpy(),
+                labels=samples.labels,
+                linkagefun=lambda x: linkage(x, method="ward"),
+            )
+            for selected_layer in selected_layers
+        }
+        first_layer = selected_layers[0]
+        first_fig = layer_figs[first_layer]
+        layer_y_ranges = {
+            selected_layer: _trace_y_range(layer_fig.data)
+            for selected_layer, layer_fig in layer_figs.items()
+        }
+
+        frames = []
+        for selected_layer in selected_layers:
+            layer_fig = layer_figs[selected_layer]
+            frame_layout = _layer_frame_layout(plot_title, selected_layer)
+            frame_layout["xaxis"] = layer_fig.layout.xaxis.to_plotly_json()
+            frame_layout["yaxis"] = layer_fig.layout.yaxis.to_plotly_json()
+            frame_layout["yaxis"]["title"] = "Ward distance"
+            frame_layout["yaxis"]["range"] = layer_y_ranges[selected_layer]
+            frames.append(
+                go.Frame(
+                    name=str(selected_layer),
+                    data=list(layer_fig.data),
+                    layout=frame_layout,
+                )
+            )
+
+        fig = go.Figure(data=list(first_fig.data), frames=frames)
+        fig.update_layout(
+            title={
+                "text": f"{plot_title} - Layer {first_layer}",
+                "font": {"size": 24},
+                "y": 0.98,
+                "yanchor": "top",
+            },
+            template="plotly_white",
+            margin=dict(t=140, b=260),
+            yaxis_title="Ward distance",
+            width=max(800, 18 * n),
+            updatemenus=_layer_animation_buttons(),
+            sliders=_layer_slider(selected_layers, pad_t=115),
+        )
+        fig.update_xaxes(
+            **first_fig.layout.xaxis.to_plotly_json(),
+            tickangle=-45,
+            automargin=True,
+        )
+        fig.update_yaxes(
+            **first_fig.layout.yaxis.to_plotly_json(),
+            range=layer_y_ranges[first_layer],
+            automargin=True,
+        )
+        return fig
+
+    if layer is None:
+        data = samples.vectors.mean(dim=1)
+        suffix = "mean across layers"
+    else:
+        _validate_layers(samples.vectors, [layer])
+        data = samples.vectors[:, layer, :]
+        suffix = f"layer {layer}"
+
+    n = len(samples.labels)
+    fig = create_dendrogram(
+        data.float().cpu().numpy(),
+        labels=samples.labels,
+        linkagefun=lambda x: linkage(x, method="ward"),
+    )
+    fig.update_layout(
+        title=title or f"Ward dendrogram - {suffix}",
+        template="plotly_white",
+        margin=dict(t=80, b=160),
+        yaxis_title="Ward distance",
+        width=max(800, 18 * n),
+    )
+    fig.update_xaxes(tickangle=-45, automargin=True)
+    fig.update_yaxes(automargin=True)
+    return fig
+
+
 def build_layered_figure(
     samples: LayeredSamples,
     kind: str,
@@ -566,6 +736,7 @@ def build_layered_figure(
     n_components: int = 2,
     n_clusters: int | None = None,
     cluster_seed: int = 0,
+    groups: list[str] | None = None,
 ) -> go.Figure:
     """Build an interactive per-layer PCA, UMAP, or similarity figure.
 
@@ -574,28 +745,38 @@ def build_layered_figure(
     layer slider/animation controls used by all layered plots.
 
     For ``kind="pca"`` and ``kind="umap"``, ``n_components`` selects between a
-    2D scatter (default) and a 3D scatter view. Pass ``n_clusters=k`` to color
-    points by k-means (on the per-persona mean across layers) instead of by
-    persona name; the persona name stays in the hover tooltip. Clusters are
-    fit once globally so each persona keeps one stable color across all
-    frames; per-layer re-clustering would shuffle colors arbitrarily as you
-    slide. Only valid for ``kind`` in ``{"pca", "umap"}``.
+    2D scatter (default) and a 3D scatter view. Two ways to override the
+    default per-persona coloring (only valid for ``kind`` in
+    ``{"pca", "umap"}``):
+
+    - ``n_clusters=k``: convenience for k-means on the per-persona mean across
+      layers, giving each persona one stable color across all frames.
+    - ``groups``: a length-``n_samples`` list of group labels (e.g. produced
+      by ``cluster_agglomerative_ward`` or ``cluster_hdbscan``). Use this for
+      any clustering method you want.
+
+    ``n_clusters`` and ``groups`` are mutually exclusive.
     """
 
     selected_layers = _validate_layers(samples.vectors, layers)
-    if samples.vectors.shape[0] < 2:
+    n_samples = samples.vectors.shape[0]
+    if n_samples < 2:
         raise ValueError("At least two samples are required")
 
-    groups: list[str] | None = None
+    if n_clusters is not None and groups is not None:
+        raise ValueError("Pass either n_clusters or groups, not both")
     if n_clusters is not None:
-        if kind == "similarity":
-            raise ValueError("n_clusters is only valid for kind in {'pca', 'umap'}")
         cluster_ids = cluster_kmeans(
-            samples.vectors.mean(dim=1),
-            n_clusters=n_clusters,
-            seed=cluster_seed,
+            samples.vectors.mean(dim=1), n_clusters=n_clusters, seed=cluster_seed
         )
         groups = [f"Cluster {c}" for c in cluster_ids]
+    if groups is not None:
+        if kind == "similarity":
+            raise ValueError(
+                "groups/n_clusters are not supported for kind='similarity'"
+            )
+        if len(groups) != n_samples:
+            raise ValueError(f"groups must have length {n_samples}; got {len(groups)}")
 
     if kind == "pca":
         return _build_layered_projection_figure(

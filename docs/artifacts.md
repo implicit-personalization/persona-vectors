@@ -107,8 +107,9 @@ is read-only, but exposes the same discovery methods as
 Ask for variants in preference order if the published dataset does not have
 every local prompt variant yet.
 
-For a complete PCA/similarity example using the published dataset directly, see
-`notebooks/notebook_compare.py`.
+For complete examples using the published dataset directly, see
+`notebooks/notebook_pca.py` (PCA scatter + clustering colorings) and
+`notebooks/notebook_similarity.py` (heatmaps, dendrograms, variant cosine).
 
 ## File Format
 

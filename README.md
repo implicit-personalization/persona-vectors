@@ -24,7 +24,8 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 persona-vectors/
 ├── notebooks/
 │   ├── notebook_extract.py      # Extraction pipeline (primary working script)
-│   ├── notebook_compare.py      # Compare Hub or local activation artifacts
+│   ├── notebook_pca.py          # PCA scree + 3D PCA colored by k-means / Ward / HDBSCAN
+│   ├── notebook_similarity.py   # Persona similarity heatmap, dendrograms, variant cosine
 │   └── notebook_steer.py        # Steering experiments
 ├── src/persona_vectors/
 │   ├── activations.py           # Core extraction helpers
@@ -60,8 +61,11 @@ Python `>=3.12` is required.
 # Extract activations (run this first)
 uv run python -m notebooks.notebook_extract
 
-# Compare Hub artifacts, or local artifacts by uncommenting the local store
-uv run python -m notebooks.notebook_compare
+# PCA + clustering colorings (Hub artifacts; uncomment in-file for local store)
+uv run python -m notebooks.notebook_pca
+
+# Pairwise similarity, dendrograms, and prompt-variant cosine views
+uv run python -m notebooks.notebook_similarity
 
 # Build interactive persona-vector PCA and similarity plots from saved activations
 uv run python main.py analyze --model google/gemma-2-9b-it --variant biography --mask-strategy answer_mean
@@ -85,10 +89,12 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 3. Extract activations and average them across QA pairs
 4. Save the persona-level activation tensor to disk
 
-`notebook_compare.py` uses `HFActivationStore` by default to load the published
-Hub dataset, compares shared persona vectors across variants, and runs PCA and
-similarity views. It includes commented lines for switching to local
-`ActivationStore` artifacts.
+`notebook_pca.py` and `notebook_similarity.py` both use `HFActivationStore` by
+default to load the published Hub dataset, with commented lines for switching
+to local `ActivationStore` artifacts. The first focuses on 3D PCA scatter
+views colored by k-means / Ward / HDBSCAN clusters; the second covers
+pairwise persona similarity, hierarchical dendrograms (Ward and single
+linkage), and prompt-variant cosine comparisons.
 
 `notebook_steer.py` loads saved activations and computes a steering vector for a
 selected persona.
