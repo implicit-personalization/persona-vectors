@@ -24,7 +24,7 @@ The resulting vectors can be compared across layers (cosine similarity) and even
 persona-vectors/
 ├── notebooks/
 │   ├── notebook_extract.py      # Extraction pipeline (primary working script)
-│   ├── notebook_pca.py          # PCA scree + 3D PCA colored by k-means / Ward / HDBSCAN
+│   ├── notebook_pca.py          # PCA scree + 3D PCA colored by clustering labels
 │   ├── notebook_similarity.py   # Persona similarity heatmap, dendrograms, variant cosine
 │   └── notebook_steer.py        # Steering experiments
 ├── src/persona_vectors/
@@ -92,9 +92,11 @@ The Streamlit UI lives in the sibling [persona-ui](../persona-ui) repo.
 `notebook_pca.py` and `notebook_similarity.py` both use `HFActivationStore` by
 default to load the published Hub dataset, with commented lines for switching
 to local `ActivationStore` artifacts. The first focuses on 3D PCA scatter
-views colored by k-means / Ward / HDBSCAN clusters; the second covers
-pairwise persona similarity, hierarchical dendrograms (Ward and single
-linkage), and prompt-variant cosine comparisons.
+views colored by k-means / agglomerative / HDBSCAN clusters; the second covers
+pairwise persona similarity, hierarchical dendrograms with selectable linkage,
+and prompt-variant cosine comparisons. Clustering and dendrograms use centered,
+unit-normalized inputs by default so labels reflect vector direction more than
+raw magnitude.
 
 `notebook_steer.py` loads saved activations and computes a steering vector for a
 selected persona.

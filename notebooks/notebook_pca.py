@@ -14,11 +14,11 @@ from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.analysis import (
-    cluster_agglomerative_ward,
     cluster_hdbscan,
     list_comparison_personas,
     load_persona_vectors,
     pca_explained_variance,
+    prepare_layer_mean_cluster_samples,
 )
 from persona_vectors.artifacts import HFActivationStore
 from persona_vectors.extraction import MaskStrategy
@@ -88,9 +88,9 @@ for variant, s in samples.items():
     )
 
 # %% PCA (3D) - layered view per variant, colored by k-means (k-means++) clusters
-# Tweak N_CLUSTERS for your persona set. Clusters are fit once on the per-persona
-# mean across layers so each persona keeps one stable color across every frame
-# (per-layer re-clustering would shuffle colors as you slide).
+# Tweak N_CLUSTERS for your persona set. Clusters are fit once on centered/unit
+# per-layer means so each persona keeps one stable color across every frame
+# without larger-norm layers dominating the clusters.
 # For the 2D version, drop n_components=3 (2D is the default).
 N_CLUSTERS = 5
 for variant, s in samples.items():
@@ -102,32 +102,16 @@ for variant, s in samples.items():
         n_clusters=N_CLUSTERS,
     ).show()
 
-# %% PCA (3D) - colored by Agglomerative (Ward) hierarchical clusters
-# Same per-persona mean across layers as k-means, but using Ward linkage so
-# clusters are formed by repeatedly merging pairs that minimize within-cluster
-# variance. Still requires choosing k.
-WARD_N_CLUSTERS = 5
-for variant, s in samples.items():
-    cluster_ids = cluster_agglomerative_ward(
-        s.vectors.mean(dim=1), n_clusters=WARD_N_CLUSTERS
-    )
-    groups = [f"Cluster {c}" for c in cluster_ids]
-    build_layered_figure(
-        s,
-        "pca",
-        title=f"PCA (3D) - {variant} persona vectors (Ward, k={WARD_N_CLUSTERS})",
-        n_components=3,
-        groups=groups,
-    ).show()
-
 # %% PCA (3D) - colored by HDBSCAN (no k required; outliers labeled "Noise")
-# HDBSCAN picks cluster counts from data density. With small persona sets keep
-# MIN_CLUSTER_SIZE low (2-3); raise it as the persona count grows. Personas
-# that don't belong to any dense region are tagged "Noise".
-MIN_CLUSTER_SIZE = 2
+# HDBSCAN picks cluster counts from data density.
+MIN_CLUSTER_SIZE = 5
 for variant, s in samples.items():
+    cluster_input = prepare_layer_mean_cluster_samples(s.vectors)
     cluster_ids = cluster_hdbscan(
-        s.vectors.mean(dim=1), min_cluster_size=MIN_CLUSTER_SIZE
+        cluster_input,
+        min_cluster_size=MIN_CLUSTER_SIZE,
+        center=False,
+        normalize=False,
     )
     groups = ["Noise" if c == -1 else f"Cluster {c}" for c in cluster_ids]
     build_layered_figure(

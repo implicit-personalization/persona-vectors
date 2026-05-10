@@ -66,28 +66,40 @@ hidden_size)`. Returns a 1-D numpy array of length `n_components` (default:
 
 Three small wrappers around scikit-learn estimators for grouping personas in
 activation space. All take a 2-D `(n_samples, hidden_size)` tensor and return
-a 1-D numpy array of integer labels.
+a 1-D numpy array of integer labels. By default, inputs are centered across
+personas and L2-normalised per row before clustering; this makes clusters
+reflect vector direction/profile more than raw magnitude. Pass
+`center=False, normalize=False` for raw Euclidean clustering.
 
 | Function | Method | Notes |
 |---|---|---|
 | `cluster_kmeans(samples, n_clusters, *, seed=0)` | K-means (k-means++ init) | Requires `k`. Deterministic for fixed `seed`. |
-| `cluster_agglomerative_ward(samples, n_clusters)` | Hierarchical, Ward linkage | Requires `k`. Merges by minimising within-cluster variance. |
+| `cluster_agglomerative(samples, n_clusters, linkage=...)` | Hierarchical, `ward` / `average` / `complete` / `single` | Requires `k`. |
+| `cluster_agglomerative_ward(samples, n_clusters)` | Hierarchical, Ward linkage | Backwards-compatible Ward wrapper. |
 | `cluster_hdbscan(samples, *, min_cluster_size=2, min_samples=None)` | HDBSCAN | No `k`. Returns `-1` for noise points. |
 
 These pair with `build_layered_figure(..., groups=...)` to color a PCA/UMAP
-view by any clustering. Cluster once on the per-persona mean across layers
-(`samples.vectors.mean(dim=1)`) so each persona keeps a stable color across
-every frame; per-layer re-clustering would shuffle colors arbitrarily as you
-slide.
+view by any clustering. For stable colors across layer sliders, use
+`prepare_layer_mean_cluster_samples(samples.vectors)`: it centers and
+normalises within each layer before averaging, so larger-norm layers do not
+dominate the labels. Per-layer re-clustering would shuffle colors arbitrarily
+as you slide.
 
 ```python
-from persona_vectors.analysis import cluster_hdbscan, load_persona_vectors
+from persona_vectors.analysis import (
+    cluster_hdbscan,
+    load_persona_vectors,
+    prepare_layer_mean_cluster_samples,
+)
 from persona_vectors.artifacts import ActivationStore
 from persona_vectors.plots import build_layered_figure
 
 store = ActivationStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
 samples = load_persona_vectors(store, "biography")
-labels = cluster_hdbscan(samples.vectors.mean(dim=1), min_cluster_size=2)
+cluster_input = prepare_layer_mean_cluster_samples(samples.vectors)
+labels = cluster_hdbscan(
+    cluster_input, min_cluster_size=2, center=False, normalize=False
+)
 groups = ["Noise" if c == -1 else f"Cluster {c}" for c in labels]
 
 build_layered_figure(samples, "pca", n_components=3, groups=groups).show()
@@ -104,7 +116,7 @@ analysis helpers, then pass the resulting `LayeredSamples` to the plot builders.
 | `plot_layer_similarity(traces, ...)` | Cosine similarity per layer across prompt variants |
 | `build_layered_figure(samples, kind, layers=..., n_clusters=..., groups=...)` | Interactive PCA, UMAP, or similarity figure with layer controls. Pass `n_clusters=k` for a quick k-means coloring, or `groups=[...]` to color by labels from any clustering helper. |
 | `build_pair_similarity_figure(samples, layers=...)` | Line trajectories for every persona pair across selected layers |
-| `plot_persona_dendrogram(samples, layer=..., layered=True, layers=...)` | Ward dendrogram over personas. Defaults to the per-persona mean across layers; pass `layer=N` for a single-layer view, or `layered=True` for an interactive per-layer slider. Width auto-scales with persona count. |
+| `plot_persona_dendrogram(samples, linkage="ward", layer=..., layered=True, layers=...)` | Hierarchical dendrogram over personas. Supports `ward`, `average`, `complete`, and `single`; centered/unit inputs are the default. Without `layer`, it uses the normalized per-layer mean. |
 | `plot_hdbscan_cluster_counts(samples_by_variant, min_cluster_size=...)` | Per-layer HDBSCAN cluster count, one trace per variant. Useful for checking whether persona structure becomes more or less clustered across depth. Hover shows the noise-point count. |
 
 ## CLI
@@ -135,15 +147,14 @@ switching to local artifacts.
 
 ### `notebook_pca.py`
 
-PCA scree, then 3D PCA colored by k-means, Ward, and HDBSCAN clusters. Ends
-with the per-layer HDBSCAN cluster-count summary (commented out by default,
-since it re-runs HDBSCAN on every layer).
+PCA scree, then 3D PCA colored by k-means and HDBSCAN clusters.
+Cluster labels use centered/unit per-layer means by default. 
 
 ### `notebook_similarity.py`
 
-Centered persona-similarity heatmaps, hierarchical dendrograms with layer
-sliders, per-persona pair similarity trajectories, and prompt-variant cosine
-comparisons.
+Centered persona-similarity heatmaps, hierarchical dendrograms with selectable
+linkage and layer sliders, per-persona pair similarity trajectories, and
+prompt-variant cosine comparisons.
 
 ## Quick example
 

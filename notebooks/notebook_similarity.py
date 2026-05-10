@@ -71,11 +71,12 @@ samples = {
 }
 
 # %% Ward dendrogram - sampled personas, layered view per variant
-# Uses the same layer slider controls as the PCA/UMAP/similarity figures.
+# Centered/unit vectors are used by default,
 for variant, s in samples.items():
     plot_persona_dendrogram(
         s,
         layered=True,
+        linkage="ward",
         title=f"Ward dendrogram - {variant} persona vectors",
     ).show()
 

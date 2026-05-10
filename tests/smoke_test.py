@@ -69,6 +69,17 @@ def test_layered_dendrogram_has_layer_controls() -> None:
     assert fig.layout.updatemenus[0].buttons[0].label == "Play"
     assert fig.layout.margin.b == 260
     assert all(frame.layout.yaxis.range is not None for frame in fig.frames)
+    assert fig.frames[0].layout.yaxis.range == fig.frames[1].layout.yaxis.range
+
+
+@pytest.mark.parametrize("linkage", ["average", "complete", "single", "ward"])
+def test_dendrogram_supports_linkage_options(linkage: str) -> None:
+    samples = _layered_samples()
+
+    fig = plot_persona_dendrogram(samples, linkage=linkage)
+
+    assert fig.data
+    assert linkage.title() in fig.layout.title.text
 
 
 def test_smoke() -> None:

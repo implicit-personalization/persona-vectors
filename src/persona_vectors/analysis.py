@@ -284,25 +284,101 @@ def run_saved_activation_analysis(
     return outputs
 
 
-def _cluster_input(samples: torch.Tensor) -> np.ndarray:
+def prepare_cluster_samples(
+    samples: torch.Tensor, *, center: bool = True, normalize: bool = True
+) -> torch.Tensor:
+    """Preprocess a 2-D sample matrix for distance-based clustering.
+
+    Centering removes the shared residual-stream component across personas.
+    L2 normalization keeps clusters focused on direction/profile similarity
+    instead of raw vector magnitude.
+    """
+
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
-    return samples.float().cpu().numpy()
+    prepared = samples.float()
+    if center:
+        prepared = _center_features(prepared)
+    if normalize:
+        prepared = F.normalize(prepared, dim=1)
+    return prepared
 
 
-def cluster_kmeans(
-    samples: torch.Tensor, n_clusters: int, *, seed: int = 0
+def prepare_layer_mean_cluster_samples(
+    vectors: torch.Tensor, *, center: bool = True, normalize: bool = True
+) -> torch.Tensor:
+    """Return one stable clustering vector per persona from layered vectors.
+
+    For ``(n_samples, n_layers, hidden_size)`` inputs, preprocessing is applied
+    within each layer before averaging across layers. That prevents larger-norm
+    layers from dominating the global cluster labels used to color layer sliders.
+    """
+
+    if vectors.ndim != 3:
+        raise ValueError("vectors must have shape (n_samples, n_layers, hidden_size)")
+    prepared = vectors.float()
+    if center:
+        prepared = prepared - prepared.mean(dim=0, keepdim=True)
+    if normalize:
+        prepared = F.normalize(prepared, dim=2)
+    return prepared.mean(dim=1)
+
+
+def _cluster_input(
+    samples: torch.Tensor, *, center: bool = True, normalize: bool = True
 ) -> np.ndarray:
-    """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
-    return KMeans(n_clusters=n_clusters, n_init="auto", random_state=seed).fit_predict(
-        _cluster_input(samples)
+    return (
+        prepare_cluster_samples(samples, center=center, normalize=normalize)
+        .cpu()
+        .numpy()
     )
 
 
-def cluster_agglomerative_ward(samples: torch.Tensor, n_clusters: int) -> np.ndarray:
+def cluster_kmeans(
+    samples: torch.Tensor,
+    n_clusters: int,
+    *,
+    seed: int = 0,
+    center: bool = True,
+    normalize: bool = True,
+) -> np.ndarray:
+    """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
+    return KMeans(n_clusters=n_clusters, n_init="auto", random_state=seed).fit_predict(
+        _cluster_input(samples, center=center, normalize=normalize)
+    )
+
+
+def cluster_agglomerative(
+    samples: torch.Tensor,
+    n_clusters: int,
+    *,
+    linkage: str = "ward",
+    center: bool = True,
+    normalize: bool = True,
+) -> np.ndarray:
+    """Hierarchical cluster labels using sklearn agglomerative clustering."""
+
+    if linkage not in {"ward", "average", "complete", "single"}:
+        raise ValueError("linkage must be one of: ward, average, complete, single")
+    return AgglomerativeClustering(n_clusters=n_clusters, linkage=linkage).fit_predict(
+        _cluster_input(samples, center=center, normalize=normalize)
+    )
+
+
+def cluster_agglomerative_ward(
+    samples: torch.Tensor,
+    n_clusters: int,
+    *,
+    center: bool = True,
+    normalize: bool = True,
+) -> np.ndarray:
     """Hierarchical cluster labels using Ward linkage."""
-    return AgglomerativeClustering(n_clusters=n_clusters, linkage="ward").fit_predict(
-        _cluster_input(samples)
+    return cluster_agglomerative(
+        samples,
+        n_clusters,
+        linkage="ward",
+        center=center,
+        normalize=normalize,
     )
 
 
@@ -311,11 +387,13 @@ def cluster_hdbscan(
     *,
     min_cluster_size: int = 2,
     min_samples: int | None = None,
+    center: bool = True,
+    normalize: bool = True,
 ) -> np.ndarray:
     """HDBSCAN cluster labels; ``-1`` marks noise points (no chosen ``k``)."""
     return HDBSCAN(
         min_cluster_size=min_cluster_size, min_samples=min_samples, copy=True
-    ).fit_predict(_cluster_input(samples))
+    ).fit_predict(_cluster_input(samples, center=center, normalize=normalize))
 
 
 def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
