@@ -25,6 +25,7 @@ from persona_vectors.hub import parse_vector_config_name
 from persona_vectors.plots import (
     build_layered_figure,
     build_pair_similarity_figure,
+    build_similarity_figures,
     plot_persona_dendrogram,
 )
 from persona_vectors.steering import compute_steering_vector
@@ -45,7 +46,7 @@ def test_projection_plots_cover_2d_and_3d() -> None:
     assert pca_3d.data[0].type == "scatter3d"
 
     umap_2d = build_layered_figure(samples, "umap", layers=[0], n_components=2)
-    assert umap_2d.data[0].type == "scatter"
+    assert umap_2d.data[0].type == "scattergl"
 
     umap_3d = build_layered_figure(samples, "umap", layers=[0], n_components=3)
     assert umap_3d.data[0].type == "scatter3d"
@@ -232,6 +233,9 @@ def test_smoke() -> None:
 
         build_layered_figure(pm, "similarity", layers=[0, 1])
         build_pair_similarity_figure(pm, layers=[0, 1])
+        similarity_fig, pair_fig = build_similarity_figures(pm, layers=[0, 1])
+        assert similarity_fig.data[0].type == "heatmap"
+        assert pair_fig.data
 
         outputs = run_saved_activation_analysis(
             model_name="test/model",

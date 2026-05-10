@@ -56,6 +56,7 @@ def _load_manifest(variant_root: Path) -> dict:
     manifest_file = variant_root / _MANIFEST_FILENAME
     if not manifest_file.exists():
         raise FileNotFoundError(manifest_file)
+
     manifest = json.loads(manifest_file.read_text())
     personas = manifest.get("personas")
     if not isinstance(personas, dict):
@@ -422,7 +423,11 @@ class HFActivationStore:
         persona_ids: list[str] | tuple[str, ...] | None = None,
         mask_strategy: object | None = None,
     ) -> list[int]:
-        """Return shared layer indices for the requested Hub artifacts."""
+        """Return shared layer indices for the requested Hub artifacts.
+
+        Vectors within a variant are uniform shape, so the layer count is read
+        from a single sample persona per variant rather than scanning every row.
+        """
         self._validate_mask_strategy(mask_strategy)
         requested_variants = list(variants)
         requested_personas = list(persona_ids or [])
@@ -435,16 +440,14 @@ class HFActivationStore:
             ids = requested_personas or sorted(rows)
             if not ids or any(persona_id not in rows for persona_id in ids):
                 return []
-            for persona_id in ids:
-                vector = torch.as_tensor(rows[persona_id]["vector"])
-                if vector.ndim != 2:
-                    raise ValueError(
-                        f"tensor for {persona_id!r} must have shape (num_layers, hidden_size)"
-                    )
-                layers = set(range(int(vector.shape[0])))
-                shared_layers = (
-                    layers if shared_layers is None else shared_layers & layers
+            sample_id = ids[0]
+            vector = torch.as_tensor(rows[sample_id]["vector"])
+            if vector.ndim != 2:
+                raise ValueError(
+                    f"tensor for {sample_id!r} must have shape (num_layers, hidden_size)"
                 )
+            layers = set(range(int(vector.shape[0])))
+            shared_layers = layers if shared_layers is None else shared_layers & layers
         return sorted(shared_layers or set())
 
 

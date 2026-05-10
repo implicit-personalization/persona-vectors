@@ -25,6 +25,21 @@ def _plots_dir() -> Path:
     return path
 
 
+def _layer_cosine_matrices(
+    vectors: torch.Tensor, layers: list[int]
+) -> dict[int, np.ndarray]:
+    return {
+        layer: cosine_similarity_matrix(vectors[:, layer, :], center=True)
+        .cpu()
+        .numpy()
+        for layer in layers
+    }
+
+
+def _projection_jobs(num_layers: int) -> int:
+    return min(4, max(1, num_layers))
+
+
 def save_plot_html(fig: go.Figure, filename: str) -> Path:
     """Save a Plotly figure as an HTML artifact."""
 
@@ -373,7 +388,7 @@ def _embedding_trace(
     marker: dict | None = None,
     text: list[str] | None = None,
     hovertemplate: str | None = None,
-) -> go.Scatter | go.Scatter3d:
+) -> go.Scattergl | go.Scatter3d:
     kwargs = {
         "x": coords[indices, 0].tolist(),
         "y": coords[indices, 1].tolist(),
@@ -382,7 +397,7 @@ def _embedding_trace(
         kwargs["z"] = coords[indices, 2].tolist()
         trace_cls = go.Scatter3d
     else:
-        trace_cls = go.Scatter
+        trace_cls = go.Scattergl
 
     if name is not None:
         kwargs["mode"] = "markers"
@@ -409,10 +424,16 @@ def _build_layered_projection_figure(
 ) -> go.Figure:
     if n_components not in (2, 3):
         raise ValueError("n_components must be 2 or 3")
-    layer_coords = {
-        layer: project_fn(samples.vectors[:, layer, :], n_components=n_components)
-        for layer in selected_layers
-    }
+    from joblib import Parallel, delayed
+
+    layer_inputs = [samples.vectors[:, layer, :] for layer in selected_layers]
+    coords_list = Parallel(
+        n_jobs=_projection_jobs(len(layer_inputs)), prefer="threads"
+    )(
+        delayed(project_fn)(layer_input, n_components=n_components)
+        for layer_input in layer_inputs
+    )
+    layer_coords = dict(zip(selected_layers, coords_list))
     layer_ranges = {
         layer: tuple(_coordinate_range(coords, axis) for axis in range(n_components))
         for layer, coords in layer_coords.items()
@@ -496,13 +517,10 @@ def _build_layered_similarity_figure(
     samples: LayeredSamples,
     selected_layers: list[int],
     title: str = "Centered Cosine Similarity by Layer",
+    matrices: dict[int, np.ndarray] | None = None,
 ) -> go.Figure:
-    matrices = {
-        layer: cosine_similarity_matrix(samples.vectors[:, layer, :], center=True)
-        .cpu()
-        .numpy()
-        for layer in selected_layers
-    }
+    if matrices is None:
+        matrices = _layer_cosine_matrices(samples.vectors, selected_layers)
     first_layer = selected_layers[0]
     fig = go.Figure(
         data=[
@@ -551,24 +569,16 @@ def _build_layered_similarity_figure(
     return fig
 
 
-def build_pair_similarity_figure(
+def _build_pair_similarity_figure(
     samples: LayeredSamples,
-    layers: list[int] | None = None,
+    selected_layers: list[int],
+    matrices: dict[int, np.ndarray],
     title: str = "Centered Pair Similarity Across Layers",
 ) -> go.Figure:
-    """Plot each persona-pair similarity as a line across layers."""
-
-    selected_layers = _validate_layers(samples.vectors, layers)
     n_samples = samples.vectors.shape[0]
     if n_samples < 2:
         raise ValueError("At least two samples are required")
 
-    matrices = {
-        layer: cosine_similarity_matrix(samples.vectors[:, layer, :], center=True)
-        .cpu()
-        .numpy()
-        for layer in selected_layers
-    }
     pairs = [
         (left, right)
         for left in range(n_samples)
@@ -613,6 +623,34 @@ def build_pair_similarity_figure(
     fig.update_xaxes(tickmode="array", tickvals=selected_layers, automargin=True)
     fig.update_yaxes(zeroline=True, automargin=True)
     return fig
+
+
+def build_pair_similarity_figure(
+    samples: LayeredSamples,
+    layers: list[int] | None = None,
+    title: str = "Centered Pair Similarity Across Layers",
+) -> go.Figure:
+    """Plot each persona-pair similarity as a line across layers."""
+
+    selected_layers = _validate_layers(samples.vectors, layers)
+    matrices = _layer_cosine_matrices(samples.vectors, selected_layers)
+    return _build_pair_similarity_figure(samples, selected_layers, matrices, title)
+
+
+def build_similarity_figures(
+    samples: LayeredSamples,
+    layers: list[int] | None = None,
+    title: str = "Centered Cosine Similarity by Layer",
+    pair_title: str = "Centered Pair Similarity Across Layers",
+) -> tuple[go.Figure, go.Figure]:
+    """Build similarity heatmap and pair trajectory figures from one matrix pass."""
+
+    selected_layers = _validate_layers(samples.vectors, layers)
+    matrices = _layer_cosine_matrices(samples.vectors, selected_layers)
+    return (
+        _build_layered_similarity_figure(samples, selected_layers, title, matrices),
+        _build_pair_similarity_figure(samples, selected_layers, matrices, pair_title),
+    )
 
 
 def plot_hdbscan_cluster_counts(

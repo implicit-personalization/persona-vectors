@@ -416,6 +416,5 @@ def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
         n_neighbors=n_neighbors,
         init="random",
         random_state=42,
-        n_jobs=1,
     ).fit_transform(centered.float().cpu().numpy())
     return torch.from_numpy(embedding)
