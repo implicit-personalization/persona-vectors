@@ -1,130 +1,57 @@
 # Steering
 
-Compute persona steering vectors from pre-extracted activations for steering
-experiments toward a specific persona.
+Steering is experimental. It computes a persona direction from saved activations:
+
+```text
+steering_vector = biography[layer] - templated[layer]
+```
+
 Core module: `src/persona_vectors/steering.py`
 
----
-
-## Pipeline
-
-```
-Extract Activations (`notebook_extract.py`) → Compute Steering Vector → Save
-```
-
-Steering reuses the activations extracted by `notebook_extract.py`. No
-re-extraction is needed.
-
----
-
-## Quick Start
-
-```python
-from persona_vectors.steering import compute_steering_vector, save_steering_vector
-
-sv_dict = compute_steering_vector(
-    persona_id="0023952f-142e-434b-82e2-7a7451b7c55f",
-    model_name="google/gemma-2-9b-it",
-    layer_idx=20,
-    mask_strategy="answer_previous",
-)
-
-save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
-```
-
-### CLI
+## CLI
 
 ```bash
-uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
-uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20 --mask-strategy answer_previous
+uv run python main.py steer \
+  --model google/gemma-2-9b-it \
+  --persona-id <UUID> \
+  --layer 20 \
+  --mask-strategy answer_mean
 ```
 
----
+Use the same `--mask-strategy` that was used during extraction.
 
-## Method: Contrastive Mean-Diff
-
-For each persona, two prompt variants are extracted:
-
-- **Positive (biography):** Full persona biography as system prompt + QA
-- **Negative (templated):** Generic templated prompt + QA
-
-Extraction already averages the masked hidden states across QA pairs and
-masked tokens, so each saved artifact is a single `(num_layers, hidden_size)`
-tensor. The default mask is `answer_mean` (every assistant-answer token);
-`answer_previous` uses the position immediately before the first answer
-token. At a chosen layer the steering vector is:
-
-```
-steering_vector = biography_h[layer] - templated_h[layer]
-```
-
-Adding this vector to the residual stream at inference shifts model behavior
-toward the persona.
-
----
-
-## Functions
-
-### compute_steering_vector()
+## API
 
 ```python
-sv_dict = compute_steering_vector(
-    persona_id="...",
+from persona_vectors.steering import (
+    compute_steering_vector,
+    load_steering_vector,
+    save_steering_vector,
+)
+
+sv = compute_steering_vector(
+    persona_id="<UUID>",
     model_name="google/gemma-2-9b-it",
     layer_idx=20,
-    mask_strategy="answer_previous",
-    activations_dir="artifacts/activations",
+    mask_strategy="answer_mean",
 )
+
+save_steering_vector(sv, "artifacts/vectors/<UUID>")
+loaded = load_steering_vector("artifacts/vectors/<UUID>")
 ```
 
-Returns a dict with:
-- `steering_vector`: shape `[1, 1, d_model]`
-- `suggested_alpha`: scaling coefficient (`20 * mean_rms / ||sv||`), where
-  `mean_rms` is the RMS of the negative (templated) mean activation at the
-  chosen layer
-- `persona_id`, `layer`, `model_id`, `hidden_size`: metadata
+`compute_steering_vector()` returns:
 
-### save_steering_vector()
+- `steering_vector`: tensor with shape `(1, 1, hidden_size)`
+- `suggested_alpha`: `20 * mean_rms / ||sv||`
+- `persona_id`, `layer`, `model_id`, `hidden_size`
 
-Saves a directory containing a safetensors file plus metadata:
+## Output
 
-```python
-save_steering_vector(sv_dict, "artifacts/vectors/my_persona")
-# Creates:
-#   artifacts/vectors/my_persona/steering_vector.safetensors
-#   artifacts/vectors/my_persona/metadata.json
+```text
+artifacts/vectors/<persona_id>/
+├── steering_vector.safetensors
+└── metadata.json
 ```
 
-### load_steering_vector()
-
-```python
-from persona_vectors.steering import load_steering_vector
-
-sv_dict = load_steering_vector("artifacts/vectors/my_persona")
-sv = sv_dict["steering_vector"]  # [1, 1, d_model]
-alpha = sv_dict["suggested_alpha"]
-```
-
----
-
-## Output Format
-
-```
-artifacts/vectors/{persona_id}/
-├── steering_vector.safetensors   # steering_vector tensor
-└── metadata.json                 # suggested_alpha, layer, model_id, hidden_size
-```
-
-The `metadata.json` file also records `suggested_alpha`.
-
-When using a non-default extraction strategy, pass the same `mask_strategy` to
-`compute_steering_vector()` or `main.py steer` so it loads the matching
-activation artifacts.
-
----
-
-## Choosing a Layer
-
-Mid layers (around 15-25 for Gemma-2-9b-it with 42 layers) typically work best
-for persona steering. Use `notebook_steer.py` to experiment with different layers
-and inspect the vector norm and suggested alpha.
+Mid layers are usually the first place to try, but layer choice is model and task dependent. Use `notebooks/notebook_steer.py` for experiments.

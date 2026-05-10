@@ -21,7 +21,6 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from persona_vectors.extraction import run_extraction
 
     dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
-    # Resolve a user-supplied id list  otherwise extract every loaded persona, including baseline_assistant
     if cfg.persona_ids is not None:
         personas = []
         for pid in cfg.persona_ids:
@@ -32,7 +31,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
     else:
         personas = list(dataset)
 
-    # train_test_split returns (train, test); we use [0] (FRQs, leakage- filtered against the shared MCQ bank).
+    # train_test_split returns (train, test); we use [0] (FRQs, leakage-filtered against the shared MCQ bank).
     runs = [
         (p, train)
         for p in personas

@@ -15,9 +15,6 @@ from persona_vectors.steering import STEER_LAYER
 
 Backend = Literal["local", "remote"]
 
-# ── Configs ──────────────────────────────────────────────────────────────────
-
-
 @dataclass
 class ExtractConfig:
     model: str
@@ -59,9 +56,6 @@ class SteerConfig:
     mask_strategy: MaskStrategy
     activations_dir: Path
     out_dir: Path
-
-
-# Parser builders ──────────────────────────────────────────────────────────
 
 
 def _positive_int(value: str) -> int:

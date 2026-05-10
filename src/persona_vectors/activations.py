@@ -21,8 +21,8 @@ NETWORK_ERRORS = (
 class _CallbackJobStatusDisplay(JobStatusDisplay):
     """JobStatusDisplay subclass that fires an extra callback on each update.
 
-    The callback receives (job_id, status_name, description) so callers (e.g.
-    a Streamlit UI) can render the NDIF job status without capturing stdout.
+    The callback receives ``(job_id, status_name, description)`` so callers
+    (e.g. a Streamlit UI) can render NDIF job status without capturing stdout.
     """
 
     def __init__(self, on_status: Callable[[str, str, str], None], **kwargs):
@@ -59,31 +59,12 @@ def extract_activations(
     remote: bool = False,
     on_status: Callable[[str, str, str], None] | None = None,
 ) -> torch.Tensor:
-    """Run forward passes and return the mean hidden state over all samples and masked tokens per layer.
+    """Return mean hidden states with shape ``(num_layers, hidden_size)``.
 
-    On remote (NDIF) execution, if the server raises an OOM the fast path is
-    transparently retried with a layer-sliced trace that bounds peak memory.
-    Local OOMs propagate.
-
-    Args:
-        model: The standardized nnterp model.
-        input_ids_list: Pre-tokenized input id tensors, one 1-D tensor per sample.
-            Passing ids (rather than strings) avoids any re-tokenization by
-            nnsight so the masks always line up with what the model actually
-            sees on the forward pass.
-        token_masks: List of boolean masks over each sample's token sequence.
-            True values are averaged. ``token_masks[i]`` must match the length
-            of ``input_ids_list[i]``.
-        remote: If True, execute the trace on NDIF's remote servers instead of locally.
-            Requires NDIF_API_KEY to be set (via .env or environment variable).
-        on_status: Optional callback ``(job_id, status_name, description) -> None``
-            called on every NDIF status update. Only used when remote=True. Useful
-            for surfacing job progress in a UI (e.g. Streamlit) without capturing
-            stdout. The normal terminal output from nnsight is still printed.
-
-    Returns:
-        Tensor of shape ``(num_layers, hidden_size)`` — the mean over all
-        samples (and over the masked tokens within each sample).
+    ``input_ids_list`` and ``token_masks`` must be aligned 1-D tensors. Passing
+    pre-tokenized ids avoids retokenization and keeps masks aligned with the
+    traced model input. Remote NDIF runs retry transient network failures and
+    fall back to chunked layer extraction on remote OOM.
     """
 
     if len(input_ids_list) != len(token_masks):
@@ -146,7 +127,7 @@ def _extract_single_trace(
 
         for ids, mask in zip(input_ids_list, masks):
             saved_hs: list[torch.Tensor] = []
-            # Pre-tokenized ids are passed straight through — no double-BOS.
+            # Pre-tokenized ids avoid double BOS insertion.
             with model.trace(ids.unsqueeze(0)) as tracer:
                 for layer_idx in range(model.num_layers):
                     layer_out = model.layers_output[layer_idx][0]
@@ -160,7 +141,6 @@ def _extract_single_trace(
 
             per_sample_hs.append(per_text_hs)
 
-        # Shape: (num_layers, hidden_size) — mean across samples.
         persona_vectors = torch.stack(per_sample_hs, dim=0).mean(dim=0).save()
 
     return persona_vectors
@@ -186,12 +166,12 @@ def _extract_chunked(
         for ids, mask in zip(input_ids_list, masks):
             chunk_hs: list[torch.Tensor] = []
             boundary: torch.Tensor | None = None
-            # Pre-tokenized ids are passed straight through — no double-BOS.
+            # Pre-tokenized ids avoid double BOS insertion.
             for start_layer in range(0, model.num_layers, chunk_size):
                 end_layer = min(start_layer + chunk_size - 1, model.num_layers - 1)
                 with model.trace(ids.unsqueeze(0)) as tracer:
                     if boundary is not None:
-                        # Device must come from a node that runs before the skipped layers
+                        # Device must come from a node that runs before the skipped layers.
                         start_device = model.embed_tokens.output.device
                         model.skip_layers(
                             0, start_layer - 1, skip_with=boundary.to(start_device)
@@ -206,9 +186,7 @@ def _extract_chunked(
                         saved_hs.append(layer_mean.detach().cpu())
 
                     per_chunk_hs = torch.stack(saved_hs, dim=0)
-                    # Keep the batch dim — this becomes the input to layer
-                    # (end_layer + 1) via skip_layers, which expects
-                    # (batch, seq_len, hidden).
+                    # Keep batch dim for skip_layers: (batch, seq_len, hidden).
                     boundary = (
                         model.layers_output[end_layer]
                         if end_layer < model.num_layers - 1
@@ -221,7 +199,6 @@ def _extract_chunked(
             sample_hs = torch.cat(chunk_hs, dim=0)
             per_sample_hs.append(sample_hs)
 
-        # Shape: (num_layers, hidden_size) — mean across samples.
         persona_vectors = torch.stack(per_sample_hs, dim=0).mean(dim=0).save()
 
     return persona_vectors

@@ -1,80 +1,39 @@
 # persona-vectors
 
-Extract persona-aligned activation vectors from language models and analyze how persona prompts move hidden states.
+Extract persona-aligned activation vectors from language models, then compare those vectors across layers and prompt variants.
 
-> **Warning:** This project is very experimental.
+> This project is experimental.
 
-## How it works
+## Flow
 
-Given a set of personas and evaluation questions:
-
-1. Format each persona as a system prompt (`templated` or `biography` variant)
-2. Build token masks over the answer span, the prediction position, or another chosen strategy
-3. Extract hidden states at each layer over the masked tokens
-4. Average those hidden states across questions → **persona vector** per layer
-
-Vectors can then be compared across layers with PCA, UMAP, and centered cosine
-similarity. Steering is kept as an experimental side path.
-
-## Pipeline
-
-```
-Dataset → Format Prompts → Build Token Masks → Extract Activations → Save → Analyze
+```text
+personas + QA pairs -> prompts -> token masks -> hidden states -> saved vectors -> analysis
 ```
 
-| Step | Doc |
-|---|---|
-| Build token masks and extract hidden states from the model | [Activation Extraction](extraction.md) |
-| Save local activation tensors or read published Hub vectors | [Artifacts](artifacts.md) |
-| Comparison and analysis views | [Analysis](analysis.md) |
-| Experimental steering vectors | [Steering](steering.md) |
+Extraction saves one `(num_layers, hidden_size)` tensor per persona, prompt variant, model, and mask strategy. Analysis loads those tensors for PCA, UMAP, centered cosine similarity, clustering, and experimental steering.
 
-## Installation
+## Install
 
 ```bash
 uv sync
 cp .env.example .env
 ```
 
-Set `NDIF_API_KEY` in `.env` if you want to use remote execution for large models.
+Set `NDIF_API_KEY` to use remote extraction.
 
-## Quickstart
+## Common Commands
 
 ```bash
-# Extract activations (run this first)
-uv run python -m notebooks.notebook_extract
-
-# Or extract via the CLI. Use --backend remote for NDIF.
 uv run python main.py extract --model google/gemma-2-9b-it --backend remote
-
-# Extract one or more explicit personas.
-uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> baseline_assistant
-
-# Or load the first N personas from the dataset.
-uv run python main.py extract --model google/gemma-2-9b-it --sample-size 100
-
-# Re-run personas already present in the local manifest.
-uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> --force
-
-# Same extraction flow with token-mask preview and a short sample run
-# (set verbose=True in the notebook)
-
-# PCA + cluster colorings (Hub by default; switch the store in-file for local)
-uv run python -m notebooks.notebook_pca
-
-# Pairwise similarity, dendrograms, and prompt-variant cosine views
-uv run python -m notebooks.notebook_similarity
-
-# Optional: compute an experimental steering vector from saved activations
-uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --layer 20
-
-# Use non-default extracted activations, such as the pre-answer prediction position
-uv run python main.py steer --persona-id <UUID> --model google/gemma-2-9b-it --mask-strategy answer_previous
+uv run python main.py analyze --model google/gemma-2-9b-it --variant biography
+uv run python main.py steer --model google/gemma-2-9b-it --persona-id <UUID> --layer 20
 ```
 
-## Dependencies
+## Reference
 
-Dataset loading is provided by the sibling [`persona-data`](https://implicit-personalization.github.io/persona-data/) package, which pulls from:
-
-- [implicit-personalization/synth-persona](https://huggingface.co/datasets/implicit-personalization/synth-persona) — persona profiles and QA pairs
-- [implicit-personalization/persona-guess](https://huggingface.co/datasets/implicit-personalization/persona-guess) — turn-based persona games
+| Page | Contents |
+| --- | --- |
+| [Activation Extraction](extraction.md) | prompt formatting, masks, and NDIF extraction |
+| [Artifacts](artifacts.md) | local storage and Hub loading |
+| [Analysis](analysis.md) | vector loading, similarity, PCA, UMAP, clustering, plots |
+| [Steering](steering.md) | biography-minus-templated steering vectors |
