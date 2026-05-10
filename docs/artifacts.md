@@ -28,6 +28,7 @@ vectors = store.load("biography", "<persona_id>")
 persona_ids = store.list_personas(["biography"])
 names = store.persona_names(persona_ids, variants=["biography"])
 available = store.available_variants(["biography", "templated"])
+layers = store.list_layers(["biography"], persona_ids)
 ```
 
 `list_personas(["biography", "templated"])` returns only personas present in both variants. This keeps variant comparisons aligned.
@@ -57,9 +58,13 @@ store = HFActivationStore(
 
 variant = store.available_variants(["biography", "templated"])[0]
 vectors = store.load(variant, "<persona_id>")
+layers = store.list_layers([variant], ["<persona_id>"])
 ```
 
-Hub datasets use one config per `<model_dir>__<mask_strategy>` and one split per prompt variant. `HFActivationStore` is read-only and supports the same discovery methods as the local store: `load`, `available_variants`, `list_personas`, and `persona_names`.
+Hub datasets use one config per `<model_dir>__<mask_strategy>` and one split per
+prompt variant. `HFActivationStore` is read-only and supports the same discovery
+methods as the local store: `load`, `available_variants`, `list_personas`,
+`persona_names`, and `list_layers`.
 
 ## Publishing
 
@@ -74,3 +79,17 @@ Python callers can use `persona_vectors.hub.push_to_hub(...)` directly.
 ## Helpers
 
 `model_dir_name("google/gemma-2-9b-it")` returns `"google__gemma-2-9b-it"`.
+
+Use `discover_activation_models(root_dir, mask_strategy)` to list local model ids
+that have at least one saved artifact for a mask strategy.
+
+Use Hub discovery helpers when building model pickers or notebooks:
+
+```python
+from persona_vectors.hub import list_hub_vector_models, parse_vector_config_name
+
+models_by_mask = list_hub_vector_models(
+    "implicit-personalization/synth-persona-vectors"
+)
+parsed = parse_vector_config_name("google__gemma-2-9b-it__answer_mean")
+```

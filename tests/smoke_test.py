@@ -17,8 +17,11 @@ from persona_vectors.artifacts import (
     DEFAULT_MASK_STRATEGY,
     ActivationStore,
     HFActivationStore,
+    activation_config_name,
+    discover_activation_models,
     model_dir_name,
 )
+from persona_vectors.hub import parse_vector_config_name
 from persona_vectors.plots import (
     build_layered_figure,
     build_pair_similarity_figure,
@@ -118,9 +121,20 @@ def test_smoke() -> None:
         assert store.persona_names(["persona-001"], variants=["templated"]) == {
             "persona-001": "Test Persona"
         }
+        assert store.list_layers(["templated"], ["persona-001"]) == [0, 1, 2, 3]
+        assert discover_activation_models(tmp, "answer_previous") == ["test/model"]
+        assert discover_activation_models(tmp, "answer_mean") == []
 
         assert DEFAULT_MASK_STRATEGY == "answer_mean"
         assert model_dir_name("org/model") == "org__model"
+        assert activation_config_name("org/model", "answer_mean") == (
+            "org__model__answer_mean"
+        )
+        assert parse_vector_config_name("org__model__answer_mean") == (
+            "org/model",
+            "answer_mean",
+        )
+        assert parse_vector_config_name("not-a-vector-config") is None
 
         hub_store = HFActivationStore("test/repo", "test/model")
         assert hub_store.config_name == "test__model__answer_mean"
@@ -154,6 +168,14 @@ def test_smoke() -> None:
         assert hub_store.persona_names(["persona-001"], variants=["templated"]) == {
             "persona-001": "Test Persona"
         }
+        assert hub_store.list_layers(["templated"], ["persona-001"]) == [0, 1, 2, 3]
+        assert hub_store.list_layers(["templated", "biography"], ["persona-001"]) == [
+            0,
+            1,
+            2,
+            3,
+        ]
+        assert hub_store.list_layers(["templated"], ["missing"]) == []
         assert torch.allclose(hub_store.load("templated", "persona-001"), vectors)
         for call in (
             lambda: hub_store.load(

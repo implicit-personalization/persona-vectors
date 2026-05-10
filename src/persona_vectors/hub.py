@@ -12,9 +12,38 @@ from persona_vectors.artifacts import (
     _load_manifest,
     _persona_tensor_path,
     _variant_root,
-    model_dir_name,
-    normalize_mask_strategy,
+    activation_config_name,
 )
+
+
+def parse_vector_config_name(config_name: str) -> tuple[str, str] | None:
+    """Parse a Hub vector dataset config into ``(model_name, mask_strategy)``."""
+
+    model_key, separator, mask_strategy = config_name.rpartition("__")
+    if not separator or not model_key or not mask_strategy:
+        return None
+    return model_key.replace("__", "/"), mask_strategy
+
+
+def list_hub_vector_models(repo_id: str) -> dict[str, list[str]]:
+    """Return available Hub vector models grouped by mask strategy."""
+
+    try:
+        from huggingface_hub import get_dataset_config_names
+    except ImportError:
+        from datasets import get_dataset_config_names
+
+    models_by_strategy: dict[str, set[str]] = {}
+    for config_name in get_dataset_config_names(repo_id):
+        parsed = parse_vector_config_name(config_name)
+        if parsed is None:
+            continue
+        model_name, mask_strategy = parsed
+        models_by_strategy.setdefault(mask_strategy, set()).add(model_name)
+    return {
+        strategy: sorted(models)
+        for strategy, models in sorted(models_by_strategy.items())
+    }
 
 
 def push_to_hub(
@@ -60,7 +89,7 @@ def push_to_hub(
         return Dataset.from_list(rows, features=features)
 
     requested = list(variants) if variants else list(PERSONA_VARIANTS)
-    config = f"{model_dir_name(model_name)}__{normalize_mask_strategy(mask_strategy)}"
+    config = activation_config_name(model_name, mask_strategy)
     pushed: list[str] = []
     for variant in requested:
         variant_root = _variant_root(root_dir, model_name, variant, mask_strategy)

@@ -19,6 +19,13 @@ def model_dir_name(model_name: str) -> str:
     return model_name.replace("/", "__")
 
 
+def activation_config_name(
+    model_name: str,
+    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+) -> str:
+    return f"{model_dir_name(model_name)}__{normalize_mask_strategy(mask_strategy)}"
+
+
 def normalize_mask_strategy(mask_strategy: object | None) -> str:
     if mask_strategy is None:
         return DEFAULT_MASK_STRATEGY
@@ -272,6 +279,22 @@ class ActivationStore:
             mask_strategy=self._mask_strategy(mask_strategy),
         )
 
+    def list_layers(
+        self,
+        variants: list[str] | tuple[str, ...],
+        persona_ids: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> list[int]:
+        """Return shared layer indices for the requested local artifacts."""
+
+        return list_layers(
+            self.root_dir,
+            self.model_name,
+            list(variants),
+            list(persona_ids or []),
+            mask_strategy=self._mask_strategy(mask_strategy),
+        )
+
     def available_variants(
         self,
         variants: list[str] | tuple[str, ...] | None = None,
@@ -305,7 +328,7 @@ class HFActivationStore:
         self.repo_id = repo_id
         self.model_name = model_name
         self.mask_strategy = normalize_mask_strategy(mask_strategy)
-        self.config_name = f"{model_dir_name(model_name)}__{self.mask_strategy}"
+        self.config_name = activation_config_name(model_name, self.mask_strategy)
         self._cache: dict[str, dict[str, dict]] = {}
 
     def _variant(self, variant: str) -> dict[str, dict]:
@@ -392,6 +415,37 @@ class HFActivationStore:
                 self._variant(variant).get(persona_id, {}).get("name")
             ),
         )
+
+    def list_layers(
+        self,
+        variants: list[str] | tuple[str, ...],
+        persona_ids: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> list[int]:
+        """Return shared layer indices for the requested Hub artifacts."""
+        self._validate_mask_strategy(mask_strategy)
+        requested_variants = list(variants)
+        requested_personas = list(persona_ids or [])
+        if not requested_variants:
+            return []
+
+        shared_layers: set[int] | None = None
+        for variant in requested_variants:
+            rows = self._variant(variant)
+            ids = requested_personas or sorted(rows)
+            if not ids or any(persona_id not in rows for persona_id in ids):
+                return []
+            for persona_id in ids:
+                vector = torch.as_tensor(rows[persona_id]["vector"])
+                if vector.ndim != 2:
+                    raise ValueError(
+                        f"tensor for {persona_id!r} must have shape (num_layers, hidden_size)"
+                    )
+                layers = set(range(int(vector.shape[0])))
+                shared_layers = (
+                    layers if shared_layers is None else shared_layers & layers
+                )
+        return sorted(shared_layers or set())
 
 
 def list_personas(
@@ -482,3 +536,41 @@ def list_layers(
             layers = set(range(num_layers))
             shared_layers = layers if shared_layers is None else shared_layers & layers
     return sorted(shared_layers or set())
+
+
+def discover_activation_models(
+    root_dir: str | Path,
+    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
+) -> list[str]:
+    """Return model ids with at least one local artifact for ``mask_strategy``."""
+
+    root = Path(root_dir).expanduser()
+    if not root.is_dir():
+        return []
+
+    strategy = normalize_mask_strategy(mask_strategy)
+    models: list[str] = []
+    try:
+        model_roots = sorted(path for path in root.iterdir() if path.is_dir())
+    except OSError:
+        return []
+
+    for model_root in model_roots:
+        strategy_root = model_root / strategy
+        if not strategy_root.is_dir():
+            continue
+        try:
+            variant_roots = (
+                variant_root
+                for variant_root in strategy_root.iterdir()
+                if variant_root.is_dir()
+            )
+            has_manifest = any(
+                (variant_root / _MANIFEST_FILENAME).is_file()
+                for variant_root in variant_roots
+            )
+        except OSError:
+            continue
+        if has_manifest:
+            models.append(model_root.name.replace("__", "/"))
+    return models

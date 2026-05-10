@@ -15,6 +15,7 @@ from persona_vectors.steering import STEER_LAYER
 
 Backend = Literal["local", "remote"]
 
+
 @dataclass
 class ExtractConfig:
     model: str
