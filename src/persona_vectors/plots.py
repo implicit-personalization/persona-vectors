@@ -36,10 +36,6 @@ def _layer_cosine_matrices(
     }
 
 
-def _projection_jobs(num_layers: int) -> int:
-    return min(4, max(1, num_layers))
-
-
 def save_plot_html(fig: go.Figure, filename: str) -> Path:
     """Save a Plotly figure as an HTML artifact."""
 
@@ -424,15 +420,12 @@ def _build_layered_projection_figure(
 ) -> go.Figure:
     if n_components not in (2, 3):
         raise ValueError("n_components must be 2 or 3")
-    from joblib import Parallel, delayed
 
     layer_inputs = [samples.vectors[:, layer, :] for layer in selected_layers]
-    coords_list = Parallel(
-        n_jobs=_projection_jobs(len(layer_inputs)), prefer="threads"
-    )(
-        delayed(project_fn)(layer_input, n_components=n_components)
+    coords_list = [
+        project_fn(layer_input, n_components=n_components)
         for layer_input in layer_inputs
-    )
+    ]
     layer_coords = dict(zip(selected_layers, coords_list))
     layer_ranges = {
         layer: tuple(_coordinate_range(coords, axis) for axis in range(n_components))
