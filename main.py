@@ -53,18 +53,32 @@ def extract_activations(cfg: ExtractConfig) -> None:
             return
 
     model = StandardizedTransformer(cfg.model)
+    skipped: list[tuple[str, str]] = []
     for persona, qa_pairs in tqdm(runs, desc="personas", unit="persona"):
-        for r in run_extraction(
-            model=model,
-            model_name=cfg.model,
-            qa_pairs=qa_pairs,
-            variants=tuple(cfg.variants),
-            persona=persona,
-            mask_strategy=cfg.mask_strategy,
-            remote=cfg.backend == "remote",
-            verbose=cfg.verbose,
-        ):
+        try:
+            results = run_extraction(
+                model=model,
+                model_name=cfg.model,
+                qa_pairs=qa_pairs,
+                variants=tuple(cfg.variants),
+                persona=persona,
+                mask_strategy=cfg.mask_strategy,
+                remote=cfg.backend == "remote",
+                verbose=cfg.verbose,
+            )
+        except Exception as e:
+            if not cfg.skip_failed:
+                raise
+            skipped.append((persona.name, f"{type(e).__name__}: {e}"))
+            print(f"Skipping {persona.name}: {type(e).__name__}: {e}")
+            continue
+        for r in results:
             print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
+
+    if skipped:
+        print(f"\nSkipped {len(skipped)} persona(s):")
+        for name, reason in skipped:
+            print(f"  - {name}: {reason}")
 
 
 def analyze_activations(cfg: AnalyzeConfig) -> None:
@@ -133,6 +147,7 @@ def main() -> None:
             backend=args.backend,
             verbose=args.verbose,
             force=args.force,
+            skip_failed=args.skip_failed,
         )
         extract_activations(cfg)
     elif args.command == "analyze":

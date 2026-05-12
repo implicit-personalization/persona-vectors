@@ -26,6 +26,7 @@ class ExtractConfig:
     backend: Backend = "local"
     verbose: bool = False
     force: bool = False
+    skip_failed: bool = False
 
 
 @dataclass
@@ -109,6 +110,11 @@ def build_extract_parser(subparsers) -> None:
         "--force",
         action="store_true",
         help="Re-extract personas even if already present in the local manifest.",
+    )
+    extract.add_argument(
+        "--skip-failed",
+        action="store_true",
+        help="On extraction failure (e.g. remote OOM), log and continue to the next persona.",
     )
 
 
