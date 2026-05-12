@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import plotly.graph_objects as go
@@ -9,6 +10,7 @@ from plotly.colors import qualitative
 
 from persona_vectors.analysis import (
     LayeredSamples,
+    cluster_agglomerative,
     cluster_hdbscan,
     cluster_kmeans,
     cosine_similarity_matrix,
@@ -17,6 +19,9 @@ from persona_vectors.analysis import (
     project_pca,
     project_umap,
 )
+
+ClusterMode = Literal["mean_across_layers", "first_layer", "per_layer"]
+ClusterMethod = Literal["kmeans", "agglomerative", "hdbscan"]
 
 
 def _plots_dir() -> Path:
@@ -29,9 +34,7 @@ def _layer_cosine_matrices(
     vectors: torch.Tensor, layers: list[int]
 ) -> dict[int, np.ndarray]:
     return {
-        layer: cosine_similarity_matrix(vectors[:, layer, :], center=True)
-        .cpu()
-        .numpy()
+        layer: cosine_similarity_matrix(vectors[:, layer, :], center=True).cpu().numpy()
         for layer in layers
     }
 
@@ -357,6 +360,57 @@ def _create_persona_dendrogram(
     )
 
 
+def _cluster_label(cluster_id: int) -> str:
+    return "Noise" if int(cluster_id) == -1 else f"Cluster {int(cluster_id)}"
+
+
+def _cluster_projection_samples(
+    samples: torch.Tensor,
+    *,
+    method: ClusterMethod,
+    n_clusters: int | None,
+    seed: int,
+    linkage: str,
+    min_cluster_size: int,
+    min_samples: int | None,
+    center: bool = True,
+    normalize: bool = True,
+) -> list[str]:
+    if method == "kmeans":
+        if n_clusters is None:
+            raise ValueError("n_clusters is required for kmeans clustering")
+        cluster_ids = cluster_kmeans(
+            samples,
+            n_clusters=n_clusters,
+            seed=seed,
+            center=center,
+            normalize=normalize,
+        )
+    elif method == "agglomerative":
+        if n_clusters is None:
+            raise ValueError("n_clusters is required for agglomerative clustering")
+        cluster_ids = cluster_agglomerative(
+            samples,
+            n_clusters=n_clusters,
+            linkage=linkage,
+            center=center,
+            normalize=normalize,
+        )
+    elif method == "hdbscan":
+        cluster_ids = cluster_hdbscan(
+            samples,
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            center=center,
+            normalize=normalize,
+        )
+    else:
+        raise ValueError(
+            "cluster_method must be one of: kmeans, agglomerative, hdbscan"
+        )
+    return [_cluster_label(int(cluster_id)) for cluster_id in cluster_ids]
+
+
 def _embedding_hovertemplate(
     group_label: str,
     x_label: str,
@@ -416,7 +470,7 @@ def _build_layered_projection_figure(
     y_label: str,
     z_label: str | None = None,
     n_components: int = 2,
-    groups: list[str] | None = None,
+    groups: list[str] | dict[int, list[str]] | None = None,
 ) -> go.Figure:
     if n_components not in (2, 3):
         raise ValueError("n_components must be 2 or 3")
@@ -432,17 +486,37 @@ def _build_layered_projection_figure(
         for layer, coords in layer_coords.items()
     }
 
+    n_samples = int(samples.vectors.shape[0])
     if groups is None:
-        groups = list(samples.labels)
-    unique_groups = sorted(set(groups), key=lambda v: v.casefold())
-    group_colors = _label_color_map(groups)
-    group_indices = {
-        g: [i for i, v in enumerate(groups) if v == g] for g in unique_groups
+        groups_by_layer = {layer: list(samples.labels) for layer in selected_layers}
+    elif isinstance(groups, dict):
+        missing = [layer for layer in selected_layers if layer not in groups]
+        if missing:
+            raise ValueError(f"groups is missing layer(s): {missing}")
+        groups_by_layer = {layer: list(groups[layer]) for layer in selected_layers}
+    else:
+        stable_groups = list(groups)
+        groups_by_layer = {layer: stable_groups for layer in selected_layers}
+    invalid_lengths = {
+        layer: len(layer_groups)
+        for layer, layer_groups in groups_by_layer.items()
+        if len(layer_groups) != n_samples
     }
+    if invalid_lengths:
+        raise ValueError(
+            f"groups must have length {n_samples} for every layer; got {invalid_lengths}"
+        )
+
+    unique_groups = sorted(
+        {group for layer_groups in groups_by_layer.values() for group in layer_groups},
+        key=lambda v: v.casefold(),
+    )
+    group_colors = _label_color_map(unique_groups)
     is_3d = n_components == 3
 
-    def _make_trace(group: str, coords: torch.Tensor):
-        indices = group_indices[group]
+    def _make_trace(group: str, coords: torch.Tensor, layer: int):
+        layer_groups = groups_by_layer[layer]
+        indices = [i for i, v in enumerate(layer_groups) if v == group]
         return _embedding_trace(
             coords,
             indices,
@@ -458,7 +532,9 @@ def _build_layered_projection_figure(
         )
 
     first_layer = selected_layers[0]
-    traces = [_make_trace(g, layer_coords[first_layer]) for g in unique_groups]
+    traces = [
+        _make_trace(g, layer_coords[first_layer], first_layer) for g in unique_groups
+    ]
     frames = []
     for layer in selected_layers:
         coords = layer_coords[layer]
@@ -471,7 +547,7 @@ def _build_layered_projection_figure(
         else:
             x_range, y_range = ranges
             frame_layout = _layer_frame_layout(title, layer, x_range, y_range)
-        data = [_make_trace(g, coords) for g in unique_groups]
+        data = [_make_trace(g, coords, layer) for g in unique_groups]
         frames.append(go.Frame(name=str(layer), data=data, layout=frame_layout))
 
     fig = go.Figure(data=traces, frames=frames)
@@ -830,7 +906,12 @@ def build_layered_figure(
     n_components: int = 2,
     n_clusters: int | None = None,
     cluster_seed: int = 0,
-    groups: list[str] | None = None,
+    cluster_mode: ClusterMode = "mean_across_layers",
+    cluster_method: ClusterMethod = "kmeans",
+    cluster_linkage: str = "ward",
+    min_cluster_size: int = 2,
+    min_samples: int | None = None,
+    groups: list[str] | dict[int, list[str]] | None = None,
 ) -> go.Figure:
     """Build an interactive per-layer PCA, UMAP, or similarity figure.
 
@@ -843,8 +924,13 @@ def build_layered_figure(
     default per-persona coloring (only valid for ``kind`` in
     ``{"pca", "umap"}``):
 
-    - ``n_clusters=k``: convenience for k-means on centered/unit per-layer
-      means, giving each persona one stable color across all frames.
+    - ``n_clusters=k``: convenience for clustering. ``cluster_method`` selects
+      ``"kmeans"``, ``"agglomerative"``, or ``"hdbscan"``. ``cluster_mode``
+      controls whether labels come from centered/unit per-layer means
+      (``"mean_across_layers"``), the first selected layer (``"first_layer"``),
+      or are recomputed independently for every frame (``"per_layer"``).
+      ``n_clusters`` is required for k-means and agglomerative clustering;
+      HDBSCAN uses ``min_cluster_size`` and labels outliers as ``"Noise"``.
     - ``groups``: a length-``n_samples`` list of group labels (e.g. produced
       by ``cluster_agglomerative`` or ``cluster_hdbscan``). Use this for any
       clustering method you want.
@@ -859,22 +945,69 @@ def build_layered_figure(
 
     if n_clusters is not None and groups is not None:
         raise ValueError("Pass either n_clusters or groups, not both")
-    if n_clusters is not None:
-        cluster_samples = prepare_layer_mean_cluster_samples(samples.vectors)
-        cluster_ids = cluster_kmeans(
-            cluster_samples,
-            n_clusters=n_clusters,
-            seed=cluster_seed,
-            center=False,
-            normalize=False,
-        )
-        groups = [f"Cluster {c}" for c in cluster_ids]
+    if n_clusters is not None or cluster_method == "hdbscan":
+        if groups is not None:
+            raise ValueError("Pass either clustering options or groups, not both")
+        if kind == "similarity":
+            raise ValueError(
+                "groups/n_clusters are not supported for kind='similarity'"
+            )
+        if cluster_mode == "mean_across_layers":
+            cluster_samples = prepare_layer_mean_cluster_samples(samples.vectors)
+            groups = _cluster_projection_samples(
+                cluster_samples,
+                method=cluster_method,
+                n_clusters=n_clusters,
+                seed=cluster_seed,
+                linkage=cluster_linkage,
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                center=False,
+                normalize=False,
+            )
+        elif cluster_mode == "first_layer":
+            groups = _cluster_projection_samples(
+                samples.vectors[:, selected_layers[0], :],
+                method=cluster_method,
+                n_clusters=n_clusters,
+                seed=cluster_seed,
+                linkage=cluster_linkage,
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+            )
+        elif cluster_mode == "per_layer":
+            groups = {
+                layer: _cluster_projection_samples(
+                    samples.vectors[:, layer, :],
+                    method=cluster_method,
+                    n_clusters=n_clusters,
+                    seed=cluster_seed,
+                    linkage=cluster_linkage,
+                    min_cluster_size=min_cluster_size,
+                    min_samples=min_samples,
+                )
+                for layer in selected_layers
+            }
+        else:
+            raise ValueError(
+                "cluster_mode must be one of: mean_across_layers, first_layer, per_layer"
+            )
     if groups is not None:
         if kind == "similarity":
             raise ValueError(
                 "groups/n_clusters are not supported for kind='similarity'"
             )
-        if len(groups) != n_samples:
+        if isinstance(groups, dict):
+            invalid_lengths = {
+                layer: len(layer_groups)
+                for layer, layer_groups in groups.items()
+                if len(layer_groups) != n_samples
+            }
+            if invalid_lengths:
+                raise ValueError(
+                    f"groups must have length {n_samples} for every layer; got {invalid_lengths}"
+                )
+        elif len(groups) != n_samples:
             raise ValueError(f"groups must have length {n_samples}; got {len(groups)}")
 
     if kind == "pca":

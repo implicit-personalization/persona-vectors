@@ -1,6 +1,6 @@
 [project]
 name = "persona-vectors"
-version = "0.7.2"
+version = "0.7.3"
 description = "Library for extracting and analyzing persona vectors"
 readme = "README.md"
 requires-python = ">=3.12"

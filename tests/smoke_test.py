@@ -52,6 +52,63 @@ def test_projection_plots_cover_2d_and_3d() -> None:
     assert umap_3d.data[0].type == "scatter3d"
 
 
+def test_projection_cluster_methods_and_modes() -> None:
+    vectors = torch.tensor(
+        [
+            [[-1.0, -1.0], [-1.0, -1.0]],
+            [[-1.0, -0.9], [1.0, 1.0]],
+            [[1.0, 1.0], [-1.0, -0.9]],
+            [[1.0, 0.9], [1.0, 0.9]],
+        ]
+    )
+    labels = [f"Persona {idx}" for idx in range(4)]
+    samples = LayeredSamples(vectors, labels, labels)
+
+    def partitions(frame) -> set[frozenset[str]]:
+        return {
+            frozenset(trace.text)
+            for trace in frame.data
+            if trace.text is not None and len(trace.text) > 0
+        }
+
+    first_layer = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0, 1],
+        n_clusters=2,
+        cluster_mode="first_layer",
+    )
+    assert partitions(first_layer.frames[0]) == partitions(first_layer.frames[1])
+
+    per_layer = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0, 1],
+        n_clusters=2,
+        cluster_mode="per_layer",
+    )
+    assert partitions(per_layer.frames[0]) != partitions(per_layer.frames[1])
+
+    agglomerative = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0, 1],
+        n_clusters=2,
+        cluster_method="agglomerative",
+        cluster_mode="per_layer",
+    )
+    assert partitions(agglomerative.frames[0]) != partitions(agglomerative.frames[1])
+
+    hdbscan = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0],
+        cluster_method="hdbscan",
+        min_cluster_size=2,
+    )
+    assert hdbscan.data
+
+
 def test_projection_plots_validate_component_count() -> None:
     samples = _layered_samples(n_samples=2)
 

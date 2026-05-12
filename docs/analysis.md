@@ -72,7 +72,7 @@ Available helpers:
 | `cluster_agglomerative_ward(samples, n_clusters)` | Ward wrapper |
 | `cluster_hdbscan(samples, min_cluster_size=...)` | HDBSCAN, with `-1` for noise |
 
-By default, clustering inputs are centered and L2-normalized. For stable colors across layer sliders, cluster `prepare_layer_mean_cluster_samples(samples.vectors)` once and pass the labels as `groups=...` to `build_layered_figure()`.
+By default, clustering inputs are centered and L2-normalized. For PCA/UMAP colors, `build_layered_figure(..., n_clusters=k)` runs k-means directly. Set `cluster_method="agglomerative"` for hierarchical agglomerative clustering, or `cluster_method="hdbscan"` with `min_cluster_size=...` for density clustering with `"Noise"` labels. Use `cluster_mode="mean_across_layers"` for stable colors from the centered/unit mean vector per persona, `cluster_mode="first_layer"` for stable colors from the first plotted layer, or `cluster_mode="per_layer"` to recompute clustering for every layer frame. You can still pass explicit labels as `groups=...`; for per-layer custom labels, pass a `{layer: labels}` mapping.
 
 ## Plot Helpers
 
@@ -80,7 +80,7 @@ All plot helpers return a Plotly `go.Figure`.
 
 | Function | Use |
 | --- | --- |
-| `build_layered_figure(samples, kind, layers=..., groups=...)` | PCA, UMAP, or similarity with layer controls |
+| `build_layered_figure(samples, kind, layers=..., n_clusters=..., cluster_mode=..., groups=...)` | PCA, UMAP, or similarity with layer controls |
 | `build_pair_similarity_figure(samples, layers=...)` | pairwise similarity trajectories |
 | `plot_persona_dendrogram(samples, linkage=...)` | hierarchical dendrogram |
 | `plot_scree(variance_by_condition, ...)` | PCA explained variance curves |

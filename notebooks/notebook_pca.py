@@ -87,24 +87,36 @@ for variant, s in samples.items():
         show=True,
     )
 
-# %% PCA (3D) - layered view per variant, colored by k-means (k-means++) clusters
-# Tweak N_CLUSTERS for your persona set. Clusters are fit once on centered/unit
-# per-layer means so each persona keeps one stable color across every frame
-# without larger-norm layers dominating the clusters.
+# %% PCA (3D) - layered view per variant, colored by clustering
+# Tweak CLUSTER_METHOD and N_CLUSTERS for your persona set. CLUSTER_MODE controls
+# how colors are assigned:
+# - "mean_across_layers": fit once on centered/unit per-layer means; stable colors.
+# - "first_layer": fit once on the first plotted layer; stable colors.
+# - "per_layer": fit separately for each layer frame; colors can change by layer.
+# CLUSTER_METHOD can be "kmeans", "agglomerative", or "hdbscan". HDBSCAN does
+# not use N_CLUSTERS; it uses MIN_CLUSTER_SIZE and can label points as "Noise".
 # For the 2D version, drop n_components=3 (2D is the default).
+CLUSTER_METHOD = "kmeans"
 N_CLUSTERS = 5
+MIN_CLUSTER_SIZE = 5
+CLUSTER_MODE = "mean_across_layers"
 for variant, s in samples.items():
     build_layered_figure(
         s,
         "pca",
-        title=f"PCA (3D) - {variant} persona vectors (k-means, k={N_CLUSTERS})",
+        title=(
+            f"PCA (3D) - {variant} persona vectors "
+            f"({CLUSTER_METHOD}, mode={CLUSTER_MODE})"
+        ),
         n_components=3,
-        n_clusters=N_CLUSTERS,
+        n_clusters=N_CLUSTERS if CLUSTER_METHOD != "hdbscan" else None,
+        cluster_method=CLUSTER_METHOD,
+        cluster_mode=CLUSTER_MODE,
+        min_cluster_size=MIN_CLUSTER_SIZE,
     ).show()
 
 # %% PCA (3D) - colored by HDBSCAN (no k required; outliers labeled "Noise")
 # HDBSCAN picks cluster counts from data density.
-MIN_CLUSTER_SIZE = 5
 for variant, s in samples.items():
     cluster_input = prepare_layer_mean_cluster_samples(s.vectors)
     cluster_ids = cluster_hdbscan(
