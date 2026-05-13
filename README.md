@@ -42,6 +42,16 @@ uv run python -m notebooks.notebook_similarity
 uv run python -m notebooks.notebook_steer
 ```
 
+## Extraction Scripts
+
+```bash
+# Persona Vectors extracted for steering: train split capped at 50 questions, then push to the Hub
+MODEL=google/gemma-2-9b-it scripts/extraction_train50_push.sh
+
+# All-questions workflow (explicit only): first 100 personas, save under artifacts/persona-vectors
+MODEL=google/gemma-2-9b-it scripts/extraction_all_questions.sh
+```
+
 ## What Gets Saved
 
 Extraction writes one `(num_layers, hidden_size)` tensor per persona, prompt variant, model, and mask strategy:

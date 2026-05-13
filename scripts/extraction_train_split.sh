@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Extract baseline_assistant + first N personas, then push to HF Hub.
+# Extract baseline_assistant + first N personas from the train split, then push to HF Hub.
 
 set -euo pipefail
 
@@ -9,6 +9,7 @@ N="${N:-100}"
 BACKEND="${BACKEND:-remote}"
 N_TRAIN="${N_TRAIN:-50}"
 QA_TYPE="${QA_TYPE:-all}"
+
 # NOTE: Currently working only with the templateed to simplify things and avoid OOM
 VARIANT="${VARIANT:-templated}"
 SKIP_FAILED="${SKIP_FAILED:-0}"
