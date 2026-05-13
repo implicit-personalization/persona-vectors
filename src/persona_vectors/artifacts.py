@@ -7,8 +7,7 @@ from pathlib import Path
 import torch
 from safetensors.torch import load_file, save_file
 
-PERSONA_VARIANTS: tuple[str, ...] = ("templated", "biography")
-SUPPORTED_VARIANTS: tuple[str, ...] = PERSONA_VARIANTS
+SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography")
 DEFAULT_MASK_STRATEGY = "answer_mean"
 _MANIFEST_FILENAME = "manifest.json"
 _TENSOR_KEY = "activations"
@@ -19,17 +18,17 @@ def model_dir_name(model_name: str) -> str:
     return model_name.replace("/", "__")
 
 
+def normalize_mask_strategy(mask_strategy: object | None) -> str:
+    if mask_strategy is None:
+        return DEFAULT_MASK_STRATEGY
+    return str(getattr(mask_strategy, "value", mask_strategy))
+
+
 def activation_config_name(
     model_name: str,
     mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> str:
     return f"{model_dir_name(model_name)}__{normalize_mask_strategy(mask_strategy)}"
-
-
-def normalize_mask_strategy(mask_strategy: object | None) -> str:
-    if mask_strategy is None:
-        return DEFAULT_MASK_STRATEGY
-    return str(getattr(mask_strategy, "value", mask_strategy))
 
 
 def _variant_root(
@@ -56,29 +55,10 @@ def _load_manifest(variant_root: Path) -> dict:
     manifest_file = variant_root / _MANIFEST_FILENAME
     if not manifest_file.exists():
         raise FileNotFoundError(manifest_file)
-
     manifest = json.loads(manifest_file.read_text())
-    personas = manifest.get("personas")
-    if not isinstance(personas, dict):
+    if not isinstance(manifest.get("personas"), dict):
         raise ValueError(f"manifest {manifest_file} is missing a personas mapping")
     return manifest
-
-
-def _variant_manifests(
-    root_dir: str | Path,
-    model_name: str,
-    variants: list[str],
-    mask_strategy: object | None,
-) -> list[dict]:
-    variant_roots = [
-        _variant_root(root_dir, model_name, variant, mask_strategy)
-        for variant in variants
-    ]
-    if not variant_roots or any(
-        not (root / _MANIFEST_FILENAME).exists() for root in variant_roots
-    ):
-        return []
-    return [_load_manifest(root) for root in variant_roots]
 
 
 def _shared_persona_ids(
@@ -88,31 +68,27 @@ def _shared_persona_ids(
     """Return persona ids present in every variant persona set."""
     if not variant_personas:
         return []
-
     shared = set.intersection(*variant_personas)
-
     if warn_missing and len(variant_personas) > 1:
-        all_personas = set.union(*variant_personas)
-        skipped = len(all_personas - shared)
+        skipped = len(set.union(*variant_personas) - shared)
         if skipped:
             warnings.warn(
                 f"Skipping {skipped} persona(s) missing one or more requested variants.",
                 stacklevel=2,
             )
-
     return sorted(shared)
 
 
-def _persona_names_from_variants(
+def _first_nonempty_name(
     persona_ids: list[str],
     variants: list[str],
-    name_lookup: Callable[[str, str], str | None],
+    lookup: Callable[[str, str], str | None],
 ) -> dict[str, str]:
-    """Return first non-empty display name found while scanning variants."""
+    """For each id, return the first non-empty name found across ``variants``."""
     names: dict[str, str] = {}
     for persona_id in persona_ids:
         for variant in variants:
-            name = name_lookup(variant, persona_id)
+            name = lookup(variant, persona_id)
             if isinstance(name, str) and name:
                 names[persona_id] = name
                 break
@@ -120,14 +96,14 @@ def _persona_names_from_variants(
 
 
 class ActivationStore:
-    """Artifact storage for masked-mean activation vectors."""
+    """Local artifact storage for masked-mean activation vectors."""
 
     def __init__(
         self,
         model_name: str,
         root_dir: str | Path | None = None,
         mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
-        variants: list[str] | tuple[str, ...] = PERSONA_VARIANTS,
+        variants: list[str] | tuple[str, ...] = SUPPORTED_VARIANTS,
     ) -> None:
         self.model_name = model_name
         self.mask_strategy = mask_strategy
@@ -138,8 +114,27 @@ class ActivationStore:
             else Path(os.environ.get("ARTIFACTS_DIR", "artifacts")) / "activations"
         )
 
-    def _mask_strategy(self, mask_strategy: object | None) -> object:
+    def _resolved_mask(self, mask_strategy: object | None) -> object:
         return self.mask_strategy if mask_strategy is None else mask_strategy
+
+    def _root(self, prompt_variant: str, mask_strategy: object | None = None) -> Path:
+        return _variant_root(
+            self.root_dir,
+            self.model_name,
+            prompt_variant,
+            self._resolved_mask(mask_strategy),
+        )
+
+    def _manifests(
+        self,
+        variants: list[str],
+        mask_strategy: object | None = None,
+    ) -> list[dict]:
+        """Load manifests for ``variants``; returns ``[]`` if any are missing."""
+        roots = [self._root(variant, mask_strategy) for variant in variants]
+        if not roots or any(not (r / _MANIFEST_FILENAME).exists() for r in roots):
+            return []
+        return [_load_manifest(r) for r in roots]
 
     def save(
         self,
@@ -165,37 +160,32 @@ class ActivationStore:
         """
         if vectors.ndim != 2:
             raise ValueError("vectors must have shape (num_layers, hidden_size)")
-        variant_root = _variant_root(
-            self.root_dir,
-            self.model_name,
-            prompt_variant,
-            self._mask_strategy(mask_strategy),
-        )
+        variant_root = self._root(prompt_variant, mask_strategy)
         variant_root.mkdir(parents=True, exist_ok=True)
 
         manifest_path = variant_root / _MANIFEST_FILENAME
+        num_layers, hidden_size = int(vectors.shape[0]), int(vectors.shape[1])
         manifest = (
             _load_manifest(variant_root)
             if manifest_path.exists()
-            else {
-                "num_layers": int(vectors.shape[0]),
-                "hidden_size": int(vectors.shape[1]),
-                "personas": {},
-            }
+            else {"num_layers": num_layers, "hidden_size": hidden_size, "personas": {}}
         )
-        if manifest.get("num_layers") != int(vectors.shape[0]) or manifest.get(
-            "hidden_size"
-        ) != int(vectors.shape[1]):
+        if (
+            manifest.get("num_layers") != num_layers
+            or manifest.get("hidden_size") != hidden_size
+        ):
             raise ValueError(
                 f"tensor shape for {persona_id!r} does not match existing artifact manifest"
             )
 
-        tensor_path = _persona_tensor_path(variant_root, persona_id)
-        save_file({_TENSOR_KEY: vectors.detach().cpu()}, str(tensor_path))
+        save_file(
+            {_TENSOR_KEY: vectors.detach().cpu()},
+            str(_persona_tensor_path(variant_root, persona_id)),
+        )
 
-        manifest["num_layers"] = int(vectors.shape[0])
-        manifest["hidden_size"] = int(vectors.shape[1])
-        manifest.setdefault("personas", {})[persona_id] = {
+        manifest["num_layers"] = num_layers
+        manifest["hidden_size"] = hidden_size
+        manifest["personas"][persona_id] = {
             "name": persona_name,
             "sample_ids": list(sample_ids),
         }
@@ -217,24 +207,19 @@ class ActivationStore:
         Raises:
             FileNotFoundError: If no artifact exists for the requested combination.
         """
-        requested = normalize_mask_strategy(self._mask_strategy(mask_strategy))
-        variant_root = _variant_root(
-            self.root_dir, self.model_name, prompt_variant, requested
-        )
+        variant_root = self._root(prompt_variant, mask_strategy)
         manifest = _load_manifest(variant_root)
-        entry = manifest["personas"].get(persona_id)
-        if not isinstance(entry, dict):
+        if not isinstance(manifest["personas"].get(persona_id), dict):
+            requested = normalize_mask_strategy(self._resolved_mask(mask_strategy))
             raise FileNotFoundError(
-                f"No activations found for {self.model_name!r} / {prompt_variant!r} / {requested!r} / {persona_id!r}"
+                f"No activations found for {self.model_name!r} / {prompt_variant!r}"
+                f" / {requested!r} / {persona_id!r}"
             )
 
         tensor_path = _persona_tensor_path(variant_root, persona_id)
-        if not tensor_path.exists():
-            raise FileNotFoundError(tensor_path)
         tensors = load_file(str(tensor_path))
         if _TENSOR_KEY not in tensors:
             raise FileNotFoundError(f"Missing {_TENSOR_KEY!r} tensor in {tensor_path}")
-
         vectors = tensors[_TENSOR_KEY]
         if vectors.ndim != 2:
             raise ValueError(
@@ -249,13 +234,12 @@ class ActivationStore:
         warn_missing: bool = True,
     ) -> list[str]:
         """Return persona ids available in every requested variant."""
-
-        requested_variants = variants or self.variants
-        return list_personas(
-            self.root_dir,
-            self.model_name,
-            list(requested_variants),
-            mask_strategy=self._mask_strategy(mask_strategy),
+        requested = self.variants if variants is None else tuple(variants)
+        manifests = self._manifests(list(requested), mask_strategy)
+        if not manifests:
+            return []
+        return _shared_persona_ids(
+            [set(m["personas"].keys()) for m in manifests],
             warn_missing=warn_missing,
         )
 
@@ -270,15 +254,17 @@ class ActivationStore:
         Results follow ``persona_ids`` order, so ``list(names.values())`` is
         stable on supported Python versions.
         """
+        requested = list(self.variants if variants is None else variants)
+        manifests = self._manifests(requested, mask_strategy)
+        if not manifests:
+            return {}
+        by_variant = dict(zip(requested, manifests, strict=True))
 
-        requested_variants = variants or self.variants
-        return load_persona_names(
-            self.root_dir,
-            self.model_name,
-            list(requested_variants),
-            persona_ids,
-            mask_strategy=self._mask_strategy(mask_strategy),
-        )
+        def lookup(variant: str, persona_id: str) -> str | None:
+            entry = by_variant[variant]["personas"].get(persona_id)
+            return entry.get("name") if isinstance(entry, dict) else None
+
+        return _first_nonempty_name(persona_ids, requested, lookup)
 
     def list_layers(
         self,
@@ -287,14 +273,24 @@ class ActivationStore:
         mask_strategy: object | None = None,
     ) -> list[int]:
         """Return shared layer indices for the requested local artifacts."""
+        manifests = self._manifests(list(variants), mask_strategy)
+        if not manifests:
+            return []
 
-        return list_layers(
-            self.root_dir,
-            self.model_name,
-            list(variants),
-            list(persona_ids or []),
-            mask_strategy=self._mask_strategy(mask_strategy),
-        )
+        if persona_ids:
+            shared = set.intersection(*(set(m["personas"].keys()) for m in manifests))
+            if not set(persona_ids) <= shared:
+                return []
+
+        shared_layers: set[int] | None = None
+        for manifest in manifests:
+            num_layers = manifest.get("num_layers")
+            if isinstance(num_layers, int) and num_layers >= 0:
+                layers = set(range(num_layers))
+                shared_layers = (
+                    layers if shared_layers is None else shared_layers & layers
+                )
+        return sorted(shared_layers or set())
 
     def available_variants(
         self,
@@ -302,11 +298,10 @@ class ActivationStore:
         mask_strategy: object | None = None,
     ) -> list[str]:
         """Return candidate variants that have at least one saved persona."""
-
-        candidate_variants = variants or self.variants
+        candidates = self.variants if variants is None else variants
         return [
             variant
-            for variant in candidate_variants
+            for variant in candidates
             if self.list_personas(
                 [variant], mask_strategy=mask_strategy, warn_missing=False
             )
@@ -314,10 +309,13 @@ class ActivationStore:
 
 
 class HFActivationStore:
-    """Read activation vectors from a Hugging Face dataset.
+    """Read activation vectors from a Hugging Face dataset (lazy).
 
     The Hub dataset is expected to use one config per ``model__mask_strategy``
     and one split per prompt variant, matching ``persona_vectors.hub.push_to_hub``.
+
+    Metadata queries (persona ids, names, layer count) load only the columns
+    they need; the full vector array is fetched lazily on ``load()``.
     """
 
     def __init__(
@@ -330,15 +328,53 @@ class HFActivationStore:
         self.model_name = model_name
         self.mask_strategy = normalize_mask_strategy(mask_strategy)
         self.config_name = activation_config_name(model_name, self.mask_strategy)
-        self._cache: dict[str, dict[str, dict]] = {}
+        self._datasets: dict[str, object] = {}
+        self._index: dict[str, dict[str, int]] = {}
+        self._names: dict[str, dict[str, str]] = {}
+        self._scan_progress: dict[str, int] = {}
+        self._metadata_complete: set[str] = set()
 
-    def _variant(self, variant: str) -> dict[str, dict]:
-        if variant not in self._cache:
+    def _dataset(self, variant: str):
+        if variant not in self._datasets:
             from datasets import load_dataset
 
-            ds = load_dataset(self.repo_id, name=self.config_name, split=variant)
-            self._cache[variant] = {row["persona_id"]: row for row in ds}
-        return self._cache[variant]
+            self._datasets[variant] = load_dataset(
+                self.repo_id, name=self.config_name, split=variant
+            )
+        return self._datasets[variant]
+
+    def _metadata(
+        self,
+        variant: str,
+        persona_ids: list[str] | tuple[str, ...] | None = None,
+    ) -> tuple[dict[str, int], dict[str, str]]:
+        """Return ``(persona_id -> row_index, persona_id -> name)`` for ``variant``.
+
+        When ``persona_ids`` is provided, the metadata scan stops once all
+        requested ids are found. Subsequent calls resume from the last scanned
+        row instead of restarting at index 0.
+        """
+        idx = self._index.setdefault(variant, {})
+        names = self._names.setdefault(variant, {})
+        requested = set(persona_ids or [])
+        if variant in self._metadata_complete or (
+            requested and requested <= idx.keys()
+        ):
+            return idx, names
+
+        meta = self._dataset(variant).select_columns(["persona_id", "name"])
+        start = self._scan_progress.get(variant, 0)
+        total = len(meta)
+        for i in range(start, total):
+            row = meta[i]
+            pid = row["persona_id"]
+            idx[pid] = i
+            names[pid] = row.get("name") or pid
+            self._scan_progress[variant] = i + 1
+            if requested and requested <= idx.keys():
+                return idx, names
+        self._metadata_complete.add(variant)
+        return idx, names
 
     def _validate_mask_strategy(self, mask_strategy: object | None) -> None:
         if (
@@ -346,9 +382,27 @@ class HFActivationStore:
             and normalize_mask_strategy(mask_strategy) != self.mask_strategy
         ):
             raise ValueError(
-                f"HFActivationStore is bound to mask_strategy={self.mask_strategy!r}; "
-                f"got {mask_strategy!r}"
+                f"HFActivationStore is bound to mask_strategy={self.mask_strategy!r};"
+                f" got {mask_strategy!r}"
             )
+
+    def release_cache(
+        self, variants: list[str] | tuple[str, ...] | None = None
+    ) -> None:
+        """Drop cached datasets and metadata for ``variants`` (or all)."""
+        if variants is None:
+            self._datasets.clear()
+            self._index.clear()
+            self._names.clear()
+            self._scan_progress.clear()
+            self._metadata_complete.clear()
+            return
+        for variant in variants:
+            self._datasets.pop(variant, None)
+            self._index.pop(variant, None)
+            self._names.pop(variant, None)
+            self._scan_progress.pop(variant, None)
+            self._metadata_complete.discard(variant)
 
     def available_variants(
         self,
@@ -359,14 +413,14 @@ class HFActivationStore:
         from datasets import get_dataset_split_names
 
         self._validate_mask_strategy(mask_strategy)
-        present = set(self._cache)
+        present = set(self._datasets)
         try:
             present.update(
                 get_dataset_split_names(self.repo_id, config_name=self.config_name)
             )
         except (FileNotFoundError, ValueError):
             pass
-        candidates = list(variants) if variants else sorted(present)
+        candidates = sorted(present) if variants is None else list(variants)
         return [variant for variant in candidates if variant in present]
 
     def load(
@@ -377,12 +431,13 @@ class HFActivationStore:
     ) -> torch.Tensor:
         """Load the mean activation vector for a persona from the Hub."""
         self._validate_mask_strategy(mask_strategy)
-        rows = self._variant(prompt_variant)
-        if persona_id not in rows:
+        idx, _ = self._metadata(prompt_variant, [persona_id])
+        if persona_id not in idx:
             raise FileNotFoundError(
                 f"{persona_id!r} not in {self.repo_id} {self.config_name}/{prompt_variant}"
             )
-        return torch.as_tensor(rows[persona_id]["vector"], dtype=torch.float32)
+        row = self._dataset(prompt_variant)[idx[persona_id]]
+        return torch.as_tensor(row["vector"], dtype=torch.float32)
 
     def list_personas(
         self,
@@ -392,11 +447,11 @@ class HFActivationStore:
     ) -> list[str]:
         """Return persona ids available in every requested Hub split."""
         self._validate_mask_strategy(mask_strategy)
-        requested_variants = list(variants) if variants else self.available_variants()
-        if not requested_variants:
+        requested = self.available_variants() if variants is None else list(variants)
+        if not requested:
             return []
         return _shared_persona_ids(
-            [set(self._variant(variant).keys()) for variant in requested_variants],
+            [set(self._metadata(variant)[0]) for variant in requested],
             warn_missing=warn_missing,
         )
 
@@ -408,13 +463,14 @@ class HFActivationStore:
     ) -> dict[str, str]:
         """Return display names for known persona ids from Hub rows."""
         self._validate_mask_strategy(mask_strategy)
-        requested_variants = list(variants) if variants else self.available_variants()
-        return _persona_names_from_variants(
+        requested = self.available_variants() if variants is None else list(variants)
+        name_maps = {
+            variant: self._metadata(variant, persona_ids)[1] for variant in requested
+        }
+        return _first_nonempty_name(
             persona_ids,
-            requested_variants,
-            lambda variant, persona_id: (
-                self._variant(variant).get(persona_id, {}).get("name")
-            ),
+            requested,
+            lambda variant, pid: name_maps[variant].get(pid),
         )
 
     def list_layers(
@@ -426,22 +482,20 @@ class HFActivationStore:
         """Return shared layer indices for the requested Hub artifacts.
 
         Vectors within a variant are uniform shape, so the layer count is read
-        from a single sample persona per variant rather than scanning every row.
+        from one sample persona per variant rather than scanning every row.
         """
         self._validate_mask_strategy(mask_strategy)
-        requested_variants = list(variants)
-        requested_personas = list(persona_ids or [])
-        if not requested_variants:
+        if not variants:
             return []
 
         shared_layers: set[int] | None = None
-        for variant in requested_variants:
-            rows = self._variant(variant)
-            ids = requested_personas or sorted(rows)
-            if not ids or any(persona_id not in rows for persona_id in ids):
+        for variant in variants:
+            idx, _ = self._metadata(variant, persona_ids)
+            ids = list(persona_ids or []) or list(idx)
+            if not ids or any(pid not in idx for pid in ids):
                 return []
             sample_id = ids[0]
-            vector = torch.as_tensor(rows[sample_id]["vector"])
+            vector = torch.as_tensor(self._dataset(variant)[idx[sample_id]]["vector"])
             if vector.ndim != 2:
                 raise ValueError(
                     f"tensor for {sample_id!r} must have shape (num_layers, hidden_size)"
@@ -451,126 +505,31 @@ class HFActivationStore:
         return sorted(shared_layers or set())
 
 
-def list_personas(
-    root_dir: str | Path,
-    model_name: str,
-    variants: list[str],
-    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
-    warn_missing: bool = True,
-) -> list[str]:
-    """Return persona ids available in every requested variant.
-
-    The result is the intersection across all ``variants`` for one
-    model/mask-strategy artifact group. This keeps downstream comparisons from
-    silently pairing a persona that exists in one prompt variant but not another.
-    """
-    if not variants:
-        return []
-
-    variant_roots = {
-        variant: _variant_root(root_dir, model_name, variant, mask_strategy)
-        for variant in variants
-    }
-    if any(not (root / _MANIFEST_FILENAME).exists() for root in variant_roots.values()):
-        return []
-
-    return _shared_persona_ids(
-        [
-            set(_load_manifest(root)["personas"].keys())
-            for root in variant_roots.values()
-        ],
-        warn_missing=warn_missing,
-    )
-
-
-def load_persona_names(
-    root_dir: str | Path,
-    model_name: str,
-    variants: list[str],
-    persona_ids: list[str],
-    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
-) -> dict[str, str]:
-    """Load display names for known persona ids from saved manifests.
-
-    Names are looked up across ``variants`` in order; the first non-empty name
-    wins. Missing manifests or missing persona entries are ignored.
-    """
-    manifests = _variant_manifests(root_dir, model_name, variants, mask_strategy)
-    if not manifests:
-        return {}
-
-    manifests_by_variant = dict(zip(variants, manifests, strict=False))
-
-    def lookup(variant: str, persona_id: str) -> str | None:
-        manifest = manifests_by_variant[variant]
-        entry = manifest["personas"].get(persona_id)
-        return entry.get("name") if isinstance(entry, dict) else None
-
-    return _persona_names_from_variants(persona_ids, variants, lookup)
-
-
-def list_layers(
-    root_dir: str | Path,
-    model_name: str,
-    variants: list[str],
-    persona_ids: list[str],
-    mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
-) -> list[int]:
-    """Return shared layer indices for the requested artifacts.
-
-    If ``persona_ids`` is provided, all ids must be present in every requested
-    variant or an empty list is returned.
-    """
-    manifests = _variant_manifests(root_dir, model_name, variants, mask_strategy)
-    if not manifests:
-        return []
-
-    if persona_ids:
-        shared_personas = set.intersection(
-            *(set(manifest["personas"].keys()) for manifest in manifests)
-        )
-        if not set(persona_ids) <= shared_personas:
-            return []
-
-    shared_layers: set[int] | None = None
-    for manifest in manifests:
-        num_layers = manifest.get("num_layers")
-        if isinstance(num_layers, int) and num_layers >= 0:
-            layers = set(range(num_layers))
-            shared_layers = layers if shared_layers is None else shared_layers & layers
-    return sorted(shared_layers or set())
-
-
 def discover_activation_models(
     root_dir: str | Path,
     mask_strategy: object | None = DEFAULT_MASK_STRATEGY,
 ) -> list[str]:
     """Return model ids with at least one local artifact for ``mask_strategy``."""
-
     root = Path(root_dir).expanduser()
     if not root.is_dir():
         return []
 
     strategy = normalize_mask_strategy(mask_strategy)
-    models: list[str] = []
     try:
-        model_roots = sorted(path for path in root.iterdir() if path.is_dir())
+        model_roots = sorted(p for p in root.iterdir() if p.is_dir())
     except OSError:
         return []
 
+    models: list[str] = []
     for model_root in model_roots:
         strategy_root = model_root / strategy
         if not strategy_root.is_dir():
             continue
         try:
-            variant_roots = (
-                variant_root
-                for variant_root in strategy_root.iterdir()
-                if variant_root.is_dir()
-            )
             has_manifest = any(
-                (variant_root / _MANIFEST_FILENAME).is_file()
-                for variant_root in variant_roots
+                (vr / _MANIFEST_FILENAME).is_file()
+                for vr in strategy_root.iterdir()
+                if vr.is_dir()
             )
         except OSError:
             continue

@@ -297,7 +297,7 @@ def run_extraction(
     qa_pairs: list[QAPair],
     variants: tuple[str, ...],
     *,
-    persona: PersonaData | None = None,
+    persona: PersonaData,
     mask_strategy: MaskStrategy = MaskStrategy.ANSWER_MEAN,
     remote: bool = False,
     on_status: Callable | None = None,
@@ -338,9 +338,6 @@ def run_extraction(
 
     store = ActivationStore(model_name, root_dir=activations_dir)
     results: list[ExtractionResult] = []
-
-    if persona is None:
-        raise ValueError("run_extraction requires a PersonaData")
 
     for variant in variants:
         persona_variant = cast(Literal["templated", "biography"], variant)
@@ -394,11 +391,3 @@ def run_extraction(
         _free_memory()
 
     return results
-
-
-def __getattr__(name: str):
-    if name in {"TokenSegment", "preview_prepared_inputs", "preview_token_segments"}:
-        from persona_vectors import preview
-
-        return getattr(preview, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

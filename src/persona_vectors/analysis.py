@@ -5,8 +5,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from persona_data.synth_persona import BASELINE_PERSONA_ID
-from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
+from sklearn.manifold import Isomap
 
 from persona_vectors.artifacts import ActivationStore, HFActivationStore
 
@@ -113,7 +114,8 @@ def load_variant_vectors(
 
 
 def _center_features(samples: torch.Tensor) -> torch.Tensor:
-    return samples.float() - samples.float().mean(dim=0, keepdim=True)
+    x = samples.float()
+    return x - x.mean(dim=0, keepdim=True)
 
 
 def _validate_projection(
@@ -365,35 +367,28 @@ def cluster_agglomerative(
     )
 
 
-def cluster_agglomerative_ward(
-    samples: torch.Tensor,
-    n_clusters: int,
-    *,
-    center: bool = True,
-    normalize: bool = True,
-) -> np.ndarray:
-    """Hierarchical cluster labels using Ward linkage."""
-    return cluster_agglomerative(
-        samples,
-        n_clusters,
-        linkage="ward",
-        center=center,
-        normalize=normalize,
-    )
+def project_isomap(
+    samples: torch.Tensor, n_components: int = 2, *, n_neighbors: int = 8
+) -> torch.Tensor:
+    """Project samples with Isomap over centered/unit persona vectors.
 
+    Isomap is useful as a geometry check against PCA and UMAP: it preserves
+    shortest-path distances on a nearest-neighbor graph, so stable structure in
+    this view suggests a low-dimensional geodesic organization rather than only
+    linear variance or UMAP-specific local packing.
+    """
 
-def cluster_hdbscan(
-    samples: torch.Tensor,
-    *,
-    min_cluster_size: int = 2,
-    min_samples: int | None = None,
-    center: bool = True,
-    normalize: bool = True,
-) -> np.ndarray:
-    """HDBSCAN cluster labels; ``-1`` marks noise points (no chosen ``k``)."""
-    return HDBSCAN(
-        min_cluster_size=min_cluster_size, min_samples=min_samples, copy=True
-    ).fit_predict(_cluster_input(samples, center=center, normalize=normalize))
+    _validate_projection(samples, n_components, method="Isomap", min_samples=3)
+    if n_neighbors < 1:
+        raise ValueError("n_neighbors must be at least 1")
+
+    n_neighbors = min(n_neighbors, int(samples.shape[0]) - 1)
+    embedding = Isomap(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        metric="euclidean",
+    ).fit_transform(_cluster_input(samples, center=True, normalize=True))
+    return torch.from_numpy(embedding)
 
 
 def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
@@ -416,5 +411,6 @@ def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
         n_neighbors=n_neighbors,
         init="random",
         random_state=42,
+        n_jobs=1,
     ).fit_transform(centered.float().cpu().numpy())
     return torch.from_numpy(embedding)

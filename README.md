@@ -37,7 +37,7 @@ The notebooks are useful for exploratory runs:
 
 ```bash
 uv run python -m notebooks.notebook_extract
-uv run python -m notebooks.notebook_pca
+uv run python -m notebooks.notebook_manifold
 uv run python -m notebooks.notebook_similarity
 uv run python -m notebooks.notebook_steer
 ```

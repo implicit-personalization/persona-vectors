@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""PCA and clustering views over persona vectors from the Hub or local artifacts.
+"""Manifold and attribute views over persona vectors from Hub or local artifacts.
 
 For pairwise similarity, dendrograms, and prompt-variant comparisons see
 ``notebook_similarity.py``.
@@ -10,23 +10,19 @@ For pairwise similarity, dendrograms, and prompt-variant comparisons see
 
 import torch
 from dotenv import load_dotenv
+from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.analysis import (
-    cluster_hdbscan,
     list_comparison_personas,
     load_persona_vectors,
     pca_explained_variance,
-    prepare_layer_mean_cluster_samples,
 )
 from persona_vectors.artifacts import HFActivationStore
+from persona_vectors.attributes import attribute_color_kwargs
 from persona_vectors.extraction import MaskStrategy
-from persona_vectors.plots import (
-    build_layered_figure,
-    plot_hdbscan_cluster_counts,
-    plot_scree,
-)
+from persona_vectors.plots import build_layered_figure, plot_scree
 
 console = Console()
 
@@ -87,54 +83,51 @@ for variant, s in samples.items():
         show=True,
     )
 
-# %% PCA (3D) - layered view per variant, colored by clustering
-# Tweak CLUSTER_METHOD and N_CLUSTERS for your persona set. CLUSTER_MODE controls
-# how colors are assigned:
-# - "mean_across_layers": fit once on centered/unit per-layer means; stable colors.
-# - "first_layer": fit once on the first plotted layer; stable colors.
-# - "per_layer": fit separately for each layer frame; colors can change by layer.
-# CLUSTER_METHOD can be "kmeans", "agglomerative", or "hdbscan". HDBSCAN does
-# not use N_CLUSTERS; it uses MIN_CLUSTER_SIZE and can label points as "Noise".
-# For the 2D version, drop n_components=3 (2D is the default).
-CLUSTER_METHOD = "kmeans"
-N_CLUSTERS = 5
-MIN_CLUSTER_SIZE = 5
-CLUSTER_MODE = "mean_across_layers"
-for variant, s in samples.items():
-    build_layered_figure(
-        s,
-        "pca",
-        title=(
-            f"PCA (3D) - {variant} persona vectors "
-            f"({CLUSTER_METHOD}, mode={CLUSTER_MODE})"
-        ),
-        n_components=3,
-        n_clusters=N_CLUSTERS if CLUSTER_METHOD != "hdbscan" else None,
-        cluster_method=CLUSTER_METHOD,
-        cluster_mode=CLUSTER_MODE,
-        min_cluster_size=MIN_CLUSTER_SIZE,
-    ).show()
+# %% Attribute schema overview
+persona_dataset = SynthPersonaDataset()
+attribute_schema = persona_dataset.attribute_schema["persona_fields"]
 
-# %% PCA (3D) - colored by HDBSCAN (no k required; outliers labeled "Noise")
-# HDBSCAN picks cluster counts from data density.
-for variant, s in samples.items():
-    cluster_input = prepare_layer_mean_cluster_samples(s.vectors)
-    cluster_ids = cluster_hdbscan(
-        cluster_input,
-        min_cluster_size=MIN_CLUSTER_SIZE,
-        center=False,
-        normalize=False,
+attribute_summary = Table(title="Persona Attributes")
+attribute_summary.add_column("Attribute", style="cyan")
+attribute_summary.add_column("Kind", style="magenta")
+attribute_summary.add_column("Unique")
+for name in persona_dataset.attribute_names:
+    info = attribute_schema[name]
+    attribute_summary.add_row(
+        name,
+        info.get("kind", ""),
+        str(info.get("n_unique_seed_values", "")),
     )
-    groups = ["Noise" if c == -1 else f"Cluster {c}" for c in cluster_ids]
+console.print(attribute_summary)
+
+# %% Attribute-colored PCA views
+for variant, s in samples.items():
     build_layered_figure(
         s,
         "pca",
-        title=f"PCA (3D) - {variant} persona vectors (HDBSCAN, min_cluster_size={MIN_CLUSTER_SIZE})",
+        title=f"PCA (3D) - {variant} - colored by age",
         n_components=3,
-        groups=groups,
+        **attribute_color_kwargs(persona_dataset, "age", persona_ids),
     ).show()
 
-# %% HDBSCAN cluster count by layer - does the count change across depth?
-# Re-runs HDBSCAN on each layer's activations and plots the cluster count
-# (excluding noise). Hover shows how many points were tagged as noise.
-# plot_hdbscan_cluster_counts(samples, min_cluster_size=MIN_CLUSTER_SIZE).show()
+# %% Attribute-colored UMAP views
+ATTRIBUTE = "total_wealth"
+for variant, s in samples.items():
+    build_layered_figure(
+        s,
+        "umap",
+        title=f"UMAP (3D) - {variant} - colored by {ATTRIBUTE}",
+        n_components=3,
+        **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
+    ).show()
+
+# %% Attribute-colored Isomap views with kNN graph overlay
+# for variant, s in samples.items():
+#     build_layered_figure(
+#         s,
+#         "isomap",
+#         title=f"Isomap (3D) - {variant} - colored by {ATTRIBUTE}",
+#         n_components=3,
+#         graph_overlay=True,
+#         **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
+#     ).show()

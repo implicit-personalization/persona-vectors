@@ -6,7 +6,7 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.artifacts import PERSONA_VARIANTS
+from persona_vectors.artifacts import SUPPORTED_VARIANTS
 from persona_vectors.extraction import MaskStrategy, run_extraction
 
 console = Console()
@@ -51,12 +51,7 @@ model_table.add_row("Layers", str(NUM_LAYERS))
 model_table.add_row("Hidden Size", str(D_MODEL))
 console.print(model_table)
 
-# %% Load dataset and select runs (small persona-only smoke run)
-# SynthPersonaDataset(sample_size=N) keeps the leading N personas from the
-# HF JSONL. We then take the train side of train_test_split per persona:
-#   - train: individual FRQs (free-response), leakage-filtered against the MCQ bank
-#   - test:  shared MCQs (same item bank for every persona) -- not used here
-# n_train caps the train slice; pass None for every non-leaking FRQ.
+# %% Load dataset and select runs
 N_TRAIN = 8
 dataset = SynthPersonaDataset(sample_size=3)
 runs = [
@@ -70,7 +65,7 @@ runs = [(p, qa) for p, qa in runs if qa]  # drop personas with no train QAs
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
 dataset_table.add_column("Value", style="magenta")
-dataset_table.add_row("Total Personas", str(len(dataset)))
+dataset_table.add_row("Personas loaded", str(len(dataset)))
 dataset_table.add_row("Train cap (n_train)", str(N_TRAIN))
 for persona, qa_pairs in runs:
     dataset_table.add_row(persona.name, f"{len(qa_pairs)} train QA")
@@ -88,7 +83,7 @@ for persona, qa_pairs in runs:
         model=model,
         model_name=MODEL_NAME,
         qa_pairs=qa_pairs,
-        variants=PERSONA_VARIANTS,
+        variants=SUPPORTED_VARIANTS,
         persona=persona,
         mask_strategy=MASK_STRATEGY,
         remote=REMOTE,

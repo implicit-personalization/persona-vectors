@@ -8,7 +8,7 @@ from persona_vectors.artifacts import (
     _MANIFEST_FILENAME,
     _TENSOR_KEY,
     DEFAULT_MASK_STRATEGY,
-    PERSONA_VARIANTS,
+    SUPPORTED_VARIANTS,
     _load_manifest,
     _persona_tensor_path,
     _variant_root,
@@ -88,7 +88,7 @@ def push_to_hub(
         ]
         return Dataset.from_list(rows, features=features)
 
-    requested = list(variants) if variants else list(PERSONA_VARIANTS)
+    requested = list(variants) if variants else list(SUPPORTED_VARIANTS)
     config = activation_config_name(model_name, mask_strategy)
     pushed: list[str] = []
     for variant in requested:

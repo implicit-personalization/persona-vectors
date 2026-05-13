@@ -2,7 +2,8 @@
 
 """Pairwise similarity, dendrogram, and prompt-variant views over persona vectors.
 
-For PCA and clustering colorings see ``notebook_pca.py``.
+For PCA, UMAP, Isomap, and attribute-colored projection views see
+``notebook_manifold.py``.
 """
 
 # %% Imports

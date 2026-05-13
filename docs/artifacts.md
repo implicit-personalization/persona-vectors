@@ -66,6 +66,8 @@ prompt variant. `HFActivationStore` is read-only and supports the same discovery
 methods as the local store: `load`, `available_variants`, `list_personas`,
 `persona_names`, and `list_layers`.
 
+`HFActivationStore.release_cache()` clears cached datasets and metadata.
+
 ## Publishing
 
 ```bash

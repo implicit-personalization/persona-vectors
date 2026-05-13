@@ -21,12 +21,14 @@ from persona_vectors.artifacts import (
     discover_activation_models,
     model_dir_name,
 )
+from persona_vectors.attributes import attribute_color_kwargs
 from persona_vectors.hub import parse_vector_config_name
 from persona_vectors.plots import (
     build_layered_figure,
     build_pair_similarity_figure,
     build_similarity_figures,
     plot_persona_dendrogram,
+    prepare_layered_projection_data,
 )
 from persona_vectors.steering import compute_steering_vector
 
@@ -51,8 +53,34 @@ def test_projection_plots_cover_2d_and_3d() -> None:
     umap_3d = build_layered_figure(samples, "umap", layers=[0], n_components=3)
     assert umap_3d.data[0].type == "scatter3d"
 
+    isomap_2d = build_layered_figure(samples, "isomap", layers=[0], n_components=2)
+    assert isomap_2d.data[0].type == "scattergl"
 
-def test_projection_cluster_methods_and_modes() -> None:
+    isomap_graph = build_layered_figure(
+        samples,
+        "isomap",
+        layers=[0],
+        n_components=3,
+        graph_overlay=True,
+        graph_n_neighbors=2,
+    )
+    assert isomap_graph.data[0].type == "scatter3d"
+    assert isomap_graph.data[0].mode == "lines"
+    assert isomap_graph.data[1].type == "scatter3d"
+
+
+def test_high_cardinality_projection_groups_use_one_webgl_trace() -> None:
+    samples = _layered_samples(n_samples=45)
+
+    fig = build_layered_figure(samples, "pca", layers=[0], n_components=2)
+
+    assert len(fig.data) == 1
+    assert fig.data[0].type == "scattergl"
+    assert fig.data[0].name == "Personas"
+    assert len(fig.data[0].marker.color) == 45
+
+
+def test_projection_kmeans_modes_and_numeric_colors() -> None:
     vectors = torch.tensor(
         [
             [[-1.0, -1.0], [-1.0, -1.0]],
@@ -89,24 +117,101 @@ def test_projection_cluster_methods_and_modes() -> None:
     )
     assert partitions(per_layer.frames[0]) != partitions(per_layer.frames[1])
 
-    agglomerative = build_layered_figure(
-        samples,
-        "pca",
-        layers=[0, 1],
-        n_clusters=2,
-        cluster_method="agglomerative",
-        cluster_mode="per_layer",
-    )
-    assert partitions(agglomerative.frames[0]) != partitions(agglomerative.frames[1])
-
-    hdbscan = build_layered_figure(
+    numeric = build_layered_figure(
         samples,
         "pca",
         layers=[0],
-        cluster_method="hdbscan",
-        min_cluster_size=2,
+        color_values=[0.0, 1.0, 2.0, 3.0],
+        color_label="Ordinal rank",
+        color_tickvals=[0.0, 1.0, 2.0, 3.0],
+        color_ticktext=["A", "B", "C", "D"],
     )
-    assert hdbscan.data
+    assert numeric.data[0].marker.color == (0.0, 1.0, 2.0, 3.0)
+    assert numeric.data[0].marker.colorbar.title.text == "Ordinal rank"
+
+
+def test_layered_projection_data_can_be_reused_for_color_changes() -> None:
+    samples = _layered_samples()
+    projection_data = prepare_layered_projection_data(
+        samples,
+        "pca",
+        layers=[0, 1],
+    )
+
+    grouped = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0, 1],
+        groups=["A", "A", "A", "A", "A"],
+        projection_data=projection_data,
+    )
+    numeric = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0, 1],
+        color_values=[0.0, 1.0, 2.0, 3.0, 4.0],
+        projection_data=projection_data,
+    )
+
+    assert numeric.data[0].x == grouped.data[0].x
+    assert [frame.name for frame in numeric.frames] == ["0", "1"]
+
+    with pytest.raises(ValueError, match="projection_data layers"):
+        build_layered_figure(
+            samples,
+            "pca",
+            layers=[0],
+            projection_data=projection_data,
+        )
+
+
+def test_attribute_color_kwargs_cover_numeric_ordinal_and_nominal() -> None:
+    class Dataset:
+        attribute_names = ["age", "degree", "city", "wealth"]
+        attribute_schema = {
+            "persona_fields": {
+                "age": {"kind": "numeric"},
+                "degree": {
+                    "kind": "ordinal",
+                    "ordered_values": ["High school", "Bachelor's", "Graduate"],
+                },
+                "city": {"kind": "nominal"},
+                "wealth": {
+                    "kind": "ordinal",
+                    "ordered_values": ["Less than $5,000", "$5,000 to $20,000"],
+                },
+            }
+        }
+
+        def attribute_values(self, name: str, persona_ids: list[str]) -> list[object]:
+            values = {
+                "age": [20, 40, 60],
+                "degree": ["High school", "Graduate", "Bachelor's"],
+                "city": ["A", "B", "C"],
+                "wealth": ["Less than $5,000", "$5,000 to $20,000"],
+            }
+            return values[name][: len(persona_ids)]
+
+    dataset = Dataset()
+    persona_ids = ["p1", "p2", "p3"]
+
+    numeric = attribute_color_kwargs(dataset, "age", persona_ids)
+    assert numeric["color_values"] == [20.0, 40.0, 60.0]
+    assert numeric["colorscale"] == "Viridis"
+
+    ordinal = attribute_color_kwargs(dataset, "degree", persona_ids)
+    assert ordinal["color_values"] == [0.0, 2.0, 1.0]
+    assert ordinal["color_ticktext"] == ["High school", "Bachelor's", "Graduate"]
+
+    wealth = attribute_color_kwargs(dataset, "wealth", persona_ids[:2])
+    assert wealth["color_values"] == [0.0, 1.0]
+    assert wealth["color_ticktext"] == [
+        "Less than &#36;5,000",
+        "&#36;5,000 to &#36;20,000",
+    ]
+
+    nominal = attribute_color_kwargs(dataset, "city", persona_ids, max_categories=2)
+    assert nominal["groups"] == ["A", "B", "Other"]
 
 
 def test_projection_plots_validate_component_count() -> None:
@@ -175,7 +280,7 @@ def test_smoke() -> None:
         assert store.list_personas(["templated"]) == ["persona-001"]
         assert store.list_personas([]) == []
         assert store.available_variants(["templated", "biography"]) == ["templated"]
-        assert store.available_variants([]) == ["templated"]
+        assert store.available_variants([]) == []
         assert store.persona_names(["persona-001"], variants=["templated"]) == {
             "persona-001": "Test Persona"
         }
@@ -196,33 +301,35 @@ def test_smoke() -> None:
 
         hub_store = HFActivationStore("test/repo", "test/model")
         assert hub_store.config_name == "test__model__answer_mean"
-        hub_store._cache = {
-            "templated": {
-                "persona-001": {
-                    "name": "Test Persona",
-                    "vector": vectors.tolist(),
-                },
-                "persona-002": {
-                    "name": "Other Persona",
-                    "vector": (vectors + 1).tolist(),
-                },
-            },
-            "biography": {
-                "persona-001": {
-                    "name": "Test Persona",
-                    "vector": vectors.tolist(),
-                }
-            },
+        hub_store._datasets = {
+            "templated": [
+                {"vector": vectors.tolist()},
+                {"vector": (vectors + 1).tolist()},
+            ],
+            "biography": [
+                {"vector": vectors.tolist()},
+            ],
         }
+        hub_store._index = {
+            "templated": {"persona-001": 0, "persona-002": 1},
+            "biography": {"persona-001": 0},
+        }
+        hub_store._names = {
+            "templated": {
+                "persona-001": "Test Persona",
+                "persona-002": "Other Persona",
+            },
+            "biography": {"persona-001": "Test Persona"},
+        }
+        hub_store._metadata_complete.update({"templated", "biography"})
         assert hub_store.list_personas(["templated"]) == [
             "persona-001",
             "persona-002",
         ]
         assert hub_store.list_personas(["templated", "biography"]) == ["persona-001"]
-        assert hub_store.list_personas([]) == ["persona-001"]
-        assert hub_store.persona_names(["persona-001"], variants=[]) == {
-            "persona-001": "Test Persona"
-        }
+        assert hub_store.list_personas([]) == []
+        assert hub_store.available_variants([]) == []
+        assert hub_store.persona_names(["persona-001"], variants=[]) == {}
         assert hub_store.persona_names(["persona-001"], variants=["templated"]) == {
             "persona-001": "Test Persona"
         }
@@ -344,3 +451,61 @@ def test_smoke() -> None:
         assert torch.allclose(sv["steering_vector"], torch.ones(1, 1, 4))
 
     print("✓ smoke test passed")
+
+
+def test_hf_metadata_stops_after_requested_personas() -> None:
+    class CountingDataset(list):
+        def __init__(self, rows):
+            super().__init__(rows)
+            self.rows_read = 0
+
+        def select_columns(self, columns):
+            source = self
+
+            class Selected:
+                def __len__(self):
+                    return len(source)
+
+                def __getitem__(self, i: int):
+                    source.rows_read += 1
+                    return {column: source[i][column] for column in columns}
+
+            return Selected()
+
+    vector = torch.zeros(2, 3)
+    dataset = CountingDataset(
+        [
+            {
+                "persona_id": f"persona-{idx:03d}",
+                "name": f"Persona {idx}",
+                "vector": vector.tolist(),
+            }
+            for idx in range(20)
+        ]
+    )
+    store = HFActivationStore("test/repo", "test/model")
+    store._datasets["templated"] = dataset
+
+    assert store.persona_names(
+        ["persona-001", "persona-003"], variants=["templated"]
+    ) == {
+        "persona-001": "Persona 1",
+        "persona-003": "Persona 3",
+    }
+    assert dataset.rows_read == 4
+
+    assert torch.allclose(store.load("templated", "persona-001"), vector)
+    assert dataset.rows_read == 4
+
+    # Asking for a not-yet-seen id resumes from the last scanned row instead
+    # of restarting at 0.
+    assert store.persona_names(["persona-007"], variants=["templated"]) == {
+        "persona-007": "Persona 7",
+    }
+    assert dataset.rows_read == 8
+
+    # A full listing finishes the scan; subsequent calls are cached.
+    assert len(store.list_personas(["templated"])) == 20
+    assert dataset.rows_read == 20
+    assert store.list_personas(["templated"])[:2] == ["persona-000", "persona-001"]
+    assert dataset.rows_read == 20
