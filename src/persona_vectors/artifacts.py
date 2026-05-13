@@ -243,6 +243,26 @@ class ActivationStore:
             warn_missing=warn_missing,
         )
 
+    def persona_sample_ids(
+        self,
+        prompt_variant: str,
+        persona_id: str,
+        mask_strategy: object | None = None,
+    ) -> list[str] | None:
+        """Return stored sample ids for a persona, if present."""
+        variant_root = self._root(prompt_variant, mask_strategy)
+        manifest_file = variant_root / _MANIFEST_FILENAME
+        if not manifest_file.exists():
+            return None
+        manifest = _load_manifest(variant_root)
+        entry = manifest["personas"].get(persona_id)
+        if not isinstance(entry, dict):
+            return None
+        sample_ids = entry.get("sample_ids")
+        if not isinstance(sample_ids, list):
+            return None
+        return [str(sample_id) for sample_id in sample_ids]
+
     def persona_names(
         self,
         persona_ids: list[str],

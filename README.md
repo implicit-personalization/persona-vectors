@@ -60,8 +60,8 @@ artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
 # Extract all personas and both prompt variants
 uv run python main.py extract --model google/gemma-2-9b-it
 
-# Extract specific personas
-uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> baseline_assistant
+# Extract specific personas with a train split cap
+uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> baseline_assistant --n-train 50
 
 # Extract the first N personas from the dataset
 uv run python main.py extract --model google/gemma-2-9b-it --sample-size 100

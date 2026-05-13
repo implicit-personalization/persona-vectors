@@ -21,6 +21,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from persona_vectors.extraction import run_extraction
 
     dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
+    store = ActivationStore(cfg.model, root_dir=cfg.activations_dir)
     if cfg.persona_ids is not None:
         personas = []
         for pid in cfg.persona_ids:
@@ -31,25 +32,33 @@ def extract_activations(cfg: ExtractConfig) -> None:
     else:
         personas = list(dataset)
 
-    # train_test_split returns (train, test); we use [0] (FRQs, leakage-filtered against the shared MCQ bank).
-    runs = [
-        (p, train)
-        for p in personas
-        if (train := dataset.train_test_split(p.id, n_train=50)[0])
-    ]
+    def select_qa_pairs(persona):
+        qa_type = None if cfg.qa_type == "all" else cfg.qa_type
+        if cfg.n_train is None:
+            return dataset.get_qa(persona.id, type=qa_type)
+
+        train, _ = dataset.train_test_split(persona.id, n_train=cfg.n_train)
+        return train if qa_type is None else [q for q in train if q.type == qa_type]
+
+    def matches_current_selection(persona, qa_pairs) -> bool:
+        expected_sample_ids = [q.qid for q in qa_pairs]
+        for variant in cfg.variants:
+            stored = store.persona_sample_ids(variant, persona.id, cfg.mask_strategy)
+            if stored != expected_sample_ids:
+                return False
+        return True
+
+    runs = [(p, qa_pairs) for p in personas if (qa_pairs := select_qa_pairs(p))]
     if not runs:
         print("No QA pairs found for selected persona(s); nothing extracted.")
         return
 
     if not cfg.force:
-        done = set(
-            ActivationStore(cfg.model).list_personas(
-                cfg.variants, mask_strategy=cfg.mask_strategy, warn_missing=False
-            )
-        )
-        runs = [(p, qa) for p, qa in runs if p.id not in done]
+        runs = [(p, qa) for p, qa in runs if not matches_current_selection(p, qa)]
         if not runs:
-            print("All requested personas already extracted; pass --force to re-run.")
+            print(
+                "All requested personas already extracted for this question selection; pass --force to re-run."
+            )
             return
 
     model = StandardizedTransformer(cfg.model)
@@ -65,6 +74,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
                 mask_strategy=cfg.mask_strategy,
                 remote=cfg.backend == "remote",
                 verbose=cfg.verbose,
+                activations_dir=cfg.activations_dir,
             )
         except Exception as e:
             if not cfg.skip_failed:
@@ -144,6 +154,9 @@ def main() -> None:
             mask_strategy=args.mask_strategy,
             persona_ids=args.persona_id,
             sample_size=args.sample_size,
+            n_train=args.n_train,
+            qa_type=args.qa_type,
+            activations_dir=Path(args.activations_dir),
             backend=args.backend,
             verbose=args.verbose,
             force=args.force,

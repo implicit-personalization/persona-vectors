@@ -14,6 +14,12 @@ Core modules:
 # All personas, both prompt variants
 uv run python main.py extract --model google/gemma-2-9b-it
 
+# Train split or all QA pairs
+uv run python main.py extract --model google/gemma-2-9b-it --n-train 50
+
+# Filter explicit / implicit QAs
+uv run python main.py extract --model google/gemma-2-9b-it --qa-type explicit
+
 # One variant or selected personas
 uv run python main.py extract --model google/gemma-2-9b-it --variants biography
 uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> baseline_assistant
@@ -25,6 +31,7 @@ uv run python main.py extract --model google/gemma-2-9b-it --persona-id <UUID> -
 ```
 
 `extract` skips personas already present in the local manifest unless `--force` is passed. Use `--verbose` to preview token masks.
+`--n-train` uses the leakage-filtered train split. Omit it to run on all QA pairs.
 
 ## API
 
@@ -56,6 +63,16 @@ vectors = extract_activations(
 ```
 
 `extract_activations()` returns `(num_layers, hidden_size)`, averaged across samples and selected tokens.
+
+## QA Selection
+
+`QAPair.type` is either `explicit` or `implicit`.
+
+- `--qa-type all` keeps both kinds.
+- `--qa-type explicit` keeps only explicit rows.
+- `--qa-type implicit` keeps only implicit rows.
+
+When `--n-train` is set, extraction uses `dataset.train_test_split(..., n_train=N)` before applying the QA-type filter.
 
 ## Mask Strategies
 

@@ -14,6 +14,7 @@ from persona_vectors.extraction import MaskStrategy
 from persona_vectors.steering import STEER_LAYER
 
 Backend = Literal["local", "remote"]
+QaType = Literal["all", "explicit", "implicit"]
 
 
 @dataclass
@@ -23,6 +24,9 @@ class ExtractConfig:
     mask_strategy: MaskStrategy
     persona_ids: list[str] | None = None
     sample_size: int | None = None
+    n_train: int | None = None
+    qa_type: QaType = "all"
+    activations_dir: Path = Path("artifacts/activations")
     backend: Backend = "local"
     verbose: bool = False
     force: bool = False
@@ -84,6 +88,11 @@ def build_extract_parser(subparsers) -> None:
         default=MaskStrategy.ANSWER_MEAN,
         help="Which tokens to average (default: answer_mean)",
     )
+    extract.add_argument(
+        "--activations-dir",
+        default="artifacts/activations",
+        help="Root directory for extracted activations.",
+    )
     selection = extract.add_mutually_exclusive_group()
     selection.add_argument(
         "--persona-id",
@@ -96,6 +105,18 @@ def build_extract_parser(subparsers) -> None:
         type=_positive_int,
         default=None,
         help="Load only the first N personas from the dataset (default: all)",
+    )
+    extract.add_argument(
+        "--n-train",
+        type=_positive_int,
+        default=None,
+        help="Use the leakage-filtered train split and cap it at N questions (default: all QA pairs).",
+    )
+    extract.add_argument(
+        "--qa-type",
+        choices=["all", "explicit", "implicit"],
+        default="all",
+        help="Filter QA pairs by type before extraction (default: all).",
     )
     extract.add_argument(
         "--backend",
