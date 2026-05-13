@@ -28,6 +28,7 @@ from persona_vectors.plots import (
     build_pair_similarity_figure,
     build_similarity_figures,
     plot_persona_dendrogram,
+    prepare_kmeans_groups,
     prepare_layered_projection_data,
 )
 from persona_vectors.steering import compute_steering_vector
@@ -163,6 +164,50 @@ def test_layered_projection_data_can_be_reused_for_color_changes() -> None:
             layers=[0],
             projection_data=projection_data,
         )
+    with pytest.raises(ValueError, match="projection_data kind"):
+        build_layered_figure(
+            samples,
+            "umap",
+            layers=[0, 1],
+            projection_data=projection_data,
+        )
+
+
+def test_layered_projection_data_validates_graph_settings() -> None:
+    samples = _layered_samples()
+    projection_data = prepare_layered_projection_data(
+        samples,
+        "isomap",
+        layers=[0, 1],
+        graph_overlay=True,
+        graph_n_neighbors=2,
+    )
+
+    with pytest.raises(ValueError, match="graph_n_neighbors"):
+        build_layered_figure(
+            samples,
+            "isomap",
+            layers=[0, 1],
+            graph_overlay=True,
+            graph_n_neighbors=3,
+            projection_data=projection_data,
+        )
+
+
+def test_prepare_kmeans_groups_can_be_passed_as_groups() -> None:
+    samples = _layered_samples()
+    groups = prepare_kmeans_groups(
+        samples,
+        layers=[0, 1],
+        n_clusters=2,
+        cluster_mode="per_layer",
+    )
+
+    fig = build_layered_figure(samples, "pca", layers=[0, 1], groups=groups)
+
+    assert isinstance(groups, dict)
+    assert sorted(groups) == [0, 1]
+    assert [frame.name for frame in fig.frames] == ["0", "1"]
 
 
 def test_attribute_color_kwargs_cover_numeric_ordinal_and_nominal() -> None:

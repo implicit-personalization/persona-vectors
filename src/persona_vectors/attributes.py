@@ -14,23 +14,25 @@ def _plotly_tick_label(value: object) -> str:
 def attribute_schema(persona_dataset: Any) -> dict[str, dict[str, Any]]:
     """Return the persona-field schema from a SynthPersonaDataset-like object."""
 
-    return persona_dataset.attribute_schema["persona_fields"]
+    return persona_dataset.attribute_schema.get("persona_fields", {})
 
 
 def attribute_display_label(persona_dataset: Any, attribute_name: str) -> str:
     """Format an attribute label with kind and cardinality metadata."""
 
-    info = attribute_schema(persona_dataset)[attribute_name]
+    info = attribute_schema(persona_dataset).get(attribute_name)
+    if not info:
+        return attribute_name
     unique = info.get("n_unique_seed_values")
     suffix = f", {unique} values" if unique else ""
     return f"{attribute_name} ({info.get('kind', 'unknown')}{suffix})"
 
 
-def categorical_attribute_groups(
+def categorical_attribute_labels(
     values: Iterable[object],
     max_categories: int = DEFAULT_MAX_ATTRIBUTE_CATEGORIES,
 ) -> list[str]:
-    """Group categorical values, keeping only the most frequent categories."""
+    """Return categorical labels, collapsing infrequent values to ``Other``."""
 
     values = list(values)
     counts = Counter(values)
@@ -75,4 +77,4 @@ def attribute_color_kwargs(
             "color_tickvals": [float(idx) for idx in range(len(ordered))],
             "color_ticktext": [_plotly_tick_label(value) for value in ordered],
         }
-    return {"groups": categorical_attribute_groups(values, max_categories)}
+    return {"groups": categorical_attribute_labels(values, max_categories)}

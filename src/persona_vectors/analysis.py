@@ -82,9 +82,7 @@ def load_persona_vectors(
     persona_ids: list[str] | None = None,
 ) -> LayeredSamples:
     """Load saved persona vectors for a single variant.
-
-    Each vector is a ``(num_layers, hidden_size)`` tensor. Extraction has
-    already averaged across QA pairs and masked tokens.
+    Each vector is a ``(num_layers, hidden_size)`` tensor.
     """
     persona_ids = _resolve_personas(store, [variant], mask_strategy, persona_ids)
     return _load_variant_samples(store, variant, mask_strategy, persona_ids)
@@ -326,7 +324,7 @@ def prepare_layer_mean_cluster_samples(
     return prepared.mean(dim=1)
 
 
-def _cluster_input(
+def _samples_to_numpy(
     samples: torch.Tensor, *, center: bool = True, normalize: bool = True
 ) -> np.ndarray:
     return (
@@ -346,7 +344,7 @@ def cluster_kmeans(
 ) -> np.ndarray:
     """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
     return KMeans(n_clusters=n_clusters, n_init="auto", random_state=seed).fit_predict(
-        _cluster_input(samples, center=center, normalize=normalize)
+        _samples_to_numpy(samples, center=center, normalize=normalize)
     )
 
 
@@ -363,7 +361,7 @@ def cluster_agglomerative(
     if linkage not in {"ward", "average", "complete", "single"}:
         raise ValueError("linkage must be one of: ward, average, complete, single")
     return AgglomerativeClustering(n_clusters=n_clusters, linkage=linkage).fit_predict(
-        _cluster_input(samples, center=center, normalize=normalize)
+        _samples_to_numpy(samples, center=center, normalize=normalize)
     )
 
 
@@ -387,7 +385,7 @@ def project_isomap(
         n_components=n_components,
         n_neighbors=n_neighbors,
         metric="euclidean",
-    ).fit_transform(_cluster_input(samples, center=True, normalize=True))
+    ).fit_transform(_samples_to_numpy(samples, center=True, normalize=True))
     return torch.from_numpy(embedding)
 
 

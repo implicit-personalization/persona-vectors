@@ -85,14 +85,13 @@ for variant, s in samples.items():
 
 # %% Attribute schema overview
 persona_dataset = SynthPersonaDataset()
-attribute_schema = persona_dataset.attribute_schema["persona_fields"]
 
 attribute_summary = Table(title="Persona Attributes")
 attribute_summary.add_column("Attribute", style="cyan")
 attribute_summary.add_column("Kind", style="magenta")
 attribute_summary.add_column("Unique")
 for name in persona_dataset.attribute_names:
-    info = attribute_schema[name]
+    info = persona_dataset.attribute_info(name)
     attribute_summary.add_row(
         name,
         info.get("kind", ""),
@@ -101,6 +100,9 @@ for name in persona_dataset.attribute_names:
 console.print(attribute_summary)
 
 # %% Attribute-colored PCA views
+# HACK: Just for current tsting speedup
+VARIANTS = ["biography"]
+
 for variant, s in samples.items():
     build_layered_figure(
         s,

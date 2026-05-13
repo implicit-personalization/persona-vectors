@@ -24,17 +24,35 @@ _MAX_GROUP_LEGEND_TRACES = 40
 
 ClusterMode = Literal["mean_across_layers", "first_layer", "per_layer"]
 ProjectionKind = Literal["pca", "umap", "isomap"]
+ProjectionColorMode = Literal["numeric", "categorical"]
 
 
 @dataclass(frozen=True)
 class LayeredProjectionData:
     """Precomputed projection coordinates and optional graph edges by layer."""
 
+    kind: ProjectionKind
     layers: tuple[int, ...]
     n_components: int
+    graph_n_neighbors: int
     layer_coords: dict[int, torch.Tensor]
     layer_ranges: dict[int, tuple[tuple[float, float], ...]]
     graph_edges: dict[int, list[tuple[int, int]]]
+
+
+@dataclass(frozen=True)
+class _ProjectionColoring:
+    mode: ProjectionColorMode
+    label: str
+    values_by_layer: dict[int, list[float]] | None = None
+    colorbar: dict | None = None
+    colorscale: str | None = None
+    value_min: float | None = None
+    value_max: float | None = None
+    groups_by_layer: dict[int, list[str]] | None = None
+    group_colors: dict[str, str] | None = None
+    unique_groups: list[str] | None = None
+    use_single_group_trace: bool = False
 
 
 def _plots_dir() -> Path:
@@ -534,6 +552,7 @@ def _validate_color_values(
 
 def _prepare_layered_projection_data(
     samples: LayeredSamples,
+    kind: ProjectionKind,
     selected_layers: list[int],
     *,
     project_fn: Callable[..., torch.Tensor],
@@ -568,12 +587,56 @@ def _prepare_layered_projection_data(
         else {}
     )
     return LayeredProjectionData(
+        kind=kind,
         layers=tuple(selected_layers),
         n_components=n_components,
+        graph_n_neighbors=graph_n_neighbors,
         layer_coords=layer_coords,
         layer_ranges=layer_ranges,
         graph_edges=graph_edges,
     )
+
+
+def _validate_projection_data(
+    projection_data: LayeredProjectionData,
+    *,
+    kind: ProjectionKind,
+    selected_layers: list[int],
+    n_components: int,
+    graph_overlay: bool,
+    graph_n_neighbors: int,
+) -> None:
+    if projection_data.kind != kind:
+        raise ValueError(
+            "projection_data kind must match the requested kind; "
+            f"got {projection_data.kind!r} and {kind!r}"
+        )
+    if projection_data.layers != tuple(selected_layers):
+        raise ValueError(
+            "projection_data layers must match the requested layers; "
+            f"got {list(projection_data.layers)} and {selected_layers}"
+        )
+    if projection_data.n_components != n_components:
+        raise ValueError(
+            "projection_data n_components must match the requested n_components; "
+            f"got {projection_data.n_components} and {n_components}"
+        )
+    if projection_data.graph_n_neighbors != graph_n_neighbors:
+        raise ValueError(
+            "projection_data graph_n_neighbors must match the requested graph_n_neighbors; "
+            f"got {projection_data.graph_n_neighbors} and {graph_n_neighbors}"
+        )
+    if graph_overlay:
+        missing_graph_layers = [
+            layer
+            for layer in selected_layers
+            if layer not in projection_data.graph_edges
+        ]
+        if missing_graph_layers:
+            raise ValueError(
+                "projection_data was prepared without graph edges for layer(s): "
+                f"{missing_graph_layers}"
+            )
 
 
 def _projection_spec(
@@ -592,9 +655,11 @@ def _projection_spec(
         )
     if kind == "umap":
         return (
-            "Centered UMAP by Layer"
-            if n_components == 2
-            else "Centered UMAP (3D) by Layer",
+            (
+                "Centered UMAP by Layer"
+                if n_components == 2
+                else "Centered UMAP (3D) by Layer"
+            ),
             project_umap,
             "UMAP 1",
             "UMAP 2",
@@ -603,9 +668,11 @@ def _projection_spec(
         )
     if kind == "isomap":
         return (
-            "Centered Isomap by Layer"
-            if n_components == 2
-            else "Centered Isomap (3D) by Layer",
+            (
+                "Centered Isomap by Layer"
+                if n_components == 2
+                else "Centered Isomap (3D) by Layer"
+            ),
             project_isomap,
             "Isomap 1",
             "Isomap 2",
@@ -639,6 +706,7 @@ def prepare_layered_projection_data(
     )
     return _prepare_layered_projection_data(
         samples,
+        kind,
         selected_layers,
         project_fn=project_fn,
         n_components=n_components,
@@ -648,9 +716,246 @@ def prepare_layered_projection_data(
     )
 
 
+def prepare_kmeans_groups(
+    samples: LayeredSamples,
+    *,
+    layers: list[int] | None = None,
+    n_clusters: int,
+    cluster_seed: int = 0,
+    cluster_mode: ClusterMode = "mean_across_layers",
+) -> list[str] | dict[int, list[str]]:
+    """Precompute k-means group labels for projection coloring.
+
+    The labels are independent of PCA/UMAP/Isomap coordinates, so UI callers can
+    cache them separately from projection data and reuse them across redraws.
+    """
+
+    selected_layers = _validate_layers(samples.vectors, layers)
+    if cluster_mode == "mean_across_layers":
+        cluster_samples = prepare_layer_mean_cluster_samples(samples.vectors)
+        return _cluster_projection_samples(
+            cluster_samples,
+            n_clusters=n_clusters,
+            seed=cluster_seed,
+            center=False,
+            normalize=False,
+        )
+    if cluster_mode == "first_layer":
+        return _cluster_projection_samples(
+            samples.vectors[:, selected_layers[0], :],
+            n_clusters=n_clusters,
+            seed=cluster_seed,
+        )
+    if cluster_mode == "per_layer":
+        return {
+            layer: _cluster_projection_samples(
+                samples.vectors[:, layer, :],
+                n_clusters=n_clusters,
+                seed=cluster_seed,
+            )
+            for layer in selected_layers
+        }
+    raise ValueError(
+        "cluster_mode must be one of: mean_across_layers, first_layer, per_layer"
+    )
+
+
+def _projection_coloring(
+    samples: LayeredSamples,
+    selected_layers: list[int],
+    *,
+    groups: list[str] | dict[int, list[str]] | None,
+    color_values: list[float] | dict[int, list[float]] | None,
+    color_label: str,
+    colorscale: str,
+    color_tickvals: list[float] | None,
+    color_ticktext: list[str] | None,
+) -> _ProjectionColoring:
+    n_samples = int(samples.vectors.shape[0])
+    if groups is not None and color_values is not None:
+        raise ValueError("Pass either groups or color_values, not both")
+
+    if color_values is not None:
+        values_by_layer = _validate_color_values(
+            color_values, selected_layers, n_samples
+        )
+        all_values = [
+            value for layer_values in values_by_layer.values() for value in layer_values
+        ]
+        colorbar = dict(title=color_label)
+        if color_tickvals is not None:
+            colorbar["tickvals"] = color_tickvals
+        if color_ticktext is not None:
+            colorbar["ticktext"] = color_ticktext
+        return _ProjectionColoring(
+            mode="numeric",
+            label=color_label,
+            values_by_layer=values_by_layer,
+            colorbar=colorbar,
+            colorscale=colorscale,
+            value_min=min(all_values),
+            value_max=max(all_values),
+        )
+
+    if groups is None:
+        groups_by_layer = {layer: list(samples.labels) for layer in selected_layers}
+    elif isinstance(groups, dict):
+        missing = [layer for layer in selected_layers if layer not in groups]
+        if missing:
+            raise ValueError(f"groups is missing layer(s): {missing}")
+        groups_by_layer = {layer: list(groups[layer]) for layer in selected_layers}
+    else:
+        stable_groups = list(groups)
+        groups_by_layer = {layer: stable_groups for layer in selected_layers}
+
+    invalid_lengths = {
+        layer: len(layer_groups)
+        for layer, layer_groups in groups_by_layer.items()
+        if len(layer_groups) != n_samples
+    }
+    if invalid_lengths:
+        raise ValueError(
+            f"groups must have length {n_samples} for every layer; got {invalid_lengths}"
+        )
+
+    unique_groups = sorted(
+        {group for layer_groups in groups_by_layer.values() for group in layer_groups},
+        key=lambda v: v.casefold(),
+    )
+    return _ProjectionColoring(
+        mode="categorical",
+        label="Personas" if groups is None else "Groups",
+        groups_by_layer=groups_by_layer,
+        group_colors=_label_color_map(unique_groups),
+        unique_groups=unique_groups,
+        use_single_group_trace=len(unique_groups) > _MAX_GROUP_LEGEND_TRACES,
+    )
+
+
+def _projection_layer_traces(
+    samples: LayeredSamples,
+    coords: torch.Tensor,
+    layer: int,
+    coloring: _ProjectionColoring,
+    *,
+    n_components: int,
+    x_label: str,
+    y_label: str,
+    z_label: str | None,
+) -> list[go.Scattergl | go.Scatter3d]:
+    n_samples = int(samples.vectors.shape[0])
+    is_3d = n_components == 3
+    marker_size = 5 if is_3d else 9
+
+    if coloring.mode == "numeric":
+        assert coloring.values_by_layer is not None
+        values = coloring.values_by_layer[layer]
+        marker = dict(
+            size=marker_size,
+            opacity=0.82,
+            color=values,
+            colorscale=coloring.colorscale,
+            cmin=coloring.value_min,
+            cmax=coloring.value_max,
+            colorbar=coloring.colorbar,
+        )
+        return [
+            _embedding_trace(
+                coords,
+                list(range(n_samples)),
+                n_components=n_components,
+                name=coloring.label,
+                marker=marker,
+                text=samples.hover_text,
+                hovertemplate=(
+                    "%{text}<br>"
+                    + coloring.label
+                    + ": %{marker.color}<br>"
+                    + f"{x_label}=%{{x:.4f}}<br>"
+                    + f"{y_label}=%{{y:.4f}}"
+                    + (
+                        f"<br>{z_label}=%{{z:.4f}}"
+                        if is_3d and z_label is not None
+                        else ""
+                    )
+                    + "<extra></extra>"
+                ),
+            )
+        ]
+
+    assert coloring.groups_by_layer is not None
+    assert coloring.group_colors is not None
+    assert coloring.unique_groups is not None
+    layer_groups = coloring.groups_by_layer[layer]
+    if coloring.use_single_group_trace:
+        return [
+            _embedding_trace(
+                coords,
+                list(range(n_samples)),
+                n_components=n_components,
+                name=coloring.label,
+                marker=dict(
+                    size=marker_size,
+                    opacity=0.82,
+                    color=[coloring.group_colors[group] for group in layer_groups],
+                ),
+                text=samples.hover_text,
+                customdata=layer_groups,
+                hovertemplate=(
+                    "%{text}<br>Group: %{customdata}<br>"
+                    + f"{x_label}=%{{x:.4f}}<br>"
+                    + f"{y_label}=%{{y:.4f}}"
+                    + (
+                        f"<br>{z_label}=%{{z:.4f}}"
+                        if is_3d and z_label is not None
+                        else ""
+                    )
+                    + "<extra></extra>"
+                ),
+            )
+        ]
+
+    traces = []
+    for group in coloring.unique_groups:
+        indices = [i for i, value in enumerate(layer_groups) if value == group]
+        traces.append(
+            _embedding_trace(
+                coords,
+                indices,
+                n_components=n_components,
+                name=group,
+                marker=dict(
+                    size=marker_size,
+                    opacity=0.82,
+                    color=coloring.group_colors[group],
+                ),
+                text=[samples.hover_text[i] for i in indices],
+                hovertemplate=_embedding_hovertemplate(
+                    group, x_label, y_label, z_label if is_3d else None
+                ),
+            )
+        )
+    return traces
+
+
+def _projection_frame_layout(
+    title: str,
+    layer: int,
+    ranges: tuple[tuple[float, float], ...],
+    *,
+    is_3d: bool,
+) -> dict:
+    if is_3d:
+        x_range, y_range, z_range = ranges
+        return _layer_frame_layout(title, layer, x_range, y_range, z_range=z_range)
+    x_range, y_range = ranges
+    return _layer_frame_layout(title, layer, x_range, y_range)
+
+
 def _build_layered_projection_figure(
     samples: LayeredSamples,
     selected_layers: list[int],
+    kind: ProjectionKind,
     title: str,
     project_fn,
     x_label: str,
@@ -674,6 +979,7 @@ def _build_layered_projection_figure(
     if projection_data is None:
         projection_data = _prepare_layered_projection_data(
             samples,
+            kind,
             selected_layers,
             project_fn=project_fn,
             n_components=n_components,
@@ -681,195 +987,30 @@ def _build_layered_projection_figure(
             graph_n_neighbors=graph_n_neighbors,
             project_kwargs=project_kwargs,
         )
-    elif projection_data.layers != tuple(selected_layers):
-        raise ValueError(
-            "projection_data layers must match the requested layers; "
-            f"got {list(projection_data.layers)} and {selected_layers}"
+    else:
+        _validate_projection_data(
+            projection_data,
+            kind=kind,
+            selected_layers=selected_layers,
+            n_components=n_components,
+            graph_overlay=graph_overlay,
+            graph_n_neighbors=graph_n_neighbors,
         )
-    elif projection_data.n_components != n_components:
-        raise ValueError(
-            "projection_data n_components must match the requested n_components; "
-            f"got {projection_data.n_components} and {n_components}"
-        )
-    if graph_overlay:
-        missing_graph_layers = [
-            layer for layer in selected_layers if layer not in projection_data.graph_edges
-        ]
-        if missing_graph_layers:
-            raise ValueError(
-                "projection_data was prepared without graph edges for layer(s): "
-                f"{missing_graph_layers}"
-            )
     layer_coords = projection_data.layer_coords
     layer_ranges = projection_data.layer_ranges
     graph_edges = projection_data.graph_edges
 
-    n_samples = int(samples.vectors.shape[0])
-    if groups is not None and color_values is not None:
-        raise ValueError("Pass either groups or color_values, not both")
-    if color_values is not None:
-        values_by_layer = _validate_color_values(
-            color_values, selected_layers, n_samples
-        )
-        all_values = [
-            value for layer_values in values_by_layer.values() for value in layer_values
-        ]
-        colorbar = dict(title=color_label)
-        if color_tickvals is not None:
-            colorbar["tickvals"] = color_tickvals
-        if color_ticktext is not None:
-            colorbar["ticktext"] = color_ticktext
-
-        def _make_numeric_trace(coords: torch.Tensor, layer: int):
-            values = values_by_layer[layer]
-            marker = dict(
-                size=5 if n_components == 3 else 9,
-                opacity=0.82,
-                color=values,
-                colorscale=colorscale,
-                cmin=min(all_values),
-                cmax=max(all_values),
-                colorbar=colorbar,
-            )
-            return _embedding_trace(
-                coords,
-                list(range(n_samples)),
-                n_components=n_components,
-                name=color_label,
-                marker=marker,
-                text=samples.hover_text,
-                hovertemplate=(
-                    "%{text}<br>"
-                    + color_label
-                    + ": %{marker.color}<br>"
-                    + f"{x_label}=%{{x:.4f}}<br>"
-                    + f"{y_label}=%{{y:.4f}}"
-                    + (
-                        f"<br>{z_label}=%{{z:.4f}}"
-                        if n_components == 3 and z_label is not None
-                        else ""
-                    )
-                    + "<extra></extra>"
-                ),
-            )
-
-        def _layer_traces(coords: torch.Tensor, layer: int):
-            traces = []
-            if graph_overlay:
-                traces.append(
-                    _graph_edge_trace(
-                        coords,
-                        graph_edges[layer],
-                        n_components=n_components,
-                    )
-                )
-            traces.append(_make_numeric_trace(coords, layer))
-            return traces
-
-        first_layer = selected_layers[0]
-        traces = _layer_traces(layer_coords[first_layer], first_layer)
-        frames = []
-        for layer in selected_layers:
-            coords = layer_coords[layer]
-            ranges = layer_ranges[layer]
-            if n_components == 3:
-                x_range, y_range, z_range = ranges
-                frame_layout = _layer_frame_layout(
-                    title, layer, x_range, y_range, z_range=z_range
-                )
-            else:
-                x_range, y_range = ranges
-                frame_layout = _layer_frame_layout(title, layer, x_range, y_range)
-            frames.append(
-                go.Frame(
-                    name=str(layer),
-                    data=_layer_traces(coords, layer),
-                    layout=frame_layout,
-                )
-            )
-
-        fig = go.Figure(data=traces, frames=frames)
-        return _apply_layered_projection_layout(
-            fig,
-            title,
-            selected_layers,
-            layer_ranges,
-            x_label,
-            y_label,
-            z_label,
-            n_components,
-        )
-    if groups is None:
-        groups_by_layer = {layer: list(samples.labels) for layer in selected_layers}
-    elif isinstance(groups, dict):
-        missing = [layer for layer in selected_layers if layer not in groups]
-        if missing:
-            raise ValueError(f"groups is missing layer(s): {missing}")
-        groups_by_layer = {layer: list(groups[layer]) for layer in selected_layers}
-    else:
-        stable_groups = list(groups)
-        groups_by_layer = {layer: stable_groups for layer in selected_layers}
-    invalid_lengths = {
-        layer: len(layer_groups)
-        for layer, layer_groups in groups_by_layer.items()
-        if len(layer_groups) != n_samples
-    }
-    if invalid_lengths:
-        raise ValueError(
-            f"groups must have length {n_samples} for every layer; got {invalid_lengths}"
-        )
-
-    unique_groups = sorted(
-        {group for layer_groups in groups_by_layer.values() for group in layer_groups},
-        key=lambda v: v.casefold(),
+    coloring = _projection_coloring(
+        samples,
+        selected_layers,
+        groups=groups,
+        color_values=color_values,
+        color_label=color_label,
+        colorscale=colorscale,
+        color_tickvals=color_tickvals,
+        color_ticktext=color_ticktext,
     )
-    group_colors = _label_color_map(unique_groups)
     is_3d = n_components == 3
-    use_single_group_trace = len(unique_groups) > _MAX_GROUP_LEGEND_TRACES
-
-    def _make_trace(group: str, coords: torch.Tensor, layer: int):
-        layer_groups = groups_by_layer[layer]
-        indices = [i for i, v in enumerate(layer_groups) if v == group]
-        return _embedding_trace(
-            coords,
-            indices,
-            n_components=n_components,
-            name=group,
-            marker=dict(
-                size=5 if is_3d else 9, opacity=0.82, color=group_colors[group]
-            ),
-            text=[samples.hover_text[i] for i in indices],
-            hovertemplate=_embedding_hovertemplate(
-                group, x_label, y_label, z_label if is_3d else None
-            ),
-        )
-
-    def _make_single_group_trace(coords: torch.Tensor, layer: int):
-        layer_groups = groups_by_layer[layer]
-        return _embedding_trace(
-            coords,
-            list(range(n_samples)),
-            n_components=n_components,
-            name="Personas" if groups is None else "Groups",
-            marker=dict(
-                size=5 if is_3d else 9,
-                opacity=0.82,
-                color=[group_colors[group] for group in layer_groups],
-            ),
-            text=samples.hover_text,
-            customdata=layer_groups,
-            hovertemplate=(
-                "%{text}<br>Group: %{customdata}<br>"
-                + f"{x_label}=%{{x:.4f}}<br>"
-                + f"{y_label}=%{{y:.4f}}"
-                + (
-                    f"<br>{z_label}=%{{z:.4f}}"
-                    if is_3d and z_label is not None
-                    else ""
-                )
-                + "<extra></extra>"
-            ),
-        )
 
     def _layer_traces(coords: torch.Tensor, layer: int):
         traces = []
@@ -881,10 +1022,18 @@ def _build_layered_projection_figure(
                     n_components=n_components,
                 )
             )
-        if use_single_group_trace:
-            traces.append(_make_single_group_trace(coords, layer))
-        else:
-            traces.extend(_make_trace(g, coords, layer) for g in unique_groups)
+        traces.extend(
+            _projection_layer_traces(
+                samples,
+                coords,
+                layer,
+                coloring,
+                n_components=n_components,
+                x_label=x_label,
+                y_label=y_label,
+                z_label=z_label,
+            )
+        )
         return traces
 
     first_layer = selected_layers[0]
@@ -892,17 +1041,19 @@ def _build_layered_projection_figure(
     frames = []
     for layer in selected_layers:
         coords = layer_coords[layer]
-        ranges = layer_ranges[layer]
-        if is_3d:
-            x_range, y_range, z_range = ranges
-            frame_layout = _layer_frame_layout(
-                title, layer, x_range, y_range, z_range=z_range
-            )
-        else:
-            x_range, y_range = ranges
-            frame_layout = _layer_frame_layout(title, layer, x_range, y_range)
         data = _layer_traces(coords, layer)
-        frames.append(go.Frame(name=str(layer), data=data, layout=frame_layout))
+        frames.append(
+            go.Frame(
+                name=str(layer),
+                data=data,
+                layout=_projection_frame_layout(
+                    title,
+                    layer,
+                    layer_ranges[layer],
+                    is_3d=is_3d,
+                ),
+            )
+        )
 
     fig = go.Figure(data=traces, frames=frames)
     return _apply_layered_projection_layout(
@@ -1294,34 +1445,13 @@ def build_layered_figure(
             raise ValueError(
                 "groups/n_clusters are not supported for kind='similarity'"
             )
-        if cluster_mode == "mean_across_layers":
-            cluster_samples = prepare_layer_mean_cluster_samples(samples.vectors)
-            groups = _cluster_projection_samples(
-                cluster_samples,
-                n_clusters=n_clusters,
-                seed=cluster_seed,
-                center=False,
-                normalize=False,
-            )
-        elif cluster_mode == "first_layer":
-            groups = _cluster_projection_samples(
-                samples.vectors[:, selected_layers[0], :],
-                n_clusters=n_clusters,
-                seed=cluster_seed,
-            )
-        elif cluster_mode == "per_layer":
-            groups = {
-                layer: _cluster_projection_samples(
-                    samples.vectors[:, layer, :],
-                    n_clusters=n_clusters,
-                    seed=cluster_seed,
-                )
-                for layer in selected_layers
-            }
-        else:
-            raise ValueError(
-                "cluster_mode must be one of: mean_across_layers, first_layer, per_layer"
-            )
+        groups = prepare_kmeans_groups(
+            samples,
+            layers=selected_layers,
+            n_clusters=n_clusters,
+            cluster_seed=cluster_seed,
+            cluster_mode=cluster_mode,
+        )
     if groups is not None:
         if kind == "similarity":
             raise ValueError(
@@ -1349,6 +1479,7 @@ def build_layered_figure(
         return _build_layered_projection_figure(
             samples,
             selected_layers,
+            kind,
             title=title or default_title,
             project_fn=project_fn,
             x_label=x_label,
