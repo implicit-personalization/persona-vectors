@@ -27,11 +27,7 @@ def parse_vector_config_name(config_name: str) -> tuple[str, str] | None:
 
 def list_hub_vector_models(repo_id: str) -> dict[str, list[str]]:
     """Return available Hub vector models grouped by mask strategy."""
-
-    try:
-        from huggingface_hub import get_dataset_config_names
-    except ImportError:
-        from datasets import get_dataset_config_names
+    from datasets import get_dataset_config_names
 
     models_by_strategy: dict[str, set[str]] = {}
     for config_name in get_dataset_config_names(repo_id):
@@ -56,7 +52,7 @@ def push_to_hub(
     """Push locally saved activations to a Hub dataset.
 
     One config per ``model__mask_strategy`` and one split per variant, matching
-    the layout ``HFActivationStore`` reads. Returns the variants pushed.
+    the layout ``HFPersonaVectorStore`` reads. Returns the variants pushed.
     """
     from datasets import Array2D, Dataset, Features, Sequence, Value
 

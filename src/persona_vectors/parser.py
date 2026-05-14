@@ -64,6 +64,22 @@ class SteerConfig:
     out_dir: Path
 
 
+@dataclass
+class ProbeConfig:
+    model: str
+    activations_dir: Path
+    output_dir: Path
+    variant: str
+    mask_strategy: MaskStrategy
+    attributes: list[str]
+    layers: list[int] | None
+    all_layers: bool
+    feature_spaces: list[str]
+    n_splits: int
+    min_class_count: int
+    include_baseline: bool
+
+
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
@@ -242,6 +258,79 @@ def build_steer_parser(subparsers) -> None:
     )
 
 
+def build_probe_parser(subparsers) -> None:
+    probe = subparsers.add_parser(
+        "probe",
+        help="Train/evaluate simple linear probes from saved activations",
+    )
+    probe.add_argument("--model", required=True, help="HuggingFace model ID")
+    probe.add_argument(
+        "--activations-dir",
+        default="artifacts/activations",
+        help="Root directory containing extracted activations",
+    )
+    probe.add_argument(
+        "--out",
+        default="artifacts/probes",
+        help="Output directory for saved probe artifacts",
+    )
+    probe.add_argument(
+        "--variant",
+        default="templated",
+        choices=SUPPORTED_VARIANTS,
+        help="Artifact group to probe (default: templated)",
+    )
+    probe.add_argument(
+        "--mask-strategy",
+        type=MaskStrategy,
+        choices=list(MaskStrategy),
+        default=MaskStrategy.ANSWER_MEAN,
+        help="Which saved activations to load (default: answer_mean)",
+    )
+    probe.add_argument(
+        "--attributes",
+        nargs="+",
+        default=["sex", "born_in_us", "race", "highest_degree_received", "age"],
+        help="Persona attributes to probe",
+    )
+    probe.add_argument(
+        "--layers",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Specific layers to evaluate (default: five evenly-spaced layers)",
+    )
+    probe.add_argument(
+        "--all-layers",
+        action="store_true",
+        help="Evaluate every available layer instead of the fast representative set.",
+    )
+    probe.add_argument(
+        "--feature-spaces",
+        nargs="+",
+        choices=["raw", "pca10"],
+        default=["raw"],
+        help="Feature spaces to evaluate and save (default: raw).",
+    )
+    probe.add_argument(
+        "--n-splits",
+        type=_positive_int,
+        default=5,
+        help="Cross-validation folds (default: 5).",
+    )
+    probe.add_argument(
+        "--min-class-count",
+        type=_positive_int,
+        default=5,
+        help="Drop categorical/ordinal classes below this count before CV.",
+    )
+    probe.add_argument(
+        "--include-baseline",
+        action="store_true",
+        help="Include baseline_assistant if present.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Extract activations and analyze them (similarity + PCA)."
@@ -252,5 +341,6 @@ def build_parser() -> argparse.ArgumentParser:
     build_analyze_parser(subparsers)
     build_steer_parser(subparsers)
     build_push_parser(subparsers)
+    build_probe_parser(subparsers)
 
     return parser

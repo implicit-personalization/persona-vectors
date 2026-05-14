@@ -95,8 +95,8 @@ def _first_nonempty_name(
     return names
 
 
-class ActivationStore:
-    """Local artifact storage for masked-mean activation vectors."""
+class PersonaVectorStore:
+    """Local artifact storage for masked-mean persona vectors."""
 
     def __init__(
         self,
@@ -328,8 +328,8 @@ class ActivationStore:
         ]
 
 
-class HFActivationStore:
-    """Read activation vectors from a Hugging Face dataset (lazy).
+class HFPersonaVectorStore:
+    """Read persona vectors from a Hugging Face dataset (lazy).
 
     The Hub dataset is expected to use one config per ``model__mask_strategy``
     and one split per prompt variant, matching ``persona_vectors.hub.push_to_hub``.
@@ -402,7 +402,7 @@ class HFActivationStore:
             and normalize_mask_strategy(mask_strategy) != self.mask_strategy
         ):
             raise ValueError(
-                f"HFActivationStore is bound to mask_strategy={self.mask_strategy!r};"
+                f"HFPersonaVectorStore is bound to mask_strategy={self.mask_strategy!r};"
                 f" got {mask_strategy!r}"
             )
 
@@ -410,14 +410,8 @@ class HFActivationStore:
         self, variants: list[str] | tuple[str, ...] | None = None
     ) -> None:
         """Drop cached datasets and metadata for ``variants`` (or all)."""
-        if variants is None:
-            self._datasets.clear()
-            self._index.clear()
-            self._names.clear()
-            self._scan_progress.clear()
-            self._metadata_complete.clear()
-            return
-        for variant in variants:
+        targets = list(self._datasets) if variants is None else list(variants)
+        for variant in targets:
             self._datasets.pop(variant, None)
             self._index.pop(variant, None)
             self._names.pop(variant, None)
@@ -430,7 +424,7 @@ class HFActivationStore:
         mask_strategy: object | None = None,
     ) -> list[str]:
         """Return Hub splits available for this model and mask strategy."""
-        from datasets import get_dataset_split_names
+        from datasets import get_dataset_config_names, get_dataset_split_names
 
         self._validate_mask_strategy(mask_strategy)
         present = set(self._datasets)
@@ -438,8 +432,23 @@ class HFActivationStore:
             present.update(
                 get_dataset_split_names(self.repo_id, config_name=self.config_name)
             )
-        except (FileNotFoundError, ValueError):
+        except FileNotFoundError:
             pass
+        except ValueError as exc:
+            # Surface "config not found" instead of silently returning [].
+            try:
+                available = get_dataset_config_names(self.repo_id)
+            except Exception:
+                raise exc from None
+            if self.config_name not in available:
+                raise ValueError(
+                    f"Config {self.config_name!r} not declared on {self.repo_id!r}. "
+                    f"Available configs: {available}. "
+                    "If the parquet files exist but no config is declared, the "
+                    "dataset README likely lacks a `configs:` YAML block — "
+                    "re-run scripts/upload_hf_readme.py to regenerate it."
+                ) from exc
+            raise
         candidates = sorted(present) if variants is None else list(variants)
         return [variant for variant in candidates if variant in present]
 

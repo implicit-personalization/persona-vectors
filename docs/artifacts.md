@@ -1,13 +1,13 @@
 # Artifacts
 
-`ActivationStore` reads and writes local tensors. `HFActivationStore` reads published Hub datasets.
+`PersonaVectorStore` reads and writes local tensors. `HFPersonaVectorStore` reads published Hub datasets. The on-disk layout below matches what `HFPersonaVectorStore` expects on the Hub, so the same model code reads either source.
 
 Core module: `src/persona_vectors/artifacts.py`
 
 ## Layout
 
 ```text
-artifacts/activations/
+artifacts/activations/   # also: artifacts/persona-vectors/ from the all-questions script
 └── google__gemma-2-9b-it/
     └── answer_mean/
         └── biography/
@@ -15,14 +15,16 @@ artifacts/activations/
             └── <persona_id>.safetensors
 ```
 
-Each safetensors file contains one `activations` tensor with shape `(num_layers, hidden_size)`. The manifest stores shape metadata plus persona names and QA sample ids.
+Each safetensors file contains one `activations` tensor with shape `(num_layers, hidden_size)` — the persona vector for that variant, averaged across QA pairs and selected tokens. The manifest stores shape metadata plus persona names and QA sample ids.
+
+`artifacts/activations/` is the default. `scripts/extraction_all_questions.sh` writes under `artifacts/persona-vectors/` to keep all-questions runs separate from train-split runs; pass `--activations-dir artifacts/persona-vectors` (or `root_dir=...` to the store) to read it back.
 
 ## Local Store
 
 ```python
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import PersonaVectorStore
 
-store = ActivationStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
+store = PersonaVectorStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
 
 vectors = store.load("biography", "<persona_id>")
 persona_ids = store.list_personas(["biography"])
@@ -48,9 +50,9 @@ store.save(
 ## Hub Store
 
 ```python
-from persona_vectors.artifacts import HFActivationStore
+from persona_vectors.artifacts import HFPersonaVectorStore
 
-store = HFActivationStore(
+store = HFPersonaVectorStore(
     "implicit-personalization/synth-persona-vectors",
     "google/gemma-2-9b-it",
     mask_strategy="answer_mean",
@@ -62,11 +64,11 @@ layers = store.list_layers([variant], ["<persona_id>"])
 ```
 
 Hub datasets use one config per `<model_dir>__<mask_strategy>` and one split per
-prompt variant. `HFActivationStore` is read-only and supports the same discovery
+prompt variant. `HFPersonaVectorStore` is read-only and supports the same discovery
 methods as the local store: `load`, `available_variants`, `list_personas`,
 `persona_names`, and `list_layers`.
 
-`HFActivationStore.release_cache()` clears cached datasets and metadata.
+`HFPersonaVectorStore.release_cache()` clears cached datasets and metadata.
 
 ## Publishing
 

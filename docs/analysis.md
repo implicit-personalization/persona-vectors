@@ -5,7 +5,7 @@ Analysis operates on saved persona vectors. A saved vector has shape `(num_layer
 Core modules:
 
 - `src/persona_vectors/analysis.py`
-- `src/persona_vectors/plots.py`
+- `src/persona_vectors/plots/` (package; probe-specific plots live in `plots/probes.py`)
 
 ## CLI
 
@@ -23,9 +23,9 @@ This writes interactive HTML files for PCA, centered cosine similarity, persona-
 
 ```python
 from persona_vectors.analysis import load_persona_vectors, load_variant_vectors
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import PersonaVectorStore
 
-store = ActivationStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
+store = PersonaVectorStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
 
 samples = load_persona_vectors(store, "biography")
 by_variant = load_variant_vectors(store, ["biography", "templated"])
@@ -122,4 +122,4 @@ When a UI switches between attributes, reuse `projection_data` and call `build_l
 
 ## Notebooks
 
-`notebooks/notebook_manifold.py` and `notebooks/notebook_similarity.py` read the published Hub dataset by default and include commented lines for local artifacts.
+`notebooks/unsupervised/manifold.py` and `notebooks/unsupervised/similarity.py` read the published Hub dataset by default and include commented lines for local artifacts.

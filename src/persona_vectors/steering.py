@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.table import Table
 from safetensors.torch import load_file, save_file
 
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import PersonaVectorStore
 
 # Config
 STEER_LAYER = 20
@@ -57,7 +57,7 @@ def compute_steering_vector(
     Returns:
         Dict with steering_vector, suggested_alpha, and metadata.
     """
-    store = ActivationStore(model_name, activations_dir)
+    store = PersonaVectorStore(model_name, activations_dir)
 
     if verbose:
         print(f"\nLoading activations for {persona_id}...")

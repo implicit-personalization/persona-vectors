@@ -7,6 +7,7 @@ from tqdm import tqdm
 from persona_vectors.parser import (
     AnalyzeConfig,
     ExtractConfig,
+    ProbeConfig,
     PushConfig,
     SteerConfig,
     build_parser,
@@ -17,11 +18,11 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
-    from persona_vectors.artifacts import ActivationStore
+    from persona_vectors.artifacts import PersonaVectorStore
     from persona_vectors.extraction import run_extraction
 
     dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
-    store = ActivationStore(cfg.model, root_dir=cfg.activations_dir)
+    store = PersonaVectorStore(cfg.model, root_dir=cfg.activations_dir)
     if cfg.persona_ids is not None:
         personas = []
         for pid in cfg.persona_ids:
@@ -141,6 +142,67 @@ def push_activations(cfg: PushConfig) -> None:
         raise SystemExit(str(exc)) from exc
 
 
+def probe_activations(cfg: ProbeConfig) -> None:
+    from persona_data.synth_persona import BASELINE_PERSONA_ID, SynthPersonaDataset
+
+    from persona_vectors.analysis import load_persona_vectors
+    from persona_vectors.artifacts import PersonaVectorStore
+    from persona_vectors.probes import pick_layers, run_attribute_probe
+
+    store = PersonaVectorStore(
+        cfg.model,
+        root_dir=cfg.activations_dir,
+        mask_strategy=cfg.mask_strategy,
+    )
+    persona_ids = store.list_personas([cfg.variant], mask_strategy=cfg.mask_strategy)
+    if not cfg.include_baseline:
+        persona_ids = [pid for pid in persona_ids if pid != BASELINE_PERSONA_ID]
+    if not persona_ids:
+        raise SystemExit("No personas found for the requested probe configuration.")
+
+    samples = load_persona_vectors(store, cfg.variant, persona_ids=persona_ids)
+    num_layers = int(samples.vectors.shape[1])
+    layers = (
+        list(range(num_layers))
+        if cfg.all_layers
+        else (
+            cfg.layers if cfg.layers is not None else pick_layers(num_layers, fast=True)
+        )
+    )
+    dataset = SynthPersonaDataset()
+    print(
+        f"Loaded {len(persona_ids)} personas; layers={num_layers}; testing layers={layers}"
+    )
+
+    for attribute in cfg.attributes:
+        artifact, best, task = run_attribute_probe(
+            samples,
+            dataset,
+            attribute,
+            persona_ids,
+            layers=layers,
+            feature_spaces=cfg.feature_spaces,  # type: ignore[arg-type]
+            n_splits=cfg.n_splits,
+            min_class_count=cfg.min_class_count,
+            model_name=cfg.model,
+            variant=cfg.variant,
+            mask_strategy=cfg.mask_strategy,
+            output_dir=cfg.output_dir,
+        )
+        summary = (
+            f"r2={best['r2']:.3f}, mae={best['mae']:.3f}"
+            if task == "numeric"
+            else f"balanced_accuracy={best['balanced_accuracy']:.3f}"
+        )
+        print(
+            f"{attribute}: task={task} best={best['probe_kind']}/{best['feature_space']} "
+            f"layer={best['layer']} {summary}"
+        )
+        print(f"  saved: {artifact.directory}")
+        if artifact.pt_path is not None:
+            print(f"  persona-ui .pt: {artifact.pt_path}")
+
+
 def main() -> None:
 
     parser = build_parser()
@@ -194,6 +256,22 @@ def main() -> None:
             variants=args.variants,
         )
         push_activations(cfg)
+    elif args.command == "probe":
+        cfg = ProbeConfig(
+            model=args.model,
+            activations_dir=Path(args.activations_dir),
+            output_dir=Path(args.out),
+            variant=args.variant,
+            mask_strategy=args.mask_strategy,
+            attributes=args.attributes,
+            layers=args.layers,
+            all_layers=args.all_layers,
+            feature_spaces=args.feature_spaces,
+            n_splits=args.n_splits,
+            min_class_count=args.min_class_count,
+            include_baseline=args.include_baseline,
+        )
+        probe_activations(cfg)
 
 
 if __name__ == "__main__":

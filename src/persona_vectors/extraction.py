@@ -15,7 +15,7 @@ from persona_data.prompts import (
 from persona_data.synth_persona import PersonaData, QAPair
 
 from persona_vectors.activations import extract_activations
-from persona_vectors.artifacts import SUPPORTED_VARIANTS, ActivationStore
+from persona_vectors.artifacts import SUPPORTED_VARIANTS, PersonaVectorStore
 
 
 class MaskStrategy(StrEnum):
@@ -336,7 +336,7 @@ def run_extraction(
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")
 
-    store = ActivationStore(model_name, root_dir=activations_dir)
+    store = PersonaVectorStore(model_name, root_dir=activations_dir)
     results: list[ExtractionResult] = []
 
     for variant in variants:

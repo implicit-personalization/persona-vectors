@@ -9,9 +9,9 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap
 
-from persona_vectors.artifacts import ActivationStore, HFActivationStore
+from persona_vectors.artifacts import HFPersonaVectorStore, PersonaVectorStore
 
-PersonaVectorStore = ActivationStore | HFActivationStore
+PersonaVectorSource = PersonaVectorStore | HFPersonaVectorStore
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class LayeredSamples:
 
 
 def list_comparison_personas(
-    store: PersonaVectorStore,
+    store: PersonaVectorSource,
     variants: list[str] | tuple[str, ...],
     mask_strategy: object | None = None,
     *,
@@ -41,7 +41,7 @@ def list_comparison_personas(
 
 
 def _resolve_personas(
-    store: PersonaVectorStore,
+    store: PersonaVectorSource,
     variants: list[str],
     mask_strategy: object | None,
     persona_ids: list[str] | None,
@@ -56,7 +56,7 @@ def _resolve_personas(
 
 
 def _load_variant_samples(
-    store: PersonaVectorStore,
+    store: PersonaVectorSource,
     variant: str,
     mask_strategy: object | None,
     persona_ids: list[str],
@@ -76,7 +76,7 @@ def _load_variant_samples(
 
 
 def load_persona_vectors(
-    store: PersonaVectorStore,
+    store: PersonaVectorSource,
     variant: str,
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
@@ -89,7 +89,7 @@ def load_persona_vectors(
 
 
 def load_variant_vectors(
-    store: PersonaVectorStore,
+    store: PersonaVectorSource,
     variants: list[str] | tuple[str, ...],
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
@@ -233,7 +233,7 @@ def run_saved_activation_analysis(
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    store = ActivationStore(
+    store = PersonaVectorStore(
         model_name,
         root_dir=activations_dir,
         mask_strategy=mask_strategy,

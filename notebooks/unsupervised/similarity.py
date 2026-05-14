@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from persona_vectors.analysis import list_comparison_personas, load_persona_vectors
-from persona_vectors.artifacts import HFActivationStore
+from persona_vectors.artifacts import HFPersonaVectorStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
     build_layered_figure,
@@ -39,10 +39,10 @@ MAX_SAMPLE_PERSONAS = 15
 
 # %% Load activation store
 # Default: read the published Hub artifact dataset. To use local artifacts
-# instead, comment out HFActivationStore and uncomment the two local lines.
-store = HFActivationStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
-# from persona_vectors.artifacts import ActivationStore
-# store = ActivationStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
+# instead, comment out HFPersonaVectorStore and uncomment the two local lines.
+store = HFPersonaVectorStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
+# from persona_vectors.artifacts import PersonaVectorStore
+# store = PersonaVectorStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 
 available_variants = store.available_variants(VARIANTS)
 comparison_variants = [variant for variant in VARIANTS if variant in available_variants]

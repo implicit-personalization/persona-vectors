@@ -4,7 +4,7 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.artifacts import ActivationStore
+from persona_vectors.artifacts import PersonaVectorStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.steering import compute_steering_vector, save_steering_vector
 
@@ -35,7 +35,7 @@ dataset_table.add_row("Age", str(first_persona.persona["age"]))
 console.print(dataset_table)
 
 persona = first_persona
-store = ActivationStore(MODEL_NAME)
+store = PersonaVectorStore(MODEL_NAME)
 
 # %% Load activations for both variants
 # store.load() returns a tensor of shape (num_layers, hidden_size) -- the

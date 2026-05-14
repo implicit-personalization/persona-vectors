@@ -15,8 +15,8 @@ from persona_vectors.analysis import (
 )
 from persona_vectors.artifacts import (
     DEFAULT_MASK_STRATEGY,
-    ActivationStore,
-    HFActivationStore,
+    HFPersonaVectorStore,
+    PersonaVectorStore,
     activation_config_name,
     discover_activation_models,
     model_dir_name,
@@ -297,7 +297,7 @@ def test_smoke() -> None:
     print("✓ imports OK")
 
     with tempfile.TemporaryDirectory() as tmp:
-        store = ActivationStore(
+        store = PersonaVectorStore(
             "test/model", root_dir=tmp, mask_strategy="answer_previous"
         )
         vectors = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8)
@@ -344,7 +344,7 @@ def test_smoke() -> None:
         )
         assert parse_vector_config_name("not-a-vector-config") is None
 
-        hub_store = HFActivationStore("test/repo", "test/model")
+        hub_store = HFPersonaVectorStore("test/repo", "test/model")
         assert hub_store.config_name == "test__model__answer_mean"
         hub_store._datasets = {
             "templated": [
@@ -399,7 +399,7 @@ def test_smoke() -> None:
                 call()
             except ValueError:
                 continue
-            raise AssertionError("HFActivationStore should reject mismatched masks")
+            raise AssertionError("HFPersonaVectorStore should reject mismatched masks")
 
         store.save(
             "templated",
@@ -418,7 +418,7 @@ def test_smoke() -> None:
         ) == [BASELINE_PERSONA_ID, "persona-001"]
 
     with tempfile.TemporaryDirectory() as tmp:
-        store = ActivationStore("test/model", root_dir=tmp)
+        store = PersonaVectorStore("test/model", root_dir=tmp)
         sample_ids = ["q0", "q1", "q2"]
         for idx, persona_id in enumerate(["persona-001", "persona-002"]):
             vectors = torch.arange(4 * 8, dtype=torch.float32).reshape(4, 8) + idx * 100
@@ -463,7 +463,7 @@ def test_smoke() -> None:
         assert all(path.exists() for path in outputs.values())
 
     with tempfile.TemporaryDirectory() as tmp:
-        store = ActivationStore("test/model", root_dir=tmp)
+        store = PersonaVectorStore("test/model", root_dir=tmp)
         sample_ids = ["q0", "q1"]
         templated = torch.zeros(3, 4)
         biography = torch.ones(3, 4)
@@ -528,7 +528,7 @@ def test_hf_metadata_stops_after_requested_personas() -> None:
             for idx in range(20)
         ]
     )
-    store = HFActivationStore("test/repo", "test/model")
+    store = HFPersonaVectorStore("test/repo", "test/model")
     store._datasets["templated"] = dataset
 
     assert store.persona_names(

@@ -19,7 +19,7 @@ from persona_vectors.analysis import (
     load_persona_vectors,
     pca_explained_variance,
 )
-from persona_vectors.artifacts import HFActivationStore
+from persona_vectors.artifacts import HFPersonaVectorStore
 from persona_vectors.attributes import attribute_color_kwargs
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import build_layered_figure, plot_scree
@@ -38,10 +38,10 @@ INCLUDE_BASELINE = False
 
 # %% Load activation store
 # Default: read the published Hub artifact dataset. To use local artifacts
-# instead, comment out HFActivationStore and uncomment the two local lines.
-store = HFActivationStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
-# from persona_vectors.artifacts import ActivationStore
-# store = ActivationStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
+# instead, comment out HFPersonaVectorStore and uncomment the two local lines.
+store = HFPersonaVectorStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
+# from persona_vectors.artifacts import PersonaVectorStore
+# store = PersonaVectorStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 
 available_variants = store.available_variants(VARIANTS)
 comparison_variants = [variant for variant in VARIANTS if variant in available_variants]

@@ -1,6 +1,6 @@
 # Activation Extraction
 
-Extraction formats persona QA samples, builds token masks, runs the model, and saves one mean activation tensor per persona and prompt variant.
+Extraction formats persona QA samples, builds token masks, runs the model, and saves one persona vector (mean activation) per persona and prompt variant.
 
 Core modules:
 

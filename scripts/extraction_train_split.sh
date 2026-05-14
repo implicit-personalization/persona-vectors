@@ -14,6 +14,7 @@ QA_TYPE="${QA_TYPE:-all}"
 VARIANT="${VARIANT:-templated}"
 SKIP_FAILED="${SKIP_FAILED:-0}"
 BASE_ACTIVATIONS_DIR="${ACTIVATIONS_DIR:-artifacts/activations}"
+CONFIG="${MODEL//\//__}__answer_mean"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR%/*}"
@@ -56,4 +57,13 @@ uv run python main.py extract \
     "${EXTRA_ARGS[@]}"
 
 echo "=== Pushing to Hugging Face Hub: $REPO ==="
-uv run python main.py push --model "$MODEL" --repo "$REPO" --activations-dir "$BASE_ACTIVATIONS_DIR"
+uv run python main.py push --model "$MODEL" --repo "$REPO" --activations-dir "$BASE_ACTIVATIONS_DIR" --variants "$VARIANT"
+
+# Refresh the Hub dataset card from the uploaded parquet files. Counts come
+# from Hugging Face, not local artifacts.
+echo "=== Updating Hugging Face README: $REPO ==="
+uv run python scripts/upload_hf_readme.py \
+    --repo "$REPO" \
+    --current-config "$CONFIG" \
+    --question-set "train_test_split(n_train=$N_TRAIN)" \
+    --qa-filter "$QA_TYPE"
