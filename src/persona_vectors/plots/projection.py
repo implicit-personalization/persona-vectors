@@ -1,7 +1,7 @@
 """PCA / UMAP / Isomap projection figures with optional k-means coloring."""
 
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Callable, Literal, NamedTuple
 
 import plotly.graph_objects as go
 import torch
@@ -9,6 +9,7 @@ import torch
 from persona_vectors.analysis import (
     LayeredSamples,
     cluster_kmeans,
+    cluster_spectral,
     prepare_cluster_samples,
     prepare_layer_mean_cluster_samples,
     project_isomap,
@@ -27,8 +28,8 @@ from persona_vectors.plots._common import (
 _MAX_GROUP_LEGEND_TRACES = 40
 
 ClusterMode = Literal["mean_across_layers", "first_layer", "per_layer"]
+ClusterMethod = Literal["kmeans", "spectral"]
 ProjectionKind = Literal["pca", "umap", "isomap"]
-ProjectionColorMode = Literal["numeric", "categorical"]
 
 
 @dataclass(frozen=True)
@@ -44,19 +45,24 @@ class LayeredProjectionData:
     graph_edges: dict[int, list[tuple[int, int]]]
 
 
-@dataclass(frozen=True)
-class _ProjectionColoring:
-    mode: ProjectionColorMode
+class _NumericColoring(NamedTuple):
     label: str
-    values_by_layer: dict[int, list[float]] | None = None
+    values_by_layer: dict[int, list[float]]
+    colorscale: str
+    value_min: float
+    value_max: float
     colorbar: dict | None = None
-    colorscale: str | None = None
-    value_min: float | None = None
-    value_max: float | None = None
-    groups_by_layer: dict[int, list[str]] | None = None
-    group_colors: dict[str, str] | None = None
-    unique_groups: list[str] | None = None
+
+
+class _CategoricalColoring(NamedTuple):
+    label: str
+    groups_by_layer: dict[int, list[str]]
+    group_colors: dict[str, str]
+    unique_groups: list[str]
     use_single_group_trace: bool = False
+
+
+_Coloring = _NumericColoring | _CategoricalColoring
 
 
 def _cluster_label(cluster_id: int) -> str:
@@ -70,16 +76,32 @@ def _cluster_projection_samples(
     seed: int,
     center: bool = True,
     normalize: bool = True,
+    method: ClusterMethod = "kmeans",
+    spectral_n_neighbors: int = 8,
+    spectral_affinity: str = "nearest_neighbors",
 ) -> list[str]:
     if n_clusters is None:
-        raise ValueError("n_clusters is required for kmeans clustering")
-    cluster_ids = cluster_kmeans(
-        samples,
-        n_clusters=n_clusters,
-        seed=seed,
-        center=center,
-        normalize=normalize,
-    )
+        raise ValueError("n_clusters is required for clustering")
+    if method == "kmeans":
+        cluster_ids = cluster_kmeans(
+            samples,
+            n_clusters=n_clusters,
+            seed=seed,
+            center=center,
+            normalize=normalize,
+        )
+    elif method == "spectral":
+        cluster_ids = cluster_spectral(
+            samples,
+            n_clusters=n_clusters,
+            affinity=spectral_affinity,
+            n_neighbors=spectral_n_neighbors,
+            seed=seed,
+            center=center,
+            normalize=normalize,
+        )
+    else:
+        raise ValueError("method must be one of: kmeans, spectral")
     return [_cluster_label(int(cluster_id)) for cluster_id in cluster_ids]
 
 
@@ -390,13 +412,21 @@ def prepare_kmeans_groups(
     n_clusters: int,
     cluster_seed: int = 0,
     cluster_mode: ClusterMode = "mean_across_layers",
+    cluster_method: ClusterMethod = "kmeans",
+    spectral_n_neighbors: int = 8,
+    spectral_affinity: str = "nearest_neighbors",
 ) -> list[str] | dict[int, list[str]]:
-    """Precompute k-means group labels for projection coloring.
+    """Precompute k-means or spectral group labels for projection coloring.
 
     The labels are independent of PCA/UMAP/Isomap coordinates, so UI callers can
     cache them separately from projection data and reuse them across redraws.
     """
     selected_layers = validate_layers(samples.vectors, layers)
+    method_kwargs = dict(
+        method=cluster_method,
+        spectral_n_neighbors=spectral_n_neighbors,
+        spectral_affinity=spectral_affinity,
+    )
     if cluster_mode == "mean_across_layers":
         cluster_samples = prepare_layer_mean_cluster_samples(samples.vectors)
         return _cluster_projection_samples(
@@ -405,12 +435,14 @@ def prepare_kmeans_groups(
             seed=cluster_seed,
             center=False,
             normalize=False,
+            **method_kwargs,
         )
     if cluster_mode == "first_layer":
         return _cluster_projection_samples(
             samples.vectors[:, selected_layers[0], :],
             n_clusters=n_clusters,
             seed=cluster_seed,
+            **method_kwargs,
         )
     if cluster_mode == "per_layer":
         return {
@@ -418,6 +450,7 @@ def prepare_kmeans_groups(
                 samples.vectors[:, layer, :],
                 n_clusters=n_clusters,
                 seed=cluster_seed,
+                **method_kwargs,
             )
             for layer in selected_layers
         }
@@ -436,7 +469,7 @@ def _projection_coloring(
     colorscale: str,
     color_tickvals: list[float] | None,
     color_ticktext: list[str] | None,
-) -> _ProjectionColoring:
+) -> _Coloring:
     n_samples = int(samples.vectors.shape[0])
     if groups is not None and color_values is not None:
         raise ValueError("Pass either groups or color_values, not both")
@@ -453,14 +486,13 @@ def _projection_coloring(
             colorbar["tickvals"] = color_tickvals
         if color_ticktext is not None:
             colorbar["ticktext"] = color_ticktext
-        return _ProjectionColoring(
-            mode="numeric",
+        return _NumericColoring(
             label=color_label,
             values_by_layer=values_by_layer,
-            colorbar=colorbar,
             colorscale=colorscale,
             value_min=min(all_values),
             value_max=max(all_values),
+            colorbar=colorbar,
         )
 
     if groups is None:
@@ -488,8 +520,7 @@ def _projection_coloring(
         {group for layer_groups in groups_by_layer.values() for group in layer_groups},
         key=lambda v: v.casefold(),
     )
-    return _ProjectionColoring(
-        mode="categorical",
+    return _CategoricalColoring(
         label="Personas" if groups is None else "Groups",
         groups_by_layer=groups_by_layer,
         group_colors=label_color_map(unique_groups),
@@ -502,7 +533,7 @@ def _projection_layer_traces(
     samples: LayeredSamples,
     coords: torch.Tensor,
     layer: int,
-    coloring: _ProjectionColoring,
+    coloring: _Coloring,
     *,
     n_components: int,
     x_label: str,
@@ -513,8 +544,7 @@ def _projection_layer_traces(
     is_3d = n_components == 3
     marker_size = 5 if is_3d else 9
 
-    if coloring.mode == "numeric":
-        assert coloring.values_by_layer is not None
+    if isinstance(coloring, _NumericColoring):
         values = coloring.values_by_layer[layer]
         marker = dict(
             size=marker_size,
@@ -549,9 +579,6 @@ def _projection_layer_traces(
             )
         ]
 
-    assert coloring.groups_by_layer is not None
-    assert coloring.group_colors is not None
-    assert coloring.unique_groups is not None
     layer_groups = coloring.groups_by_layer[layer]
     if coloring.use_single_group_trace:
         return [

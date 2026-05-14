@@ -143,7 +143,7 @@ def push_activations(cfg: PushConfig) -> None:
 
 
 def probe_activations(cfg: ProbeConfig) -> None:
-    from persona_data.synth_persona import BASELINE_PERSONA_ID, SynthPersonaDataset
+    from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.analysis import load_persona_vectors
     from persona_vectors.artifacts import PersonaVectorStore
@@ -154,9 +154,10 @@ def probe_activations(cfg: ProbeConfig) -> None:
         root_dir=cfg.activations_dir,
         mask_strategy=cfg.mask_strategy,
     )
-    persona_ids = store.list_personas([cfg.variant], mask_strategy=cfg.mask_strategy)
-    if not cfg.include_baseline:
-        persona_ids = [pid for pid in persona_ids if pid != BASELINE_PERSONA_ID]
+    persona_ids = store.list_personas(
+        [cfg.variant],
+        mask_strategy=cfg.mask_strategy,
+    )
     if not persona_ids:
         raise SystemExit("No personas found for the requested probe configuration.")
 
@@ -175,14 +176,13 @@ def probe_activations(cfg: ProbeConfig) -> None:
     )
 
     for attribute in cfg.attributes:
-        artifact, best, task = run_attribute_probe(
+        directory, best, task = run_attribute_probe(
             samples,
             dataset,
             attribute,
             persona_ids,
             layers=layers,
-            feature_spaces=cfg.feature_spaces,  # type: ignore[arg-type]
-            n_splits=cfg.n_splits,
+            n_pca_components=cfg.n_pca_components,
             min_class_count=cfg.min_class_count,
             model_name=cfg.model,
             variant=cfg.variant,
@@ -195,12 +195,10 @@ def probe_activations(cfg: ProbeConfig) -> None:
             else f"balanced_accuracy={best['balanced_accuracy']:.3f}"
         )
         print(
-            f"{attribute}: task={task} best={best['probe_kind']}/{best['feature_space']} "
+            f"{attribute}: task={task} best={best['probe_kind']} "
             f"layer={best['layer']} {summary}"
         )
-        print(f"  saved: {artifact.directory}")
-        if artifact.pt_path is not None:
-            print(f"  persona-ui .pt: {artifact.pt_path}")
+        print(f"  saved: {directory}")
 
 
 def main() -> None:
@@ -266,10 +264,8 @@ def main() -> None:
             attributes=args.attributes,
             layers=args.layers,
             all_layers=args.all_layers,
-            feature_spaces=args.feature_spaces,
-            n_splits=args.n_splits,
+            n_pca_components=args.pca_components,
             min_class_count=args.min_class_count,
-            include_baseline=args.include_baseline,
         )
         probe_activations(cfg)
 

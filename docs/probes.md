@@ -1,18 +1,28 @@
 # Probes
 
-Linear probes train on saved persona vectors and report how well a single direction (or low-rank subspace) reads out a persona attribute. Three probe kinds, all linear:
+Linear probes train on saved persona vectors and report how well a single
+linear direction or low-rank subspace reads out a persona attribute.
 
-- `difference_of_means` — `mean(positive) - mean(negative)` with a midpoint bias. Anthropic-style persona-vector direction. Binary only.
-- `logistic_regression` — class-balanced, L2-regularized, with a `StandardScaler`. Binary or multi-class.
-- `ridge_regression` — for ordinal ranks and numeric attributes. Ordinal predictions are rounded back to the rank scale.
+Probe kinds:
 
-Cross-validation is 5-fold by default (`StratifiedKFold` for classification, `KFold` for regression). The scaler and optional PCA fit *inside each fold*, so no leakage from held-out personas. Final saved artifacts are refit on all personas.
+- `difference_of_means` — `mean(positive) - mean(negative)` with a midpoint
+  bias. Binary only.
+- `logistic_regression` — class-balanced, L2-regularized classifier with a
+  `StandardScaler`. Binary or multi-class.
+- `ridge_regression` — linear regression for ordinal ranks and numeric
+  attributes. Ordinal predictions are rounded back to observed ranks.
+
+Evaluation uses one 80/20 train/test split. Classification tasks use a
+stratified split; numeric tasks use a plain random split. The scaler and
+optional PCA are fit on the train split only. The CLI always excludes
+`baseline_assistant` from probe training; saved artifacts are then refit on all
+available non-baseline personas.
 
 Core modules:
 
 - `src/persona_vectors/probes.py`
-- `src/persona_vectors/plots/probes.py` (figures)
-- `notebooks/probes/` (per-task notebooks: binary, categorical, ordinal, numeric)
+- `src/persona_vectors/plots/probes.py`
+- `notebooks/notebook_probes.py`
 
 ## CLI
 
@@ -25,23 +35,53 @@ uv run python main.py probe \
   --out artifacts/probes
 ```
 
-The command sweeps each attribute over a representative set of layers, picks the
-best (layer, probe_kind, feature_space) by `balanced_accuracy` (classification)
-or `r2` (numeric), refits on all personas, and writes:
+The command sweeps each attribute over a representative set of layers, picks
+the best `(layer, probe_kind)` by `balanced_accuracy` for classification or
+`r2` for numeric attributes, refits that probe on all non-baseline personas,
+and writes:
 
-- `probe.json` — schema metadata + CV metrics
-- `weights.safetensors` — scaler, optional PCA, linear weights, plus the diff-of-means direction when applicable
-- `probe.pt` — persona-ui-compatible payload (binary & categorical, raw feature space only)
+- `probe.json` — schema metadata and held-out evaluation metrics.
+- `weights.safetensors` — scaler, optional PCA, linear weights, bias, and the
+  diff-of-means direction tensors when applicable.
 
-Pass `--all-layers` for an exhaustive sweep, `--layers L1 L2 ...` to pin specific layers, `--feature-spaces raw pca10` to compare a low-rank baseline, or `--activations-dir artifacts/persona-vectors` to read the all-questions tree.
+Use `--all-layers` for an exhaustive layer sweep, `--layers L1 L2 ...` to pin
+specific layers, `--pca-components N` to fit a per-split PCA before the probe,
+or `--activations-dir artifacts/persona-vectors` to read all-questions vectors.
+
+## Safetensors Artifact
+
+Probe artifacts are saved under:
+
+```text
+artifacts/probes/<model_dir>/<mask_strategy>/<variant>/<attribute>/<probe>_layer<layer>/
+├── probe.json
+└── weights.safetensors
+```
+
+For `--pca-components 10`, the final directory is named
+`<probe>_pca10_layer<layer>`.
+
+`probe.json` includes `schema_version`, `task`, `probe_kind`,
+`n_pca_components`, `layer`, `input_dim`, `artifact_feature_dim`,
+`class_names`, and the evaluation metrics. Persona-ui should load
+`weights.safetensors` and use the metadata to apply transforms in order:
+
+1. If `scaler_mean` and `scaler_scale` exist, standardize the input vector.
+2. If `pca_mean` and `pca_components` exist, center and project with PCA.
+3. Apply `weight` and `bias` as the linear head.
+
+Binary classifiers are saved with a two-row `weight` and two-entry `bias` so
+the same UI path can handle binary and categorical heads. Diff-of-means
+artifacts also include `direction` and `direction_bias` for direct direction
+inspection.
 
 ## API
 
 ```python
+from persona_data.synth_persona import SynthPersonaDataset
 from persona_vectors.analysis import load_persona_vectors
 from persona_vectors.artifacts import PersonaVectorStore
 from persona_vectors.probes import pick_layers, run_attribute_probe
-from persona_data.synth_persona import SynthPersonaDataset
 
 store = PersonaVectorStore(
     "google/gemma-2-9b-it",
@@ -52,13 +92,12 @@ persona_ids = store.list_personas(["templated"])
 samples = load_persona_vectors(store, "templated", persona_ids=persona_ids)
 layers = pick_layers(int(samples.vectors.shape[1]), fast=True)
 
-artifact, best_row, task = run_attribute_probe(
+directory, best_row, task = run_attribute_probe(
     samples,
     SynthPersonaDataset(),
     "sex",
     persona_ids,
     layers=layers,
-    feature_spaces=["raw"],
     model_name="google/gemma-2-9b-it",
     variant="templated",
     mask_strategy="answer_mean",
@@ -66,25 +105,18 @@ artifact, best_row, task = run_attribute_probe(
 )
 ```
 
-Lower-level building blocks (used by the notebooks) live in the same module:
-`attribute_probe_labels`, `sweep_attribute`, `cross_validate_classification`,
-`cross_validate_regression`, `shuffle_label_baseline`,
+Lower-level building blocks live in the same module:
+`attribute_probe_labels`, `evaluate_classification`, `evaluate_regression`,
+`sweep_attribute`, `shuffle_label_baseline`,
 `filter_attribute_samples_min_count`, `save_probe_artifact`, `best_row`, and
 `primary_metric`.
 
-## Notebooks
-
-`notebooks/probes/{binary,categorical,ordinal,numeric}.py` each load persona
-vectors from the Hub by default. To iterate against locally extracted vectors
-(the same tree that `extraction_all_questions.sh` produces and that steering /
-persona-ui consume), swap `HFPersonaVectorStore` for `PersonaVectorStore` with
-`root_dir="artifacts/persona-vectors"`.
-
 ## Plots
 
-`persona_vectors.plots` re-exports one probe-specific helper, also available
-as `persona_vectors.plots.probes`:
+`persona_vectors.plots` re-exports the probe plotting helpers.
 
 | Function | Use |
 | --- | --- |
-| `plot_metric_over_layers(rows, attribute, metric=...)` | Line plot of one CV metric per layer, one trace per (probe_kind, feature_space). Draws the baseline as a dotted horizontal line. |
+| `plot_metric_over_layers(rows, attribute, metric=...)` | Line plot of one held-out metric over layers, one trace per probe kind. |
+| `plot_metric_comparison({"full": rows, "pca10": pca_rows}, attribute, metric=...)` | Overlay full-feature and PCA probe sweeps. |
+| `plot_attribute_layer_selectivity_heatmap(rows_by_attribute, metric=...)` | Attribute-by-layer heatmap using the best probe kind per cell, optionally subtracting the baseline. |

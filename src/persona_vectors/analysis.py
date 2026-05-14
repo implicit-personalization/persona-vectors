@@ -4,14 +4,15 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from persona_data.synth_persona import BASELINE_PERSONA_ID
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap
+from sklearn.neighbors import kneighbors_graph
 
-from persona_vectors.artifacts import HFPersonaVectorStore, PersonaVectorStore
-
-PersonaVectorSource = PersonaVectorStore | HFPersonaVectorStore
+from persona_vectors.artifacts import (
+    PersonaVectorSource,
+    PersonaVectorStore,
+)
 
 
 @dataclass(frozen=True)
@@ -21,23 +22,6 @@ class LayeredSamples:
     vectors: torch.Tensor
     labels: list[str]
     hover_text: list[str]
-
-
-def list_comparison_personas(
-    store: PersonaVectorSource,
-    variants: list[str] | tuple[str, ...],
-    mask_strategy: object | None = None,
-    *,
-    include_baseline: bool = False,
-) -> list[str]:
-    """Return shared persona ids for comparisons, with baseline filtering."""
-
-    persona_ids = store.list_personas(variants, mask_strategy=mask_strategy)
-    if include_baseline:
-        return persona_ids
-    return [
-        persona_id for persona_id in persona_ids if persona_id != BASELINE_PERSONA_ID
-    ]
 
 
 def _resolve_personas(
@@ -81,9 +65,7 @@ def load_persona_vectors(
     mask_strategy: object | None = None,
     persona_ids: list[str] | None = None,
 ) -> LayeredSamples:
-    """Load saved persona vectors for a single variant.
-    Each vector is a ``(num_layers, hidden_size)`` tensor.
-    """
+    """Load saved persona vectors for a single variant (one ``(num_layers, hidden_size)`` tensor per persona)."""
     persona_ids = _resolve_personas(store, [variant], mask_strategy, persona_ids)
     return _load_variant_samples(store, variant, mask_strategy, persona_ids)
 
@@ -160,15 +142,7 @@ def cosine_similarity_matrix(
 
 
 def project_pca(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
-    """Project samples to ``n_components`` dimensions using PCA.
-
-    Args:
-        samples: Tensor with shape (n_samples, hidden_size).
-        n_components: Target embedding dimensionality (typically 2 or 3).
-
-    Returns:
-        Tensor with shape (n_samples, n_components).
-    """
+    """Project a ``(n_samples, hidden_size)`` tensor to ``n_components`` PCA dimensions."""
     _validate_projection(samples, n_components, method="PCA")
 
     embedding = PCA(n_components=n_components).fit_transform(
@@ -240,8 +214,7 @@ def run_saved_activation_analysis(
     )
 
     if persona_ids is None:
-        persona_ids = list_comparison_personas(
-            store,
+        persona_ids = store.list_personas(
             [variant],
             include_baseline=include_baseline,
         )
@@ -348,21 +321,83 @@ def cluster_kmeans(
     )
 
 
-def cluster_agglomerative(
+def _cosine_affinity(samples: torch.Tensor, *, center: bool) -> np.ndarray:
+    """Nonnegative precomputed affinity from centered cosine similarity.
+
+    Cosine similarity lies in [-1, 1]; spectral clustering and the graph
+    Laplacian need nonnegative weights, so map it to [0, 1].
+    """
+    sim = cosine_similarity_matrix(samples, center=center).cpu().numpy()
+    return (sim + 1.0) / 2.0
+
+
+def cluster_spectral(
     samples: torch.Tensor,
     n_clusters: int,
     *,
-    linkage: str = "ward",
+    affinity: str = "nearest_neighbors",
+    n_neighbors: int = 8,
+    seed: int = 0,
     center: bool = True,
     normalize: bool = True,
 ) -> np.ndarray:
-    """Hierarchical cluster labels using sklearn agglomerative clustering."""
+    """Spectral clustering labels for a (n_samples, hidden) tensor.
 
-    if linkage not in {"ward", "average", "complete", "single"}:
-        raise ValueError("linkage must be one of: ward, average, complete, single")
-    return AgglomerativeClustering(n_clusters=n_clusters, linkage=linkage).fit_predict(
-        _samples_to_numpy(samples, center=center, normalize=normalize)
-    )
+    Clusters on the affinity graph rather than in Euclidean space, so it
+    recovers non-convex persona structure that k-means misses. ``affinity``
+    is either ``"nearest_neighbors"`` (kNN graph over centered/unit vectors,
+    matching the Isomap convention) or ``"cosine"`` (the repo's centered
+    cosine similarity as a precomputed affinity).
+    """
+    n_samples = int(samples.shape[0])
+    if affinity == "nearest_neighbors":
+        return SpectralClustering(
+            n_clusters=n_clusters,
+            affinity="nearest_neighbors",
+            n_neighbors=min(n_neighbors, n_samples - 1),
+            assign_labels="kmeans",
+            random_state=seed,
+        ).fit_predict(_samples_to_numpy(samples, center=center, normalize=normalize))
+    if affinity == "cosine":
+        return SpectralClustering(
+            n_clusters=n_clusters,
+            affinity="precomputed",
+            assign_labels="kmeans",
+            random_state=seed,
+        ).fit_predict(_cosine_affinity(samples, center=center))
+    raise ValueError("affinity must be one of: nearest_neighbors, cosine")
+
+
+def laplacian_eigenvalues(
+    samples: torch.Tensor,
+    *,
+    affinity: str = "nearest_neighbors",
+    n_neighbors: int = 8,
+    center: bool = True,
+    normalize: bool = True,
+) -> np.ndarray:
+    """Ascending eigenvalues of the symmetric normalized graph Laplacian.
+
+    The largest gap between successive eigenvalues (the eigengap) is the
+    spectral analogue of a scree elbow and suggests the natural cluster count.
+    """
+    from scipy.sparse.csgraph import laplacian
+
+    n_samples = int(samples.shape[0])
+    if affinity == "nearest_neighbors":
+        graph = kneighbors_graph(
+            _samples_to_numpy(samples, center=center, normalize=normalize),
+            n_neighbors=min(n_neighbors, n_samples - 1),
+            include_self=False,
+        ).toarray()
+        weights = np.maximum(graph, graph.T)
+    elif affinity == "cosine":
+        weights = _cosine_affinity(samples, center=center)
+    else:
+        raise ValueError("affinity must be one of: nearest_neighbors, cosine")
+
+    lap = laplacian(weights, normed=True)
+    return np.sort(np.linalg.eigvalsh(lap))
 
 
 def project_isomap(

@@ -26,13 +26,6 @@ def save_plot_html(fig: go.Figure, filename: str) -> Path:
     return output_path
 
 
-def save_plot_png(fig: go.Figure, filename: str) -> Path:
-    """Save a Plotly figure as a PNG artifact."""
-    output_path = _plots_dir() / f"{filename}.png"
-    fig.write_image(str(output_path))
-    return output_path
-
-
 def finalize(fig: go.Figure, filename: str | None, show: bool) -> None:
     if filename is not None:
         output_path = save_plot_html(fig, filename)

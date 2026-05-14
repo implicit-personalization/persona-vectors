@@ -2,7 +2,7 @@ import gc
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable, Literal, cast
+from typing import Callable, Literal, NamedTuple, cast
 
 import torch
 from nnterp import StandardizedTransformer
@@ -36,16 +36,14 @@ class MaskStrategy(StrEnum):
     ANSWER_MEAN = "answer_mean"
 
 
-@dataclass(frozen=True)
-class Span:
+class Span(NamedTuple):
     char_start: int
     char_end: int
     token_start: int
     token_end: int
 
 
-@dataclass(frozen=True)
-class PromptSpans:
+class PromptSpans(NamedTuple):
     template: Span
     question: Span
     response: Span
@@ -304,34 +302,14 @@ def run_extraction(
     verbose: bool = False,
     activations_dir: str | Path | None = None,
 ) -> list[ExtractionResult]:
-    """Extract and save a mean activation vector per variant for the persona.
+    """Extract and save one mean activation tensor per (persona, variant).
 
-    Runs a forward pass for each QA pair, computes the masked-token mean
-    hidden state at each layer, then averages across all QA pairs before
-    saving. The saved artifact is a single ``(num_layers, hidden_size)``
-    tensor per persona per variant.
-
-    Each variant reads ``<variant>_view`` from ``persona``. The Assistant
-    baseline is just another ``PersonaData`` with the usual views.
-
-    Args:
-        model: Loaded standardized nnterp model.
-        model_name: HuggingFace model identifier used for artifact paths.
-        qa_pairs: Question-answer pairs to run extraction on.
-        variants: Variants to extract. See ``SUPPORTED_VARIANTS``.
-        persona: Persona used to render the requested variants.
-        mask_strategy: Which tokens should contribute to the averaged hidden
-            state. See :class:`MaskStrategy`.
-        remote: Whether to execute on NDIF.
-        on_status: Forwarded to extract_activations. Called on each NDIF status
-            update with (job_id, status_name, description).
-        verbose: If True, print a rich preview of each prepared sample before
-            the forward pass.
-        activations_dir: Root directory for saved activations. Pass a unique
-            subdirectory to keep multiple runs separate.
-
-    Returns:
-        One ExtractionResult per variant, in the order requested.
+    For each variant, runs a forward pass per QA pair, computes the
+    masked-token mean hidden state at each layer, then averages across QA
+    pairs before saving a ``(num_layers, hidden_size)`` tensor. Each variant
+    reads ``<variant>_view`` off ``persona``; the Assistant baseline is just
+    another ``PersonaData``. ``on_status`` receives NDIF status updates as
+    ``(job_id, status_name, description)`` for remote runs.
     """
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")

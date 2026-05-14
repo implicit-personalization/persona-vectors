@@ -27,11 +27,12 @@ from persona_vectors.artifacts import PersonaVectorStore
 
 store = PersonaVectorStore("google/gemma-2-9b-it", mask_strategy="answer_mean")
 
-samples = load_persona_vectors(store, "biography")
+persona_ids = store.list_personas(["biography"])
+samples = load_persona_vectors(store, "biography", persona_ids=persona_ids)
+# keeps the persona order shared across variants.
 by_variant = load_variant_vectors(store, ["biography", "templated"])
 ```
 
-`load_variant_vectors()` keeps the persona order shared across variants.
 
 ## Similarity and Projection
 
@@ -51,35 +52,41 @@ isomap = project_isomap(layer_vectors, n_components=2)
 variance = pca_explained_variance(layer_vectors)
 ```
 
-Cosine similarity is centered by default to remove the shared residual-stream component that otherwise pushes raw cosine values toward 1.
+Cosine similarity is centered by default — removes the shared residual-stream DC component that otherwise pushes raw cosines toward 1.
 
 ## Clustering
 
 ```python
 from persona_vectors.analysis import (
-    cluster_agglomerative,
     cluster_kmeans,
+    cluster_spectral,
+    laplacian_eigenvalues,
     prepare_layer_mean_cluster_samples,
 )
 
 cluster_input = prepare_layer_mean_cluster_samples(samples.vectors)
 labels = cluster_kmeans(cluster_input, n_clusters=5, center=False, normalize=False)
-dendrogram_like_labels = cluster_agglomerative(
-    cluster_input,
-    n_clusters=5,
-    center=False,
-    normalize=False,
-)
+spectral_labels = cluster_spectral(samples.vectors[:, 20, :], n_clusters=5)
+eigenvalues = laplacian_eigenvalues(samples.vectors[:, 20, :])
 ```
 
-Available helpers:
+`cluster_kmeans(samples, n_clusters)` returns k-means labels.
+`cluster_spectral(samples, n_clusters)` clusters an affinity graph; use
+`laplacian_eigenvalues(...)` as an eigengap diagnostic when choosing `k`.
 
-| Function | Method |
-| --- | --- |
-| `cluster_kmeans(samples, n_clusters)` | k-means |
-| `cluster_agglomerative(samples, n_clusters, linkage=...)` | hierarchical clustering |
+Clustering inputs are centered and L2-normalized by default.
 
-By default, clustering inputs are centered and L2-normalized. For PCA/UMAP/Isomap cluster colors, `build_layered_figure(..., n_clusters=k)` runs k-means directly. Use `cluster_mode="mean_across_layers"` for stable colors from the centered/unit mean vector per persona, `cluster_mode="first_layer"` for stable colors from the first plotted layer, or `cluster_mode="per_layer"` to recompute clustering for every layer frame. For UI code, call `prepare_kmeans_groups(...)` once and pass the result as `groups=...` when recoloring an existing projection. Dendrograms use hierarchical linkage via `plot_persona_dendrogram(..., linkage=...)`. You can still pass explicit categorical labels as `groups=...`; for numeric or ordinal colors, pass `color_values=...`.
+For projection cluster colors, pass `n_clusters=k` to
+`build_layered_figure(...)`, or call `prepare_kmeans_groups(...)` once and
+reuse as `groups=...`. `cluster_method="kmeans"` is the default;
+`cluster_method="spectral"` uses spectral clustering. `cluster_mode` controls
+stability across layers:
+
+- `mean_across_layers` — colors from the centered/unit mean vector per persona.
+- `first_layer` — colors from the first plotted layer.
+- `per_layer` — recompute every frame.
+
+Pass explicit categorical labels as `groups=...`, or numeric/ordinal values as `color_values=...`. Dendrograms use `plot_persona_dendrogram(..., linkage=...)`.
 
 ## Plot Helpers
 
@@ -87,12 +94,13 @@ All plot helpers return a Plotly `go.Figure`.
 
 | Function | Use |
 | --- | --- |
-| `build_layered_figure(samples, kind, layers=..., n_clusters=..., cluster_mode=..., groups=..., color_values=...)` | PCA, UMAP, Isomap, or similarity with layer controls |
+| `build_layered_figure(samples, kind, layers=..., n_clusters=..., cluster_method=..., cluster_mode=..., groups=..., color_values=...)` | PCA, UMAP, Isomap, or similarity with layer controls |
 | `prepare_layered_projection_data(samples, kind, layers=...)` | precompute projection coordinates for manual reuse |
-| `prepare_kmeans_groups(samples, layers=..., n_clusters=...)` | precompute k-means labels for reuse as categorical colors |
+| `prepare_kmeans_groups(samples, layers=..., n_clusters=..., cluster_method=...)` | precompute k-means or spectral labels for reuse as categorical colors |
 | `build_pair_similarity_figure(samples, layers=...)` | pairwise similarity trajectories |
 | `plot_persona_dendrogram(samples, linkage=...)` | hierarchical dendrogram |
 | `plot_scree(variance_by_condition, ...)` | PCA explained variance curves |
+| `plot_laplacian_eigengap(eigenvalues_by_condition, ...)` | sorted graph-Laplacian eigenvalues for spectral clustering diagnostics |
 | `plot_layer_similarity(traces, ...)` | variant cosine by layer |
 
 Example:

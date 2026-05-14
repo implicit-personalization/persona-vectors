@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from persona_vectors.analysis import LayeredSamples
 from persona_vectors.plots._common import validate_layers
 from persona_vectors.plots.projection import (
+    ClusterMethod,
     ClusterMode,
     LayeredProjectionData,
     build_layered_projection_figure,
@@ -23,6 +24,9 @@ def build_layered_figure(
     n_clusters: int | None = None,
     cluster_seed: int = 0,
     cluster_mode: ClusterMode = "mean_across_layers",
+    cluster_method: ClusterMethod = "kmeans",
+    spectral_n_neighbors: int = 8,
+    spectral_affinity: str = "nearest_neighbors",
     groups: list[str] | dict[int, list[str]] | None = None,
     graph_overlay: bool = False,
     graph_n_neighbors: int = 5,
@@ -43,10 +47,13 @@ def build_layered_figure(
     (default) and a 3D scatter view. Options for overriding the default
     per-persona coloring or adding context:
 
-    - ``n_clusters=k``: convenience for k-means clustering. ``cluster_mode``
-      controls whether labels come from centered/unit per-layer means
-      (``"mean_across_layers"``), the first selected layer (``"first_layer"``),
-      or are recomputed independently for every frame (``"per_layer"``).
+    - ``n_clusters=k``: convenience for clustering. ``cluster_method`` selects
+      ``"kmeans"`` (default) or ``"spectral"`` (``spectral_affinity`` is
+      ``"nearest_neighbors"`` or ``"cosine"``; ``spectral_n_neighbors`` sizes
+      the kNN affinity graph). ``cluster_mode`` controls whether labels come
+      from centered/unit per-layer means (``"mean_across_layers"``), the first
+      selected layer (``"first_layer"``), or are recomputed independently for
+      every frame (``"per_layer"``).
     - ``groups``: a length-``n_samples`` list of group labels (e.g. produced
       elsewhere). Use this for any categorical grouping.
     - ``color_values``: a numeric length-``n_samples`` list for continuous or
@@ -82,6 +89,9 @@ def build_layered_figure(
             n_clusters=n_clusters,
             cluster_seed=cluster_seed,
             cluster_mode=cluster_mode,
+            cluster_method=cluster_method,
+            spectral_n_neighbors=spectral_n_neighbors,
+            spectral_affinity=spectral_affinity,
         )
 
     if kind in ("pca", "umap", "isomap"):

@@ -19,6 +19,11 @@ Each safetensors file contains one `activations` tensor with shape `(num_layers,
 
 `artifacts/activations/` is the default. `scripts/extraction_all_questions.sh` writes under `artifacts/persona-vectors/` to keep all-questions runs separate from train-split runs; pass `--activations-dir artifacts/persona-vectors` (or `root_dir=...` to the store) to read it back.
 
+Probe training writes a separate tree under `artifacts/probes/`. Each saved
+probe directory contains `probe.json` metadata and `weights.safetensors`
+containing the scaler/PCA tensors plus the linear head. See
+[Probes](probes.md) for the probe artifact schema.
+
 ## Local Store
 
 ```python
@@ -33,7 +38,10 @@ available = store.available_variants(["biography", "templated"])
 layers = store.list_layers(["biography"], persona_ids)
 ```
 
-`list_personas(["biography", "templated"])` returns only personas present in both variants. This keeps variant comparisons aligned.
+`list_personas(["biography", "templated"])` returns only personas present in
+both variants. This keeps variant comparisons aligned. `list_personas()`
+excludes `baseline_assistant` by default; pass `include_baseline=True` when the
+baseline should remain visible.
 
 To save:
 

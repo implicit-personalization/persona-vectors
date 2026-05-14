@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import list_comparison_personas, load_persona_vectors
+from persona_vectors.analysis import load_persona_vectors
 from persona_vectors.artifacts import HFPersonaVectorStore
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots import (
@@ -31,7 +31,7 @@ load_dotenv()
 torch.set_grad_enabled(False)
 
 REPO_ID = "implicit-personalization/synth-persona-vectors"
-MODEL_NAME = "google/gemma-2-9b-it"
+MODEL_NAME = "google/gemma-3-27b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 VARIANTS = ["biography", "templated"]
 INCLUDE_BASELINE = False
@@ -46,8 +46,7 @@ store = HFPersonaVectorStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
 
 available_variants = store.available_variants(VARIANTS)
 comparison_variants = [variant for variant in VARIANTS if variant in available_variants]
-persona_ids = list_comparison_personas(
-    store,
+persona_ids = store.list_personas(
     comparison_variants,
     include_baseline=INCLUDE_BASELINE,
 )

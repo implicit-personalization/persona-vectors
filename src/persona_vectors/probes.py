@@ -1,21 +1,20 @@
 """Linear probes over persona vectors.
 
-Three probe kinds,:
+Three probe kinds:
 
-- ``difference_of_means``: the Anthropic-style persona-vector direction
-  (mean(positive) - mean(negative)), with a midpoint bias. Closed-form,
-  most interpretable. Binary only.
+- ``difference_of_means`` — Anthropic-style persona-vector direction with a
+  midpoint bias. Closed-form; binary only.
+- ``logistic_regression`` — class-balanced, L2-regularized, with a
+  StandardScaler. Binary and multi-class.
+- ``ridge_regression`` — linear regression for ordinal ranks (predictions
+  rounded back to ranks) and numeric attributes.
 
-- ``logistic_regression``: the canonical probing classifier. Class-balanced,
-  L2-regularized, with a StandardScaler. Handles binary and multi-class.
+A single 80/20 train/test split (``random_state=0`` by default), stratified
+for classification. Scaler and optional PCA are fit on the train split only to
+prevent leakage. Final saved artifacts are refit on all personas.
 
-- ``ridge_regression``: linear regression for ordinal ranks and numeric
-  attributes. Ordinal predictions are rounded back to the rank scale.
-
-Evaluation is 5-fold cross-validation by default (StratifiedKFold for
-classification, KFold for regression). The scaler and any optional PCA
-are fit *inside each fold's pipeline*, so there is no leakage from the
-held-out personas. Final saved artifacts are refit on all personas.
+PCA is an optional dimensionality knob (``n_pca_components``), not a sweep
+axis: pass an int to compress features, leave it ``None`` for raw activations.
 """
 
 import json
@@ -29,7 +28,7 @@ from safetensors.torch import save_file
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import balanced_accuracy_score, mean_absolute_error, r2_score
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -38,11 +37,13 @@ from persona_vectors.artifacts import model_dir_name, normalize_mask_strategy
 
 ProbeTask = Literal["binary", "ordinal", "categorical", "numeric"]
 ProbeKind = Literal["difference_of_means", "logistic_regression", "ridge_regression"]
-FeatureSpace = Literal["raw", "pca10"]
 
 CLASSIFICATION_TASKS: frozenset[ProbeTask] = frozenset(
     {"binary", "categorical", "ordinal"}
 )
+
+TEST_SIZE = 0.2
+RANDOM_STATE = 0
 
 
 @dataclass(frozen=True)
@@ -54,47 +55,6 @@ class AttributeLabels:
     y: np.ndarray
     labels: list[str]
     class_names: list[str] | None = None
-
-
-@dataclass(frozen=True)
-class ProbeMetrics:
-    """Out-of-fold CV metrics for one probe configuration.
-
-    Each task keeps only the metric that matters: balanced_accuracy for
-    classification (binary/categorical/ordinal), plus mae for ordinal rank
-    distance; r2 + mae for numeric.
-    """
-
-    layer: int
-    probe_kind: str
-    feature_space: str
-    balanced_accuracy: float | None = None
-    mae: float | None = None
-    r2: float | None = None
-
-
-@dataclass(frozen=True)
-class ProbeCV:
-    """Per-fold predictions assembled into a single out-of-fold array."""
-
-    metrics: ProbeMetrics
-    predictions: np.ndarray
-    scores: np.ndarray
-
-
-@dataclass(frozen=True)
-class ProbeSweep:
-    rows: list[dict[str, object]]
-    predictions: dict[tuple[str, str, int], np.ndarray]
-    scores: dict[tuple[str, str, int], np.ndarray]
-
-
-@dataclass(frozen=True)
-class SavedProbeArtifact:
-    directory: Path
-    metadata_path: Path
-    weights_path: Path
-    pt_path: Path | None
 
 
 # ---------------------------------------------------------------------------
@@ -209,26 +169,24 @@ def predict_difference_of_means(
 
 def make_linear_probe(
     probe_kind: ProbeKind,
-    feature_space: FeatureSpace,
+    n_pca_components: int | None = None,
     seed: int = 0,
 ) -> Pipeline:
-    """Build a fold-local pipeline. Scaler + optional PCA + classifier/regressor.
+    """Pipeline: scaler (+ optional PCA) + classifier/regressor.
 
-    PCA (when requested) is fit inside the pipeline, so each CV fold gets its
-    own PCA fit on training personas only -- no leakage from held-out folds.
+    When ``n_pca_components`` is set, PCA is a pipeline step so it is fit on
+    the train split only -- no leakage from the held-out test split.
     """
     if probe_kind == "difference_of_means":
         raise ValueError("difference_of_means is not an sklearn pipeline")
 
     steps: list = [("scale", StandardScaler())]
-    if feature_space == "pca10":
-        steps.append(("pca", PCA(n_components=10, random_state=seed)))
-    elif feature_space != "raw":
-        raise ValueError("feature_space must be 'raw' or 'pca10'")
+    if n_pca_components is not None:
+        steps.append(("pca", PCA(n_components=n_pca_components, random_state=seed)))
 
     if probe_kind == "logistic_regression":
         probe = LogisticRegression(
-            class_weight="balanced", max_iter=2000, random_state=seed
+            class_weight="balanced", max_iter=5000, random_state=seed
         )
     elif probe_kind == "ridge_regression":
         probe = Ridge(alpha=1.0)
@@ -239,7 +197,7 @@ def make_linear_probe(
 
 
 def default_probe_kinds(task: ProbeTask) -> list[ProbeKind]:
-    """Default probe kinds per task. Binary keeps both linear baselines."""
+    """Probe kinds run for ``task``. Binary keeps both linear baselines."""
     if task == "binary":
         return ["difference_of_means", "logistic_regression"]
     if task == "categorical":
@@ -250,51 +208,6 @@ def default_probe_kinds(task: ProbeTask) -> list[ProbeKind]:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-
-
-def _probe_scores(pipeline: Pipeline, X: np.ndarray) -> np.ndarray:
-    """Return a 1-D score for binary, otherwise a (n, n_classes) matrix."""
-    if hasattr(pipeline, "predict_proba"):
-        proba = pipeline.predict_proba(X)
-        return np.asarray(proba[:, 1] if proba.shape[1] == 2 else proba, dtype=float)
-    if hasattr(pipeline, "decision_function"):
-        return np.asarray(pipeline.decision_function(X), dtype=float)
-    return np.asarray(pipeline.predict(X), dtype=float)
-
-
-def _classification_metrics(
-    y: np.ndarray,
-    predictions: np.ndarray,
-    *,
-    layer: int,
-    probe_kind: str,
-    feature_space: str,
-    mae: float | None = None,
-) -> ProbeMetrics:
-    return ProbeMetrics(
-        layer=layer,
-        probe_kind=probe_kind,
-        feature_space=feature_space,
-        balanced_accuracy=float(balanced_accuracy_score(y, predictions)),
-        mae=mae,
-    )
-
-
-def _regression_metrics(
-    y: np.ndarray,
-    predictions: np.ndarray,
-    *,
-    layer: int,
-    probe_kind: str,
-    feature_space: str,
-) -> ProbeMetrics:
-    return ProbeMetrics(
-        layer=layer,
-        probe_kind=probe_kind,
-        feature_space=feature_space,
-        mae=float(mean_absolute_error(y, predictions)),
-        r2=float(r2_score(y, predictions)),
-    )
 
 
 def classification_baseline_metrics(y: np.ndarray) -> dict[str, float]:
@@ -316,14 +229,29 @@ def regression_baseline_metrics(y: np.ndarray) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Cross-validation
+# Train/test split + evaluation
 # ---------------------------------------------------------------------------
 
 
-def _stratified_n_splits(y: np.ndarray, n_splits: int) -> int:
-    counts = np.bincount(y)
-    min_class_count = int(counts[counts > 0].min())
-    return min(n_splits, min_class_count)
+def _split_indices(
+    y: np.ndarray,
+    *,
+    classification: bool,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Single 80/20 split (``random_state=0``).
+
+    Classification tasks stratify on ``y`` so the held-out set preserves the
+    attribute balance.
+    """
+    idx = np.arange(len(y))
+    train_idx, test_idx = train_test_split(
+        idx,
+        test_size=TEST_SIZE,
+        random_state=seed,
+        stratify=y if classification else None,
+    )
+    return train_idx, test_idx
 
 
 def _nearest_observed_labels(values: np.ndarray, observed: np.ndarray) -> np.ndarray:
@@ -333,22 +261,21 @@ def _nearest_observed_labels(values: np.ndarray, observed: np.ndarray) -> np.nda
     return observed[nearest]
 
 
-def cross_validate_classification(
+def evaluate_classification(
     X: np.ndarray,
     y: np.ndarray,
     *,
     task: ProbeTask,
     layer: int,
     probe_kind: ProbeKind,
-    feature_space: FeatureSpace = "raw",
-    n_splits: int = 5,
+    n_pca_components: int | None = None,
     seed: int = 0,
-) -> ProbeCV:
-    """5-fold StratifiedKFold for binary, categorical, or ordinal labels.
+) -> dict[str, object]:
+    """Single 80/20 stratified split for binary/categorical/ordinal labels.
 
-    Ordinal labels are fit as floats (ranks) and held-out scores are rounded
-    back to integer ranks, so balanced_accuracy carries over. MAE on ranks
-    is also returned for ordinal so "how far off" stays visible.
+    Ordinal labels are fit as floats (ranks) and test scores are rounded back
+    to integer ranks, so balanced_accuracy carries over; MAE on ranks is also
+    returned so "how far off" stays visible.
     """
     if task not in CLASSIFICATION_TASKS:
         raise ValueError(f"task must be one of {CLASSIFICATION_TASKS}, got {task!r}")
@@ -359,116 +286,84 @@ def cross_validate_classification(
 
     X = np.asarray(X, dtype=np.float32)
     y = np.asarray(y, dtype=int)
-    n_splits = _stratified_n_splits(y, n_splits)
-    if n_splits < 2:
-        raise ValueError("Need at least two examples per class for stratified CV")
-
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    predictions = np.zeros_like(y)
-    scores: np.ndarray | None = None
-    low, high = int(y.min()), int(y.max())
     observed_labels = np.unique(y)
     if probe_kind == "difference_of_means" and len(observed_labels) != 2:
         raise ValueError("difference_of_means only supports binary labels")
 
-    for train_idx, test_idx in cv.split(X, y):
-        X_train, X_test = X[train_idx], X[test_idx]
-        y_train = y[train_idx]
+    train_idx, test_idx = _split_indices(y, classification=True, seed=seed)
+    X_train, X_test = X[train_idx], X[test_idx]
+    y_train, y_test = y[train_idx], y[test_idx]
 
-        if probe_kind == "difference_of_means":
-            X_train_f, X_test_f = _maybe_pca_per_fold(
-                X_train, X_test, feature_space, seed
-            )
-            direction, bias = difference_of_means_direction(X_train_f, y_train)
-            fold_pred, fold_score = predict_difference_of_means(
-                X_test_f, direction, bias
-            )
+    if probe_kind == "difference_of_means":
+        X_train_f, X_test_f = _maybe_pca(X_train, X_test, n_pca_components, seed)
+        direction, bias = difference_of_means_direction(X_train_f, y_train)
+        predictions, _ = predict_difference_of_means(X_test_f, direction, bias)
+    else:
+        pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
+        pipeline.fit(
+            X_train, y_train.astype(float) if task == "ordinal" else y_train
+        )
+        if task == "ordinal":
+            low, high = int(y.min()), int(y.max())
+            rounded = np.clip(np.rint(pipeline.predict(X_test)), low, high)
+            predictions = _nearest_observed_labels(rounded, observed_labels)
         else:
-            pipeline = make_linear_probe(probe_kind, feature_space, seed=seed)
-            pipeline.fit(
-                X_train, y_train.astype(float) if task == "ordinal" else y_train
-            )
-            fold_score = _probe_scores(pipeline, X_test)
-            if task == "ordinal":
-                rounded = np.clip(np.rint(fold_score), low, high)
-                fold_pred = _nearest_observed_labels(rounded, observed_labels)
-            else:
-                fold_pred = pipeline.predict(X_test)
+            predictions = pipeline.predict(X_test)
 
-        predictions[test_idx] = fold_pred
-        scores = _scatter_fold_scores(scores, test_idx, fold_score, n=len(y))
-
-    assert scores is not None
-    mae = float(mean_absolute_error(y, predictions)) if task == "ordinal" else None
-    metrics = _classification_metrics(
-        y,
-        predictions,
-        layer=layer,
-        probe_kind=probe_kind,
-        feature_space=feature_space,
-        mae=mae,
+    mae = (
+        float(mean_absolute_error(y_test, predictions))
+        if task == "ordinal"
+        else None
     )
-    return ProbeCV(metrics=metrics, predictions=predictions, scores=scores)
+    return {
+        "layer": layer,
+        "probe_kind": probe_kind,
+        "balanced_accuracy": float(balanced_accuracy_score(y_test, predictions)),
+        "mae": mae,
+        "r2": None,
+        **classification_baseline_metrics(y_test),
+    }
 
 
-def cross_validate_regression(
+def evaluate_regression(
     X: np.ndarray,
     y: np.ndarray,
     *,
     layer: int,
     probe_kind: ProbeKind = "ridge_regression",
-    feature_space: FeatureSpace = "raw",
-    n_splits: int = 5,
+    n_pca_components: int | None = None,
     seed: int = 0,
-) -> ProbeCV:
-    """K-fold CV for numeric attributes (ridge regression)."""
+) -> dict[str, object]:
+    """Single 80/20 split for numeric attributes (ridge regression)."""
     if probe_kind != "ridge_regression":
         raise ValueError("numeric probing uses ridge_regression")
     X = np.asarray(X, dtype=np.float32)
     y = np.asarray(y, dtype=float)
-    predictions = np.zeros(len(y), dtype=float)
-    cv = KFold(n_splits=min(n_splits, len(y)), shuffle=True, random_state=seed)
-    for train_idx, test_idx in cv.split(X):
-        pipeline = make_linear_probe(probe_kind, feature_space, seed=seed)
-        pipeline.fit(X[train_idx], y[train_idx])
-        predictions[test_idx] = pipeline.predict(X[test_idx])
-    return ProbeCV(
-        metrics=_regression_metrics(
-            y,
-            predictions,
-            layer=layer,
-            probe_kind=probe_kind,
-            feature_space=feature_space,
-        ),
-        predictions=predictions,
-        scores=predictions,
-    )
+
+    train_idx, test_idx = _split_indices(y, classification=False, seed=seed)
+    pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
+    pipeline.fit(X[train_idx], y[train_idx])
+    predictions = pipeline.predict(X[test_idx])
+    y_test = y[test_idx]
+
+    return {
+        "layer": layer,
+        "probe_kind": probe_kind,
+        "balanced_accuracy": None,
+        "mae": float(mean_absolute_error(y_test, predictions)),
+        "r2": float(r2_score(y_test, predictions)),
+        **regression_baseline_metrics(y_test),
+    }
 
 
-def _maybe_pca_per_fold(
-    X_train: np.ndarray, X_test: np.ndarray, feature_space: FeatureSpace, seed: int
+def _maybe_pca(
+    X_train: np.ndarray, X_test: np.ndarray, n_pca_components: int | None, seed: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Fit PCA on training fold only when feature_space=='pca10'."""
-    if feature_space == "raw":
+    """PCA the split (fit on train only) when ``n_pca_components`` is set."""
+    if n_pca_components is None:
         return X_train, X_test
-    if feature_space != "pca10":
-        raise ValueError("feature_space must be 'raw' or 'pca10'")
-    pca = PCA(n_components=10, random_state=seed)
+    pca = PCA(n_components=n_pca_components, random_state=seed)
     return pca.fit_transform(X_train), pca.transform(X_test)
-
-
-def _scatter_fold_scores(
-    accumulator: np.ndarray | None,
-    test_idx: np.ndarray,
-    fold_scores: np.ndarray,
-    *,
-    n: int,
-) -> np.ndarray:
-    fold_scores = np.asarray(fold_scores, dtype=float)
-    if accumulator is None:
-        accumulator = np.zeros((n, *fold_scores.shape[1:]), dtype=float)
-    accumulator[test_idx] = fold_scores
-    return accumulator
 
 
 # ---------------------------------------------------------------------------
@@ -482,58 +377,43 @@ def sweep_attribute(
     *,
     layers: list[int],
     probe_kinds: list[ProbeKind] | None = None,
-    feature_spaces: list[FeatureSpace] | None = None,
-    n_splits: int = 5,
+    n_pca_components: int | None = None,
     seed: int = 0,
-) -> ProbeSweep:
-    """Sweep one attribute across layers x probe_kinds x feature_spaces.
+) -> list[dict[str, object]]:
+    """Sweep one attribute across layers x probe_kinds; return metric rows.
 
-    Auto-dispatches by ``labels.task``. Defaults: ``probe_kinds`` per task
-    (see :func:`default_probe_kinds`), ``feature_spaces=['raw']``.
+    Auto-dispatches by ``labels.task`` unless ``probe_kinds`` is passed. Set
+    ``n_pca_components`` to fit a per-split PCA (e.g. 10) instead of raw
+    activations.
     """
     probe_kinds = probe_kinds or default_probe_kinds(labels.task)
-    feature_spaces = feature_spaces or ["raw"]
     vectors = samples.vectors.float().cpu().numpy()
 
-    if labels.task == "numeric":
-        baseline = regression_baseline_metrics(labels.y)
-    else:
-        baseline = classification_baseline_metrics(labels.y)
-
     rows: list[dict[str, object]] = []
-    predictions: dict[tuple[str, str, int], np.ndarray] = {}
-    scores: dict[tuple[str, str, int], np.ndarray] = {}
-
     for layer in layers:
         X = vectors[:, layer, :]
         for probe_kind in probe_kinds:
-            for feature_space in feature_spaces:
-                if labels.task == "numeric":
-                    result = cross_validate_regression(
-                        X,
-                        labels.y,
-                        layer=layer,
-                        probe_kind=probe_kind,
-                        feature_space=feature_space,
-                        n_splits=n_splits,
-                        seed=seed,
-                    )
-                else:
-                    result = cross_validate_classification(
-                        X,
-                        labels.y,
-                        task=labels.task,
-                        layer=layer,
-                        probe_kind=probe_kind,
-                        feature_space=feature_space,
-                        n_splits=n_splits,
-                        seed=seed,
-                    )
-                key = (probe_kind, feature_space, layer)
-                predictions[key] = result.predictions
-                scores[key] = result.scores
-                rows.append(_metric_row(labels, result, baseline))
-    return ProbeSweep(rows=rows, predictions=predictions, scores=scores)
+            if labels.task == "numeric":
+                metrics = evaluate_regression(
+                    X,
+                    labels.y,
+                    layer=layer,
+                    probe_kind=probe_kind,
+                    n_pca_components=n_pca_components,
+                    seed=seed,
+                )
+            else:
+                metrics = evaluate_classification(
+                    X,
+                    labels.y,
+                    task=labels.task,
+                    layer=layer,
+                    probe_kind=probe_kind,
+                    n_pca_components=n_pca_components,
+                    seed=seed,
+                )
+            rows.append(_metric_row(labels, metrics))
+    return rows
 
 
 def shuffle_label_baseline(
@@ -543,9 +423,8 @@ def shuffle_label_baseline(
     task: ProbeTask,
     layer: int,
     probe_kind: ProbeKind,
-    feature_space: FeatureSpace = "raw",
+    n_pca_components: int | None = None,
     n_repeats: int = 5,
-    n_splits: int = 5,
     seed: int = 0,
 ) -> dict[str, float]:
     """Selectivity control: train the same probe on shuffled labels.
@@ -560,22 +439,21 @@ def shuffle_label_baseline(
             "shuffle_label_baseline is only defined for classification tasks"
         )
     rng = np.random.default_rng(seed)
-    metrics_per_run: list[ProbeMetrics] = []
+    accuracies: list[float] = []
     for repeat in range(n_repeats):
         shuffled = rng.permutation(y)
-        result = cross_validate_classification(
+        metrics = evaluate_classification(
             X,
             shuffled,
             task=task,
             layer=layer,
             probe_kind=probe_kind,
-            feature_space=feature_space,
-            n_splits=n_splits,
+            n_pca_components=n_pca_components,
             seed=seed + repeat,
         )
-        metrics_per_run.append(result.metrics)
+        accuracies.append(float(metrics["balanced_accuracy"]))
 
-    balanced = np.asarray([m.balanced_accuracy for m in metrics_per_run])
+    balanced = np.asarray(accuracies)
     return {
         "balanced_accuracy_mean": float(balanced.mean()),
         "balanced_accuracy_std": float(balanced.std()),
@@ -587,7 +465,7 @@ def filter_attribute_samples_min_count(
     labels: AttributeLabels,
     min_count: int,
 ) -> tuple[LayeredSamples, AttributeLabels]:
-    """Drop categorical/ordinal classes too rare for stratified CV.
+    """Drop categorical/ordinal classes too rare for a stratified split.
 
     Ordinal ranks are preserved (rank ordering still matters); for
     binary/categorical, surviving classes are renumbered to 0..k-1.
@@ -632,39 +510,26 @@ def filter_attribute_samples_min_count(
 
 def _metric_row(
     labels: AttributeLabels,
-    result: ProbeCV,
-    baseline: dict[str, float],
+    metrics: dict[str, object],
 ) -> dict[str, object]:
     return {
         "attribute": labels.attribute_name,
-        "layer": result.metrics.layer,
-        "probe_kind": result.metrics.probe_kind,
-        "feature_space": result.metrics.feature_space,
-        "balanced_accuracy": result.metrics.balanced_accuracy,
-        "mae": result.metrics.mae,
-        "r2": result.metrics.r2,
-        **baseline,
+        "layer": metrics["layer"],
+        "probe_kind": metrics["probe_kind"],
+        "balanced_accuracy": metrics["balanced_accuracy"],
+        "mae": metrics["mae"],
+        "r2": metrics["r2"],
+        **{
+            key: value
+            for key, value in metrics.items()
+            if key.startswith("baseline_")
+        },
     }
 
 
 # ---------------------------------------------------------------------------
 # Final-fit artifact saving (persona-ui compatible)
 # ---------------------------------------------------------------------------
-
-
-def _fit_final_pipeline(
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    task: ProbeTask,
-    probe_kind: ProbeKind,
-    feature_space: FeatureSpace,
-    seed: int,
-) -> tuple[dict[str, torch.Tensor], dict[str, object]]:
-    """Refit the chosen probe on all personas and return its persisted tensors."""
-    if probe_kind == "difference_of_means":
-        return _fit_difference_artifact(X, y.astype(int), feature_space, seed)
-    return _fit_pipeline_artifact(X, y, task, probe_kind, feature_space, seed)
 
 
 def _scaler_tensors(scaler: StandardScaler) -> dict[str, torch.Tensor]:
@@ -675,51 +540,59 @@ def _scaler_tensors(scaler: StandardScaler) -> dict[str, torch.Tensor]:
 
 
 def _pca_tensors(pca: PCA) -> dict[str, torch.Tensor]:
+    # sklearn's components_ is a non-contiguous view; safetensors needs C-order.
     return {
-        "pca_mean": torch.from_numpy(pca.mean_.astype(np.float32)),
-        "pca_components": torch.from_numpy(pca.components_.astype(np.float32)),
+        "pca_mean": torch.from_numpy(
+            np.ascontiguousarray(pca.mean_, dtype=np.float32)
+        ),
+        "pca_components": torch.from_numpy(
+            np.ascontiguousarray(pca.components_, dtype=np.float32)
+        ),
     }
 
 
-def _fit_difference_artifact(X, y, feature_space, seed):
-    if feature_space == "pca10":
+def _fit_difference_artifact(
+    X: np.ndarray, y: np.ndarray, n_pca_components: int | None, seed: int
+) -> dict[str, torch.Tensor]:
+    if n_pca_components is not None:
         scaler = StandardScaler()
-        pca = PCA(n_components=10, random_state=seed)
+        pca = PCA(n_components=n_pca_components, random_state=seed)
         features = pca.fit_transform(scaler.fit_transform(X))
         transform_tensors = {**_scaler_tensors(scaler), **_pca_tensors(pca)}
-        transform_metadata = {"pca_components": 10}
     else:
         features = X
         transform_tensors = {}
-        transform_metadata = {}
 
     direction, bias = difference_of_means_direction(features, y)
     # Two-row weight matrix so persona-ui's 2-class linear head loads it directly.
     weights = np.stack([-0.5 * direction, 0.5 * direction]).astype(np.float32)
     biases = np.asarray([-0.5 * bias, 0.5 * bias], dtype=np.float32)
-    tensors = {
+    return {
         "weight": torch.from_numpy(weights),
         "bias": torch.from_numpy(biases),
         "direction": torch.from_numpy(direction.astype(np.float32)),
         "direction_bias": torch.tensor([bias], dtype=torch.float32),
         **transform_tensors,
     }
-    return tensors, transform_metadata
 
 
-def _fit_pipeline_artifact(X, y, task, probe_kind, feature_space, seed):
-    pipeline = make_linear_probe(probe_kind, feature_space, seed=seed)
+def _fit_pipeline_artifact(
+    X: np.ndarray,
+    y: np.ndarray,
+    task: ProbeTask,
+    probe_kind: ProbeKind,
+    n_pca_components: int | None,
+    seed: int,
+) -> dict[str, torch.Tensor]:
+    pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
     fit_y = y.astype(float) if task in {"ordinal", "numeric"} else y
     pipeline.fit(X, fit_y)
 
     scaler = pipeline.named_steps["scale"]
     final = pipeline.named_steps["probe"]
     tensors: dict[str, torch.Tensor] = dict(_scaler_tensors(scaler))
-    transform_metadata: dict[str, object] = {}
     if "pca" in pipeline.named_steps:
-        pca = pipeline.named_steps["pca"]
-        tensors.update(_pca_tensors(pca))
-        transform_metadata["pca_components"] = int(pca.n_components_)
+        tensors.update(_pca_tensors(pipeline.named_steps["pca"]))
 
     coef = np.asarray(final.coef_, dtype=np.float32)
     intercept = np.asarray(
@@ -743,7 +616,7 @@ def _fit_pipeline_artifact(X, y, task, probe_kind, feature_space, seed):
             "bias": torch.from_numpy(bias),
         }
     )
-    return tensors, transform_metadata
+    return tensors
 
 
 def _json_safe(value: object) -> object:
@@ -765,99 +638,68 @@ def save_probe_artifact(
     labels: AttributeLabels,
     task: ProbeTask,
     probe_kind: ProbeKind,
-    feature_space: FeatureSpace,
     layer: int,
     model_name: str,
     variant: str,
     mask_strategy: object,
+    n_pca_components: int | None = None,
     output_dir: str | Path = "artifacts/probes",
     metrics: dict[str, object] | None = None,
     seed: int = 0,
     location: str = "post_reasoning",
-) -> SavedProbeArtifact:
+) -> Path:
     """Refit on all personas and save a lightweight artifact tree.
 
     Writes:
-    - ``probe.json`` -- schema metadata, including the CV metrics passed in.
+    - ``probe.json`` -- schema metadata, including the eval metrics passed in.
     - ``weights.safetensors`` -- portable tensor bundle (scaler, optional PCA,
       weight, bias, plus the diff-of-means direction when applicable).
-    - ``probe.pt`` (binary & categorical only, raw feature space) -- the
-      persona-ui-compatible payload with a 2-row linear head + scaler.
+
+    Returns the artifact directory.
     """
     X = np.asarray(X, dtype=np.float32)
     y = np.asarray(y)
-    tensors, transform_metadata = _fit_final_pipeline(
-        X,
-        y,
-        task=task,
-        probe_kind=probe_kind,
-        feature_space=feature_space,
-        seed=seed,
-    )
+    if probe_kind == "difference_of_means":
+        tensors = _fit_difference_artifact(
+            X, y.astype(int), n_pca_components, seed
+        )
+    else:
+        tensors = _fit_pipeline_artifact(
+            X, y, task, probe_kind, n_pca_components, seed
+        )
 
+    suffix = "" if n_pca_components is None else f"_pca{n_pca_components}"
     root = (
         Path(output_dir)
         / model_dir_name(model_name)
         / normalize_mask_strategy(mask_strategy)
         / variant
         / labels.attribute_name
-        / f"{probe_kind}_{feature_space}_layer{layer}"
+        / f"{probe_kind}{suffix}_layer{layer}"
     )
     root.mkdir(parents=True, exist_ok=True)
     metadata_path = root / "probe.json"
     weights_path = root / "weights.safetensors"
 
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "model_name": model_name,
         "variant": variant,
         "mask_strategy": normalize_mask_strategy(mask_strategy),
         "attribute_name": labels.attribute_name,
         "task": task,
         "probe_kind": probe_kind,
-        "feature_space": feature_space,
+        "n_pca_components": n_pca_components,
         "layer": layer,
         "location": location,
         "input_dim": int(X.shape[1]),
         "artifact_feature_dim": int(tensors["weight"].shape[1]),
         "class_names": labels.class_names,
         "metrics": metrics or {},
-        **transform_metadata,
     }
     metadata_path.write_text(json.dumps(_json_safe(metadata), indent=2))
     save_file(tensors, str(weights_path))
-
-    pt_path = None
-    if task in {"binary", "categorical"} and feature_space == "raw":
-        pt_path = root / "probe.pt"
-        torch.save(
-            {
-                "model_type": "linear",
-                "model_state_dict": {
-                    "linear.weight": tensors["weight"],
-                    "linear.bias": tensors["bias"],
-                },
-                "input_dim": int(X.shape[1]),
-                "num_classes": int(tensors["weight"].shape[0]),
-                "idx_to_label": dict(enumerate(labels.class_names or [])),
-                "layer": int(layer),
-                "location": location,
-                "scaler_mean": tensors.get("scaler_mean"),
-                "scaler_std": tensors.get("scaler_scale"),
-                "model_name": model_name,
-                "attribute_name": labels.attribute_name,
-                "task": task,
-                "probe_kind": probe_kind,
-            },
-            pt_path,
-        )
-
-    return SavedProbeArtifact(
-        directory=root,
-        metadata_path=metadata_path,
-        weights_path=weights_path,
-        pt_path=pt_path,
-    )
+    return root
 
 
 def layer_matrix(samples: LayeredSamples, layer: int) -> np.ndarray:
@@ -905,18 +747,17 @@ def run_attribute_probe(
     persona_ids: list[str],
     *,
     layers: list[int],
-    feature_spaces: list[FeatureSpace],
-    n_splits: int = 5,
+    n_pca_components: int | None = None,
     min_class_count: int = 5,
     model_name: str,
     variant: str,
     mask_strategy: object,
     output_dir: str | Path,
     seed: int = 0,
-) -> tuple[SavedProbeArtifact, dict[str, object], ProbeTask]:
+) -> tuple[Path, dict[str, object], ProbeTask]:
     """Sweep one attribute, refit the best config, and save the artifact.
 
-    Returns ``(artifact, best_row, task)`` where ``best_row`` is the winning
+    Returns ``(directory, best_row, task)`` where ``best_row`` is the winning
     sweep row (handy for CLI summaries) and ``task`` is the inferred task.
     """
     task = infer_probe_task(persona_dataset, attribute)
@@ -926,31 +767,29 @@ def run_attribute_probe(
         labels,
         min_count=min_class_count,
     )
-    sweep = sweep_attribute(
+    rows = sweep_attribute(
         probe_samples,
         labels,
         layers=layers,
-        feature_spaces=feature_spaces,
-        n_splits=n_splits,
+        n_pca_components=n_pca_components,
         seed=seed,
     )
-    best = best_row(sweep.rows, primary_metric(task))
+    best = best_row(rows, primary_metric(task))
     layer = int(best["layer"])
     probe_kind = str(best["probe_kind"])
-    feature_space = str(best["feature_space"])
-    artifact = save_probe_artifact(
+    directory = save_probe_artifact(
         X=layer_matrix(probe_samples, layer),
         y=labels.y,
         labels=labels,
         task=task,
         probe_kind=probe_kind,  # type: ignore[arg-type]
-        feature_space=feature_space,  # type: ignore[arg-type]
         layer=layer,
         model_name=model_name,
         variant=variant,
         mask_strategy=mask_strategy,
+        n_pca_components=n_pca_components,
         output_dir=output_dir,
         metrics=best,
         seed=seed,
     )
-    return artifact, best, task
+    return directory, best, task

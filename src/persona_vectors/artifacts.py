@@ -1,10 +1,11 @@
 import json
-import os
 import warnings
 from collections.abc import Callable
 from pathlib import Path
 
 import torch
+from persona_data.environment import get_artifacts_dir
+from persona_data.synth_persona import BASELINE_PERSONA_ID
 from safetensors.torch import load_file, save_file
 
 SUPPORTED_VARIANTS: tuple[str, ...] = ("templated", "biography")
@@ -111,7 +112,7 @@ class PersonaVectorStore:
         self.root_dir = (
             Path(root_dir)
             if root_dir is not None
-            else Path(os.environ.get("ARTIFACTS_DIR", "artifacts")) / "activations"
+            else get_artifacts_dir() / "activations"
         )
 
     def _resolved_mask(self, mask_strategy: object | None) -> object:
@@ -145,19 +146,7 @@ class PersonaVectorStore:
         sample_ids: list[str],
         mask_strategy: object | None = None,
     ) -> Path:
-        """Save the mean activation vector for a persona.
-
-        Args:
-            prompt_variant: Prompt variant key (e.g. ``"templated"``).
-            persona_id: Stable persona identifier.
-            persona_name: Human-readable display name.
-            vectors: Mean activation tensor of shape ``(num_layers, hidden_size)``,
-                already averaged across questions and masked tokens.
-            sample_ids: QA sample ids that were averaged into ``vectors`` — kept
-                in the manifest for provenance, not used for indexing.
-            mask_strategy: Mask strategy used during extraction. Defaults to the
-                store's configured strategy.
-        """
+        """Save a ``(num_layers, hidden_size)`` mean activation tensor. ``sample_ids`` are stored in the manifest for provenance."""
         if vectors.ndim != 2:
             raise ValueError("vectors must have shape (num_layers, hidden_size)")
         variant_root = self._root(prompt_variant, mask_strategy)
@@ -198,14 +187,9 @@ class PersonaVectorStore:
         persona_id: str,
         mask_strategy: object | None = None,
     ) -> torch.Tensor:
-        """Load the mean activation vector for a persona.
+        """Load the saved ``(num_layers, hidden_size)`` mean activation tensor.
 
-        Returns:
-            Tensor of shape ``(num_layers, hidden_size)`` — the mean activation
-            already averaged across questions and masked tokens at extraction time.
-
-        Raises:
-            FileNotFoundError: If no artifact exists for the requested combination.
+        Raises ``FileNotFoundError`` if no artifact exists for the combination.
         """
         variant_root = self._root(prompt_variant, mask_strategy)
         manifest = _load_manifest(variant_root)
@@ -232,16 +216,29 @@ class PersonaVectorStore:
         variants: list[str] | tuple[str, ...] | None = None,
         mask_strategy: object | None = None,
         warn_missing: bool = True,
+        *,
+        include_baseline: bool = False,
     ) -> list[str]:
-        """Return persona ids available in every requested variant."""
+        """Return persona ids available in every requested variant.
+
+        Excludes ``baseline_assistant`` by default; pass
+        ``include_baseline=True`` to keep it.
+        """
         requested = self.variants if variants is None else tuple(variants)
         manifests = self._manifests(list(requested), mask_strategy)
         if not manifests:
             return []
-        return _shared_persona_ids(
+        persona_ids = _shared_persona_ids(
             [set(m["personas"].keys()) for m in manifests],
             warn_missing=warn_missing,
         )
+        if include_baseline:
+            return persona_ids
+        return [
+            persona_id
+            for persona_id in persona_ids
+            if persona_id != BASELINE_PERSONA_ID
+        ]
 
     def persona_sample_ids(
         self,
@@ -323,7 +320,10 @@ class PersonaVectorStore:
             variant
             for variant in candidates
             if self.list_personas(
-                [variant], mask_strategy=mask_strategy, warn_missing=False
+                [variant],
+                mask_strategy=mask_strategy,
+                warn_missing=False,
+                include_baseline=True,
             )
         ]
 
@@ -473,16 +473,29 @@ class HFPersonaVectorStore:
         variants: list[str] | tuple[str, ...] | None = None,
         mask_strategy: object | None = None,
         warn_missing: bool = False,
+        *,
+        include_baseline: bool = False,
     ) -> list[str]:
-        """Return persona ids available in every requested Hub split."""
+        """Return persona ids available in every requested Hub split.
+
+        Excludes ``baseline_assistant`` by default; pass
+        ``include_baseline=True`` to keep it.
+        """
         self._validate_mask_strategy(mask_strategy)
         requested = self.available_variants() if variants is None else list(variants)
         if not requested:
             return []
-        return _shared_persona_ids(
+        persona_ids = _shared_persona_ids(
             [set(self._metadata(variant)[0]) for variant in requested],
             warn_missing=warn_missing,
         )
+        if include_baseline:
+            return persona_ids
+        return [
+            persona_id
+            for persona_id in persona_ids
+            if persona_id != BASELINE_PERSONA_ID
+        ]
 
     def persona_names(
         self,
@@ -565,3 +578,6 @@ def discover_activation_models(
         if has_manifest:
             models.append(model_root.name.replace("__", "/"))
     return models
+
+
+PersonaVectorSource = PersonaVectorStore | HFPersonaVectorStore

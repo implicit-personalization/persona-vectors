@@ -74,10 +74,8 @@ class ProbeConfig:
     attributes: list[str]
     layers: list[int] | None
     all_layers: bool
-    feature_spaces: list[str]
-    n_splits: int
+    n_pca_components: int | None
     min_class_count: int
-    include_baseline: bool
 
 
 def _positive_int(value: str) -> int:
@@ -306,28 +304,16 @@ def build_probe_parser(subparsers) -> None:
         help="Evaluate every available layer instead of the fast representative set.",
     )
     probe.add_argument(
-        "--feature-spaces",
-        nargs="+",
-        choices=["raw", "pca10"],
-        default=["raw"],
-        help="Feature spaces to evaluate and save (default: raw).",
-    )
-    probe.add_argument(
-        "--n-splits",
+        "--pca-components",
         type=_positive_int,
-        default=5,
-        help="Cross-validation folds (default: 5).",
+        default=None,
+        help="Fit a per-split PCA with this many components (default: none, raw activations).",
     )
     probe.add_argument(
         "--min-class-count",
         type=_positive_int,
         default=5,
-        help="Drop categorical/ordinal classes below this count before CV.",
-    )
-    probe.add_argument(
-        "--include-baseline",
-        action="store_true",
-        help="Include baseline_assistant if present.",
+        help="Drop categorical/ordinal classes below this count before the split.",
     )
 
 

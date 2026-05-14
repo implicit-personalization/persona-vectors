@@ -1,14 +1,18 @@
 import json
 import tempfile
 
+import numpy as np
 import pytest
 import torch
 from persona_data.synth_persona import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import train_test_split
 
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
     LayeredSamples,
-    list_comparison_personas,
+    cluster_spectral,
+    laplacian_eigenvalues,
     load_persona_vectors,
     load_variant_vectors,
     run_saved_activation_analysis,
@@ -27,10 +31,13 @@ from persona_vectors.plots import (
     build_layered_figure,
     build_pair_similarity_figure,
     build_similarity_figures,
+    plot_attribute_layer_selectivity_heatmap,
+    plot_laplacian_eigengap,
     plot_persona_dendrogram,
     prepare_kmeans_groups,
     prepare_layered_projection_data,
 )
+from persona_vectors.probes import evaluate_regression
 from persona_vectors.steering import compute_steering_vector
 
 
@@ -129,6 +136,96 @@ def test_projection_kmeans_modes_and_numeric_colors() -> None:
     )
     assert numeric.data[0].marker.color == (0.0, 1.0, 2.0, 3.0)
     assert numeric.data[0].marker.colorbar.title.text == "Ordinal rank"
+
+
+@pytest.mark.parametrize("affinity", ["nearest_neighbors", "cosine"])
+def test_cluster_spectral_returns_valid_labels(affinity: str) -> None:
+    samples = _layered_samples(n_samples=8).vectors[:, 0, :]
+
+    labels = cluster_spectral(samples, n_clusters=3, affinity=affinity)
+
+    assert labels.shape == (8,)
+    assert set(labels.tolist()) == {0, 1, 2}
+
+
+def test_laplacian_eigenvalues_are_sorted_ascending() -> None:
+    samples = _layered_samples(n_samples=8).vectors[:, 0, :]
+
+    eigenvalues = laplacian_eigenvalues(samples)
+
+    assert eigenvalues.shape == (8,)
+    assert (eigenvalues[:-1] <= eigenvalues[1:] + 1e-9).all()
+
+    fig = plot_laplacian_eigengap({"layer 0": eigenvalues})
+    assert fig.data[0].type == "scatter"
+
+
+@pytest.mark.parametrize(
+    "cluster_mode", ["mean_across_layers", "first_layer", "per_layer"]
+)
+def test_projection_spectral_clustering_modes(cluster_mode: str) -> None:
+    samples = _layered_samples(n_samples=8)
+
+    fig = build_layered_figure(
+        samples,
+        "pca",
+        layers=[0, 1],
+        n_clusters=2,
+        cluster_mode=cluster_mode,
+        cluster_method="spectral",
+    )
+
+    cluster_names = {
+        trace.name
+        for frame in fig.frames
+        for trace in frame.data
+        if trace.name is not None and trace.name.startswith("Cluster")
+    }
+    assert cluster_names == {"Cluster 0", "Cluster 1"}
+
+
+def test_probe_regression_baseline_uses_held_out_split() -> None:
+    X = np.arange(60, dtype=np.float32).reshape(10, 6)
+    y = np.asarray([0.0, 1.0, 3.0, 6.0, 10.0, 15.0, 21.0, 28.0, 36.0, 45.0])
+
+    metrics = evaluate_regression(X, y, layer=0, seed=0)
+    _, test_idx = train_test_split(
+        np.arange(len(y)),
+        test_size=0.2,
+        random_state=0,
+        stratify=None,
+    )
+    y_test = y[test_idx]
+    baseline = np.full_like(y_test, float(y_test.mean()))
+
+    assert metrics["baseline_mae"] == pytest.approx(
+        mean_absolute_error(y_test, baseline)
+    )
+
+
+def test_probe_heatmap_picks_lower_mae_before_flipping() -> None:
+    rows = {
+        "age": [
+            {
+                "attribute": "age",
+                "layer": 0,
+                "probe_kind": "worse",
+                "mae": 4.0,
+                "baseline_mae": 5.0,
+            },
+            {
+                "attribute": "age",
+                "layer": 0,
+                "probe_kind": "better",
+                "mae": 2.0,
+                "baseline_mae": 5.0,
+            },
+        ]
+    }
+
+    fig = plot_attribute_layer_selectivity_heatmap(rows, metric="mae")
+
+    assert fig.data[0].z[0][0] == pytest.approx(3.0)
 
 
 def test_layered_projection_data_can_be_reused_for_color_changes() -> None:
@@ -408,13 +505,9 @@ def test_smoke() -> None:
             vectors,
             sample_ids,
         )
-        assert store.list_personas(["templated"]) == [
-            BASELINE_PERSONA_ID,
-            "persona-001",
-        ]
-        assert list_comparison_personas(store, ["templated"]) == ["persona-001"]
-        assert list_comparison_personas(
-            store, ["templated"], include_baseline=True
+        assert store.list_personas(["templated"]) == ["persona-001"]
+        assert store.list_personas(
+            ["templated"], include_baseline=True
         ) == [BASELINE_PERSONA_ID, "persona-001"]
 
     with tempfile.TemporaryDirectory() as tmp:
