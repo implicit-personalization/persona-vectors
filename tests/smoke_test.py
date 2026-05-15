@@ -1,4 +1,7 @@
 import json
+import importlib.util
+import sys
+import types
 import tempfile
 
 import numpy as np
@@ -647,3 +650,58 @@ def test_hf_metadata_stops_after_requested_personas() -> None:
     assert dataset.rows_read == 20
     assert store.list_personas(["templated"])[:2] == ["persona-000", "persona-001"]
     assert dataset.rows_read == 20
+
+
+def test_vllm_loader_missing_extra_has_actionable_error() -> None:
+    if importlib.util.find_spec("vllm") is not None:
+        pytest.skip("vLLM extra is installed")
+
+    from persona_vectors.extraction import MaskStrategy
+    from persona_vectors.model_loading import load_extraction_model
+    from persona_vectors.parser import ExtractConfig
+
+    cfg = ExtractConfig(
+        model="gpt2",
+        variants=["templated"],
+        mask_strategy=MaskStrategy.ANSWER_MEAN,
+        backend="vllm",
+    )
+
+    with pytest.raises(RuntimeError, match="uv sync --extra vllm"):
+        load_extraction_model(cfg)
+
+
+def test_vllm_loader_uses_simple_single_gpu_defaults(monkeypatch) -> None:
+    from persona_vectors.extraction import MaskStrategy
+    from persona_vectors.model_loading import load_extraction_model
+    from persona_vectors.parser import ExtractConfig
+
+    calls = []
+
+    def fake_load_model(*args, **kwargs):
+        calls.append((args, kwargs))
+        return object()
+
+    fake_nnterp = types.SimpleNamespace(load_model=fake_load_model)
+    monkeypatch.setitem(sys.modules, "nnterp", fake_nnterp)
+
+    cfg = ExtractConfig(
+        model="gpt2",
+        variants=["templated"],
+        mask_strategy=MaskStrategy.ANSWER_MEAN,
+        backend="vllm",
+    )
+
+    load_extraction_model(cfg)
+
+    assert calls == [
+        (
+            ("gpt2",),
+            {
+                "use_vllm": True,
+                "allow_experimental_vllm": True,
+                "tensor_parallel_size": 1,
+                "gpu_memory_utilization": 0.85,
+            },
+        )
+    ]

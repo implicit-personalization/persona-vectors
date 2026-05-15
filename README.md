@@ -18,6 +18,27 @@ Requires Python `>=3.12`. Set `NDIF_API_KEY` in `.env` for remote extraction.
 
 Dataset loading comes from sibling [`persona-data`](../persona-data); the Streamlit UI lives in sibling [`persona-ui`](../persona-ui). For local dev, uncomment the `persona-data` path source in `pyproject.toml`.
 
+### vLLM Backend
+
+The vLLM backend is optional because it brings a large, GPU-specific dependency tree.
+Install it only on a Linux machine supported by vLLM:
+
+```bash
+uv sync --extra vllm
+```
+
+Text extraction can then run through nnterp's experimental vLLM wrapper:
+
+```bash
+uv run python main.py extract \
+  --model google/gemma-3-27b-it \
+  --backend vllm
+```
+
+This repo pins `nnterp` to its `dev` branch because `StandardizedVLLM` and
+`nnterp.load_model(..., use_vllm=True, allow_experimental_vllm=True)` currently live there.
+For now it is intentionally wired for one GPU and caps vLLM GPU memory utilization at 85%.
+
 ## Quickstart
 
 ```bash
