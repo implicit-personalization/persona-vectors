@@ -9,7 +9,6 @@ import torch
 from persona_vectors.analysis import (
     LayeredSamples,
     cluster_kmeans,
-    cluster_spectral,
     prepare_cluster_samples,
     prepare_layer_mean_cluster_samples,
     project_isomap,
@@ -17,6 +16,7 @@ from persona_vectors.analysis import (
     project_umap,
 )
 from persona_vectors.plots._common import (
+    apply_fig_fonts,
     coordinate_range,
     label_color_map,
     layer_animation_buttons,
@@ -28,7 +28,6 @@ from persona_vectors.plots._common import (
 _MAX_GROUP_LEGEND_TRACES = 40
 
 ClusterMode = Literal["mean_across_layers", "first_layer", "per_layer"]
-ClusterMethod = Literal["kmeans", "spectral"]
 ProjectionKind = Literal["pca", "umap", "isomap"]
 
 
@@ -76,32 +75,16 @@ def _cluster_projection_samples(
     seed: int,
     center: bool = True,
     normalize: bool = True,
-    method: ClusterMethod = "kmeans",
-    spectral_n_neighbors: int = 8,
-    spectral_affinity: str = "nearest_neighbors",
 ) -> list[str]:
     if n_clusters is None:
         raise ValueError("n_clusters is required for clustering")
-    if method == "kmeans":
-        cluster_ids = cluster_kmeans(
-            samples,
-            n_clusters=n_clusters,
-            seed=seed,
-            center=center,
-            normalize=normalize,
-        )
-    elif method == "spectral":
-        cluster_ids = cluster_spectral(
-            samples,
-            n_clusters=n_clusters,
-            affinity=spectral_affinity,
-            n_neighbors=spectral_n_neighbors,
-            seed=seed,
-            center=center,
-            normalize=normalize,
-        )
-    else:
-        raise ValueError("method must be one of: kmeans, spectral")
+    cluster_ids = cluster_kmeans(
+        samples,
+        n_clusters=n_clusters,
+        seed=seed,
+        center=center,
+        normalize=normalize,
+    )
     return [_cluster_label(int(cluster_id)) for cluster_id in cluster_ids]
 
 
@@ -412,21 +395,13 @@ def prepare_kmeans_groups(
     n_clusters: int,
     cluster_seed: int = 0,
     cluster_mode: ClusterMode = "mean_across_layers",
-    cluster_method: ClusterMethod = "kmeans",
-    spectral_n_neighbors: int = 8,
-    spectral_affinity: str = "nearest_neighbors",
 ) -> list[str] | dict[int, list[str]]:
-    """Precompute k-means or spectral group labels for projection coloring.
+    """Precompute k-means group labels for projection coloring.
 
     The labels are independent of PCA/UMAP/Isomap coordinates, so UI callers can
     cache them separately from projection data and reuse them across redraws.
     """
     selected_layers = validate_layers(samples.vectors, layers)
-    method_kwargs = dict(
-        method=cluster_method,
-        spectral_n_neighbors=spectral_n_neighbors,
-        spectral_affinity=spectral_affinity,
-    )
     if cluster_mode == "mean_across_layers":
         cluster_samples = prepare_layer_mean_cluster_samples(samples.vectors)
         return _cluster_projection_samples(
@@ -435,14 +410,12 @@ def prepare_kmeans_groups(
             seed=cluster_seed,
             center=False,
             normalize=False,
-            **method_kwargs,
         )
     if cluster_mode == "first_layer":
         return _cluster_projection_samples(
             samples.vectors[:, selected_layers[0], :],
             n_clusters=n_clusters,
             seed=cluster_seed,
-            **method_kwargs,
         )
     if cluster_mode == "per_layer":
         return {
@@ -450,7 +423,6 @@ def prepare_kmeans_groups(
                 samples.vectors[:, layer, :],
                 n_clusters=n_clusters,
                 seed=cluster_seed,
-                **method_kwargs,
             )
             for layer in selected_layers
         }
@@ -798,4 +770,4 @@ def _apply_layered_projection_layout(
         first_x_range, first_y_range = layer_ranges[first_layer]
         fig.update_xaxes(range=first_x_range, zeroline=True, automargin=True)
         fig.update_yaxes(range=first_y_range, zeroline=True, automargin=True)
-    return fig
+    return apply_fig_fonts(fig)

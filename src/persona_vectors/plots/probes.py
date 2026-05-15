@@ -9,12 +9,110 @@ from collections.abc import Iterable, Mapping
 
 import numpy as np
 import plotly.graph_objects as go
+from plotly.colors import qualitative as _qualitative
+
+from ._common import apply_fig_fonts
 
 __all__ = [
     "plot_attribute_layer_selectivity_heatmap",
     "plot_metric_comparison",
     "plot_metric_over_layers",
 ]
+
+# Metrics in [0, 1] get a fixed y-range; r2/mae are autoscaled.
+_AUTOSCALE_METRICS = {"r2", "mae"}
+_BASELINE_LINE = dict(color="#64748b", dash="dot", width=2)
+_LEGEND = dict(x=0.98, y=0.02, xanchor="right", yanchor="bottom")
+
+
+def _metric_y_range(metric: str) -> list[float] | None:
+    return None if metric in _AUTOSCALE_METRICS else [0.0, 1.02]
+
+
+def _add_baseline(fig: go.Figure, baseline: float | None) -> None:
+    """Draw the majority-class / mean-prediction baseline as a dotted line."""
+    if baseline is None:
+        return
+    fig.add_hline(
+        y=baseline,
+        line=_BASELINE_LINE,
+        annotation_text=f"baseline {baseline:.3f}",
+        annotation_position="bottom right",
+    )
+
+
+def _style_line_fig(
+    fig: go.Figure, *, title: str, yaxis_title: str, metric: str
+) -> go.Figure:
+    """Shared layout for the metric line plots (fonts, legend, axes)."""
+    fig.update_layout(
+        template="plotly_white",
+        legend=_LEGEND,
+        xaxis_title="Layer",
+        yaxis=dict(title=yaxis_title, range=_metric_y_range(metric)),
+    )
+    return apply_fig_fonts(fig, title=title)
+
+
+_COMPARISON_DASHES = ("solid", "dash", "dot", "dashdot")
+
+
+def _metric_lines(
+    rows_by_label: Mapping[str, list[dict[str, object]]],
+    attributes: list[str],
+    metric: str,
+    *,
+    color_by: str,
+) -> go.Figure:
+    """Shared engine for the metric line plots.
+
+    ``color_by="probe_kind"`` gives one auto-colored line per probe_kind (the
+    single-sweep view). ``color_by="attribute"`` gives one line per
+    (attribute, label): a distinct color per attribute and a dash per label,
+    for overlaying full vs compressed sweeps across several attributes.
+    """
+    fig = go.Figure()
+    baseline_drawn = False
+    for attr_idx, attr in enumerate(attributes):
+        attr_color = _qualitative.Plotly[attr_idx % len(_qualitative.Plotly)]
+        for dash, (label, rows) in zip(
+            _COMPARISON_DASHES, rows_by_label.items(), strict=False
+        ):
+            attr_rows = [
+                row
+                for row in rows
+                if row["attribute"] == attr and row.get(metric) is not None
+            ]
+            if not attr_rows:
+                continue
+            if not baseline_drawn and attr_idx == 0:
+                _add_baseline(fig, attr_rows[0].get(f"baseline_{metric}"))
+                baseline_drawn = True
+            for probe_kind in sorted({r["probe_kind"] for r in attr_rows}):
+                series = [r for r in attr_rows if r["probe_kind"] == probe_kind]
+                if color_by == "probe_kind":
+                    name = str(probe_kind)
+                    line = dict(dash=dash)  # color auto-assigned per trace
+                else:
+                    name = f"{attr} · {label}"
+                    line = dict(color=attr_color, dash=dash)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[r["layer"] for r in series],
+                        y=[r[metric] for r in series],
+                        mode="lines+markers",
+                        name=name,
+                        line=line,
+                        hovertemplate=(
+                            f"{name}<br>Layer %{{x}}<br>"
+                            f"{metric}: %{{y:.3f}}<extra></extra>"
+                        ),
+                    )
+                )
+
+    label = attributes[0] if len(attributes) == 1 else "Attributes"
+    title = f"{label}: {metric} over layers"
+    return _style_line_fig(fig, title=title, yaxis_title=metric, metric=metric)
 
 
 def plot_metric_over_layers(
@@ -25,121 +123,29 @@ def plot_metric_over_layers(
 ) -> go.Figure:
     """Line plot of one metric over layers, one trace per probe_kind.
 
-    The majority-class / mean-prediction baseline, when present, is drawn as a
-    dotted horizontal line. Metrics in [0, 1] get a fixed y-range; ``mae`` and
-    ``r2`` are autoscaled.
+    Thin single-sweep wrapper over :func:`_metric_lines`. The majority-class /
+    mean-prediction baseline, when present, is drawn as a dotted line.
     """
-    fig = go.Figure()
-    attr_rows = [row for row in rows if row["attribute"] == attribute_name]
-    if not attr_rows:
-        return fig
-
-    baseline = attr_rows[0].get(f"baseline_{metric}")
-    if baseline is not None:
-        fig.add_hline(
-            y=baseline,
-            line=dict(color="#64748b", dash="dot", width=2),
-            annotation_text=f"baseline {baseline:.3f}",
-            annotation_position="top left",
-        )
-
-    probe_kinds = sorted(
-        {row["probe_kind"] for row in attr_rows if row.get(metric) is not None}
-    )
-    for probe_kind in probe_kinds:
-        series = [
-            row
-            for row in attr_rows
-            if row["probe_kind"] == probe_kind and row.get(metric) is not None
-        ]
-        if not series:
-            continue
-        fig.add_trace(
-            go.Scatter(
-                x=[row["layer"] for row in series],
-                y=[row[metric] for row in series],
-                mode="lines+markers",
-                name=str(probe_kind),
-                hovertemplate=f"Layer %{{x}}<br>{metric}: %{{y:.3f}}<extra></extra>",
-            )
-        )
-
-    y_range = [0.0, 1.02] if metric not in {"r2", "mae"} else None
-    fig.update_layout(
-        title=f"{attribute_name}: {metric} over layers",
-        xaxis_title="Layer",
-        yaxis_title=metric,
-        yaxis=dict(range=y_range),
-        template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
-    )
-    return fig
-
-
-_COMPARISON_DASHES = ("solid", "dash", "dot", "dashdot")
+    return _metric_lines({"": rows}, [attribute_name], metric, color_by="probe_kind")
 
 
 def plot_metric_comparison(
     rows_by_label: Mapping[str, list[dict[str, object]]],
-    attribute_name: str,
+    attribute_name: str | list[str],
     *,
     metric: str = "balanced_accuracy",
 ) -> go.Figure:
     """Overlay one metric over layers for several labelled sweeps.
 
     ``rows_by_label`` maps a short label (e.g. ``"full"``, ``"pca10"``) to a
-    sweep's rows. One trace per (label, probe_kind); each label gets its own
-    line style so full vs compressed features are easy to compare in a single
-    figure.
+    sweep's rows. One trace per (attribute, label); each attribute gets a
+    distinct color and each label gets its own dash style so full vs compressed
+    features are easy to distinguish for multiple attributes in one figure.
     """
-    fig = go.Figure()
-    baseline_drawn = False
-    for dash, (label, rows) in zip(
-        _COMPARISON_DASHES, rows_by_label.items(), strict=False
-    ):
-        attr_rows = [
-            row
-            for row in rows
-            if row["attribute"] == attribute_name and row.get(metric) is not None
-        ]
-        if not attr_rows:
-            continue
-        if not baseline_drawn:
-            baseline = attr_rows[0].get(f"baseline_{metric}")
-            if baseline is not None:
-                fig.add_hline(
-                    y=baseline,
-                    line=dict(color="#64748b", dash="dot", width=2),
-                    annotation_text=f"baseline {baseline:.3f}",
-                    annotation_position="top left",
-                )
-            baseline_drawn = True
-        for probe_kind in sorted({row["probe_kind"] for row in attr_rows}):
-            series = [r for r in attr_rows if r["probe_kind"] == probe_kind]
-            fig.add_trace(
-                go.Scatter(
-                    x=[r["layer"] for r in series],
-                    y=[r[metric] for r in series],
-                    mode="lines+markers",
-                    name=f"{label} · {probe_kind}",
-                    line=dict(dash=dash),
-                    hovertemplate=(
-                        f"{label} / {probe_kind}<br>Layer %{{x}}<br>"
-                        f"{metric}: %{{y:.3f}}<extra></extra>"
-                    ),
-                )
-            )
-
-    y_range = [0.0, 1.02] if metric not in {"r2", "mae"} else None
-    fig.update_layout(
-        title=f"{attribute_name}: {metric} over layers",
-        xaxis_title="Layer",
-        yaxis_title=metric,
-        yaxis=dict(range=y_range),
-        template="plotly_white",
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
+    attributes = (
+        [attribute_name] if isinstance(attribute_name, str) else list(attribute_name)
     )
-    return fig
+    return _metric_lines(rows_by_label, attributes, metric, color_by="attribute")
 
 
 def plot_attribute_layer_selectivity_heatmap(
@@ -196,9 +202,9 @@ def plot_attribute_layer_selectivity_heatmap(
             if value is not None:
                 matrix[i, j] = value
 
-    label = (
-        f"{metric} − baseline" if subtract_baseline else metric
-    ) + (" (flipped; higher is better)" if metric == "mae" else "")
+    label = (f"{metric} − baseline" if subtract_baseline else metric) + (
+        " (flipped; higher is better)" if metric == "mae" else ""
+    )
     auto_title = title or (
         f"Attribute × layer selectivity ({label})"
         if subtract_baseline
@@ -215,14 +221,14 @@ def plot_attribute_layer_selectivity_heatmap(
             colorbar=dict(title=label),
             hovertemplate=(
                 "Attribute: %{y}<br>Layer: %{x}<br>"
-                f"{label}: " "%{z:.3f}<extra></extra>"
+                f"{label}: "
+                "%{z:.3f}<extra></extra>"
             ),
         )
     )
     fig.update_layout(
-        title=auto_title,
         xaxis_title="Layer",
         yaxis_title="Attribute",
         template="plotly_white",
     )
-    return fig
+    return apply_fig_fonts(fig, title=auto_title)

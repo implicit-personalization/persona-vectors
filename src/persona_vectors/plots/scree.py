@@ -3,7 +3,7 @@
 import numpy as np
 import plotly.graph_objects as go
 
-from persona_vectors.plots._common import finalize, label_color_map
+from persona_vectors.plots._common import apply_fig_fonts, finalize, label_color_map
 
 
 def plot_scree(
@@ -51,5 +51,6 @@ def plot_scree(
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
+    apply_fig_fonts(fig)
     finalize(fig, filename, show)
     return fig

@@ -10,6 +10,7 @@ from persona_vectors.analysis import (
     prepare_layer_mean_cluster_samples,
 )
 from persona_vectors.plots._common import (
+    apply_fig_fonts,
     layer_animation_buttons,
     layer_frame_layout,
     layer_slider,
@@ -163,6 +164,7 @@ def plot_persona_dendrogram(
             range=shared_y_range,
             automargin=True,
         )
+        apply_fig_fonts(fig)
         return fig
 
     if layer is None:
@@ -196,4 +198,5 @@ def plot_persona_dendrogram(
     )
     fig.update_xaxes(tickangle=-45, automargin=True)
     fig.update_yaxes(automargin=True)
+    apply_fig_fonts(fig)
     return fig

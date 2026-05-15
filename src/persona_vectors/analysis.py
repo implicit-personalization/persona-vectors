@@ -4,10 +4,9 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from sklearn.cluster import KMeans, SpectralClustering
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap
-from sklearn.neighbors import kneighbors_graph
 
 from persona_vectors.artifacts import (
     PersonaVectorSource,
@@ -320,84 +319,6 @@ def cluster_kmeans(
         _samples_to_numpy(samples, center=center, normalize=normalize)
     )
 
-
-def _cosine_affinity(samples: torch.Tensor, *, center: bool) -> np.ndarray:
-    """Nonnegative precomputed affinity from centered cosine similarity.
-
-    Cosine similarity lies in [-1, 1]; spectral clustering and the graph
-    Laplacian need nonnegative weights, so map it to [0, 1].
-    """
-    sim = cosine_similarity_matrix(samples, center=center).cpu().numpy()
-    return (sim + 1.0) / 2.0
-
-
-def cluster_spectral(
-    samples: torch.Tensor,
-    n_clusters: int,
-    *,
-    affinity: str = "nearest_neighbors",
-    n_neighbors: int = 8,
-    seed: int = 0,
-    center: bool = True,
-    normalize: bool = True,
-) -> np.ndarray:
-    """Spectral clustering labels for a (n_samples, hidden) tensor.
-
-    Clusters on the affinity graph rather than in Euclidean space, so it
-    recovers non-convex persona structure that k-means misses. ``affinity``
-    is either ``"nearest_neighbors"`` (kNN graph over centered/unit vectors,
-    matching the Isomap convention) or ``"cosine"`` (the repo's centered
-    cosine similarity as a precomputed affinity).
-    """
-    n_samples = int(samples.shape[0])
-    if affinity == "nearest_neighbors":
-        return SpectralClustering(
-            n_clusters=n_clusters,
-            affinity="nearest_neighbors",
-            n_neighbors=min(n_neighbors, n_samples - 1),
-            assign_labels="kmeans",
-            random_state=seed,
-        ).fit_predict(_samples_to_numpy(samples, center=center, normalize=normalize))
-    if affinity == "cosine":
-        return SpectralClustering(
-            n_clusters=n_clusters,
-            affinity="precomputed",
-            assign_labels="kmeans",
-            random_state=seed,
-        ).fit_predict(_cosine_affinity(samples, center=center))
-    raise ValueError("affinity must be one of: nearest_neighbors, cosine")
-
-
-def laplacian_eigenvalues(
-    samples: torch.Tensor,
-    *,
-    affinity: str = "nearest_neighbors",
-    n_neighbors: int = 8,
-    center: bool = True,
-    normalize: bool = True,
-) -> np.ndarray:
-    """Ascending eigenvalues of the symmetric normalized graph Laplacian.
-
-    The largest gap between successive eigenvalues (the eigengap) is the
-    spectral analogue of a scree elbow and suggests the natural cluster count.
-    """
-    from scipy.sparse.csgraph import laplacian
-
-    n_samples = int(samples.shape[0])
-    if affinity == "nearest_neighbors":
-        graph = kneighbors_graph(
-            _samples_to_numpy(samples, center=center, normalize=normalize),
-            n_neighbors=min(n_neighbors, n_samples - 1),
-            include_self=False,
-        ).toarray()
-        weights = np.maximum(graph, graph.T)
-    elif affinity == "cosine":
-        weights = _cosine_affinity(samples, center=center)
-    else:
-        raise ValueError("affinity must be one of: nearest_neighbors, cosine")
-
-    lap = laplacian(weights, normed=True)
-    return np.sort(np.linalg.eigvalsh(lap))
 
 
 def project_isomap(

@@ -14,19 +14,11 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
-from persona_vectors.analysis import (
-    laplacian_eigenvalues,
-    load_persona_vectors,
-    pca_explained_variance,
-)
+from persona_vectors.analysis import load_persona_vectors, pca_explained_variance
 from persona_vectors.artifacts import HFPersonaVectorStore
 from persona_vectors.attributes import attribute_color_kwargs
 from persona_vectors.extraction import MaskStrategy
-from persona_vectors.plots import (
-    build_layered_figure,
-    plot_laplacian_eigengap,
-    plot_scree,
-)
+from persona_vectors.plots import build_layered_figure, plot_scree
 
 console = Console()
 
@@ -91,23 +83,6 @@ for variant, s in samples.items():
         show=True,
     )
 
-# %% Laplacian eigengap - suggested spectral cluster count per layer
-# The largest gap between successive eigenvalues hints at the natural number
-# of persona clusters (the spectral analogue of a scree elbow).
-# NOTE: To review on how to get a meaningful number of eingavalues even in the smooth case
-# Since this might not be super representative in our case
-for variant, s in samples.items():
-    num_layers = int(s.vectors.shape[1])
-    eigen_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
-    plot_laplacian_eigengap(
-        {
-            f"layer {layer}": laplacian_eigenvalues(s.vectors[:, layer, :])
-            for layer in eigen_layers
-        },
-        title=f"Laplacian eigengap - {variant} persona vectors",
-        show=True,
-    )
-
 # %% Attribute schema overview
 persona_dataset = SynthPersonaDataset()
 
@@ -147,20 +122,6 @@ for variant, s in samples.items():
         title=f"UMAP (3D) - {variant} - colored by {ATTRIBUTE}",
         n_components=3,
         **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
-    ).show()
-
-# %% Spectral-clustering-colored PCA views
-# Spectral clustering on the kNN affinity graph recovers non-convex persona
-# structure that k-means misses. Pick N_CLUSTERS from the eigengap plot above.
-N_CLUSTERS = 3
-for variant, s in samples.items():
-    build_layered_figure(
-        s,
-        "pca",
-        title=f"PCA (3D) - {variant} - spectral clusters",
-        n_components=3,
-        n_clusters=N_CLUSTERS,
-        cluster_method="spectral",
     ).show()
 
 # %% Attribute-colored Isomap views with kNN graph overlay

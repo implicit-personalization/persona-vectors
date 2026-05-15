@@ -17,6 +17,8 @@ the train split only.
 
 import torch
 from persona_data.synth_persona import SynthPersonaDataset
+from rich.console import Console
+from rich.table import Table
 
 from persona_vectors.analysis import load_persona_vectors
 from persona_vectors.artifacts import HFPersonaVectorStore
@@ -42,7 +44,7 @@ MODEL_NAME = "google/gemma-3-27b-it"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
 VARIANT = "biography"
 MIN_COUNT = 5  # drop classes rarer than this before the 80/20 split
-FAST = True
+FAST = False  # True: 5 evenly-spaced layers (quick). False: every layer.
 
 torch.set_grad_enabled(False)
 
@@ -53,88 +55,103 @@ samples = load_persona_vectors(store, VARIANT, persona_ids=persona_ids)
 persona_dataset = SynthPersonaDataset()
 layers = pick_layers(int(samples.vectors.shape[1]), fast=FAST)
 
+
+def run_probe(attr: str, *, task: str | None = None, **sweep_kwargs):
+    """Labels -> min-count filter -> layer sweep for one attribute.
+
+    ``task`` defaults to the dataset's inferred task. The min-count filter is
+    a no-op for numeric attributes, so this is uniform across task types.
+    """
+    task = task or infer_probe_task(persona_dataset, attr)
+    labels = attribute_probe_labels(persona_dataset, attr, persona_ids, task=task)
+    probe_samples, labels = filter_attribute_samples_min_count(
+        samples, labels, min_count=MIN_COUNT
+    )
+    return sweep_attribute(probe_samples, labels, layers=layers, **sweep_kwargs)
+
+
+def report_best(rows, label, metric="balanced_accuracy", *, higher_is_better=True):
+    """Print the best row for ``metric`` (with baseline when available)."""
+    best = best_row(rows, metric, higher_is_better=higher_is_better)
+    baseline = best.get(f"baseline_{metric}")
+    suffix = f" (baseline={baseline:.3f})" if baseline is not None else ""
+    print(
+        f"{label}: best layer={best['layer']} probe={best['probe_kind']} "
+        f"{metric}={best[metric]:.3f}{suffix}"
+    )
+    return best
+
+
+# %% Attribute overview
+console = Console()
+table = Table(title="Persona Attributes")
+table.add_column("Attribute", style="cyan")
+table.add_column("Kind", style="magenta")
+table.add_column("Unique")
+for name in persona_dataset.attribute_names:
+    info = persona_dataset.attribute_info(name)
+    table.add_row(
+        name,
+        info.get("kind", ""),
+        str(info.get("n_unique_seed_values", "")),
+    )
+console.print(table)
+
 # %% Binary — difference_of_means vs logistic_regression
 # Swap `attribute` to: born_in_us, mothers_work_history, speak_other_language, us_citizenship_status
-attribute = "sex"
-labels = attribute_probe_labels(persona_dataset, attribute, persona_ids, task="binary")
+attributes = ["born_in_us", "mothers_work_history"]
 
 # n_pca_components fits a PCA on the train split only (no leakage). Sweep both
-# full activations and the 10-component compression, then overlay them in one
+# full activations and the 5-component compression, then overlay them in one
 # figure to see how much of the attribute lives in the top components.
-rows = sweep_attribute(samples, labels, layers=layers)
-pca_rows = sweep_attribute(samples, labels, layers=layers, n_pca_components=10)
+# NOTE: difference_of_means only, so the overlay stays readable.
+all_rows, all_pca_rows = [], []
+for attr in attributes:
+    kw = dict(task="binary", probe_kinds=["difference_of_means"])
+    all_rows.extend(run_probe(attr, **kw))
+    all_pca_rows.extend(run_probe(attr, **kw, n_pca_components=5))
+
 plot_metric_comparison(
-    {"full": rows, "pca10": pca_rows}, attribute, metric="balanced_accuracy"
+    {"full": all_rows, "pca5": all_pca_rows}, attributes, metric="balanced_accuracy"
 ).show()
 
-best = best_row(rows, "balanced_accuracy")
-best_pca = best_row(pca_rows, "balanced_accuracy")
-print(
-    f"{attribute}: full best bal_acc={best['balanced_accuracy']:.3f} "
-    f"(layer={best['layer']}); "
-    f"pca10 best bal_acc={best_pca['balanced_accuracy']:.3f} "
-    f"(layer={best_pca['layer']})"
-)
+report_best(all_rows, "full")
+report_best(all_pca_rows, "pca5")
 
 # %% Categorical — multinomial logistic regression
 # Swap `attribute` to: marital_status
 
 attribute = "race"
-labels = attribute_probe_labels(
-    persona_dataset, attribute, persona_ids, task="categorical"
-)
-probe_samples, labels = filter_attribute_samples_min_count(
-    samples, labels, min_count=MIN_COUNT
-)
-rows = sweep_attribute(probe_samples, labels, layers=layers)
+rows = run_probe(attribute, task="categorical")
 plot_metric_over_layers(rows, attribute, metric="balanced_accuracy").show()
-best = best_row(rows, "balanced_accuracy")
-print(
-    f"{attribute}: best layer={best['layer']} probe={best['probe_kind']} "
-    f"bal_acc={best['balanced_accuracy']:.3f} "
-    f"(baseline={best['baseline_balanced_accuracy']:.3f})"
-)
+report_best(rows, attribute)
 
 # %% Ordinal — ridge on rank, rounded back to integer
 # Swap `attribute` to: political_views, total_wealth
+# bal_acc rewards exact rank; MAE shows how far off — they can pick different layers.
 
 attribute = "highest_degree_received"
-labels = attribute_probe_labels(persona_dataset, attribute, persona_ids, task="ordinal")
-probe_samples, labels = filter_attribute_samples_min_count(
-    samples, labels, min_count=MIN_COUNT
-)
-rows = sweep_attribute(probe_samples, labels, layers=layers)
+rows = run_probe(attribute, task="ordinal")
 plot_metric_over_layers(rows, attribute, metric="balanced_accuracy").show()
 plot_metric_over_layers(rows, attribute, metric="mae").show()
-by_acc = best_row(rows, "balanced_accuracy")
-by_mae = best_row(rows, "mae", higher_is_better=False)
-print(
-    f"{attribute}: by bal_acc layer={by_acc['layer']} "
-    f"bal_acc={by_acc['balanced_accuracy']:.3f}; "
-    f"by MAE layer={by_mae['layer']} mae={by_mae['mae']:.3f}"
-)
+report_best(rows, attribute, "balanced_accuracy")
+report_best(rows, attribute, "mae", higher_is_better=False)
 
 # %% Numeric — ridge regression on raw value
+# r2 is scale-free; MAE is in native units (years) and comparable to baseline_mae.
 
 attribute = "age"
-labels = attribute_probe_labels(persona_dataset, attribute, persona_ids, task="numeric")
-rows = sweep_attribute(samples, labels, layers=layers)
+rows = run_probe(attribute, task="numeric")
 plot_metric_over_layers(rows, attribute, metric="r2").show()
 plot_metric_over_layers(rows, attribute, metric="mae").show()
-by_r2 = best_row(rows, "r2")
-by_mae = best_row(rows, "mae", higher_is_better=False)
-print(
-    f"{attribute}: by R^2 layer={by_r2['layer']} r2={by_r2['r2']:.3f} "
-    f"(baseline_r2={by_r2['baseline_r2']:.3f}); "
-    f"by MAE layer={by_mae['layer']} mae={by_mae['mae']:.3f} "
-    f"(baseline_mae={by_mae['baseline_mae']:.3f})"
-)
+report_best(rows, attribute, "r2")
+report_best(rows, attribute, "mae", higher_is_better=False)
 
 # %% Attribute × layer selectivity heatmap
-# One-glance summary of "where" each attribute is encoded. Per (attribute,
-# layer) we take the best probe_kind and subtract the majority-class /
-# mean-prediction baseline so different attributes are comparable. Numeric
-# attributes need r2 in a second pass.
+# One-glance summary of "where" each attribute is encoded.
+# Per (attribute, layer) we take the best probe_kind and subtract the
+# majority-class / mean-prediction baseline so different attributes are comparable.
+# Numeric attributes need r2 in a second pass.
 
 CLASSIFICATION_ATTRIBUTES = [
     "sex",
@@ -144,16 +161,7 @@ CLASSIFICATION_ATTRIBUTES = [
     "marital_status",
     "us_citizenship_status",
 ]
-classification_rows = {}
-for attribute in CLASSIFICATION_ATTRIBUTES:
-    task = infer_probe_task(persona_dataset, attribute)
-    labels = attribute_probe_labels(persona_dataset, attribute, persona_ids, task=task)
-    probe_samples, labels = filter_attribute_samples_min_count(
-        samples, labels, min_count=MIN_COUNT
-    )
-    classification_rows[attribute] = sweep_attribute(
-        probe_samples, labels, layers=layers
-    )
+classification_rows = {attr: run_probe(attr) for attr in CLASSIFICATION_ATTRIBUTES}
 
 plot_attribute_layer_selectivity_heatmap(
     classification_rows,

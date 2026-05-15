@@ -34,6 +34,45 @@ def finalize(fig: go.Figure, filename: str | None, show: bool) -> None:
         fig.show()
 
 
+# Shared figure typography so every plot's text reads at the same size.
+# Tuned to match the probe metric-comparison figure.
+TITLE_FONT_SIZE = 30
+BASE_FONT_SIZE = 20
+AXIS_TITLE_FONT_SIZE = 24
+TICK_FONT_SIZE = 18
+
+
+def apply_fig_fonts(fig: go.Figure, title: str | None = None) -> go.Figure:
+    """Apply the shared font sizes so every plot's text reads at one size.
+
+    Fonts only — axis ranges, legends, templates and traces are left
+    untouched, so this is safe to call on line plots, heatmaps and
+    dendrograms alike. Pass ``title`` to also set the title text.
+    """
+    title_kw: dict = {"font": {"size": TITLE_FONT_SIZE}}
+    if title is not None:
+        title_kw["text"] = title
+    fig.update_layout(font=dict(size=BASE_FONT_SIZE), title=title_kw)
+    fig.update_xaxes(
+        title_font=dict(size=AXIS_TITLE_FONT_SIZE),
+        tickfont=dict(size=TICK_FONT_SIZE),
+    )
+    fig.update_yaxes(
+        title_font=dict(size=AXIS_TITLE_FONT_SIZE),
+        tickfont=dict(size=TICK_FONT_SIZE),
+    )
+    # 3D scatter plots use scene axes, not cartesian ones; no-op otherwise.
+    fig.update_scenes(
+        xaxis_title_font=dict(size=AXIS_TITLE_FONT_SIZE),
+        yaxis_title_font=dict(size=AXIS_TITLE_FONT_SIZE),
+        zaxis_title_font=dict(size=AXIS_TITLE_FONT_SIZE),
+        xaxis_tickfont=dict(size=TICK_FONT_SIZE),
+        yaxis_tickfont=dict(size=TICK_FONT_SIZE),
+        zaxis_tickfont=dict(size=TICK_FONT_SIZE),
+    )
+    return fig
+
+
 def label_color_map(labels: list[str]) -> dict[str, str]:
     palette = qualitative.Safe + qualitative.Dark24 + qualitative.Set3
     unique_labels = sorted(set(labels), key=lambda value: value.casefold())
@@ -133,7 +172,7 @@ def layer_frame_layout(
     layout = {
         "title": {
             "text": f"{title} - Layer {layer}",
-            "font": {"size": 24},
+            "font": {"size": TITLE_FONT_SIZE},
             "y": 0.98,
             "yanchor": "top",
         }

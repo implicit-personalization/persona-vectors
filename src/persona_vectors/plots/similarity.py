@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 from persona_vectors.analysis import LayeredSamples, cosine_similarity_matrix
 from persona_vectors.plots._common import (
+    apply_fig_fonts,
     finalize,
     layer_animation_buttons,
     layer_frame_layout,
@@ -82,6 +83,7 @@ def plot_layer_similarity(
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
+    apply_fig_fonts(fig)
     finalize(fig, filename, show)
     return fig
 
@@ -138,6 +140,7 @@ def build_layered_similarity_figure(
     )
     fig.update_xaxes(side="top", tickangle=-45, automargin=True)
     fig.update_yaxes(autorange="reversed", automargin=True)
+    apply_fig_fonts(fig)
     return fig
 
 
@@ -194,6 +197,7 @@ def _build_pair_similarity_figure(
     )
     fig.update_xaxes(tickmode="array", tickvals=selected_layers, automargin=True)
     fig.update_yaxes(zeroline=True, automargin=True)
+    apply_fig_fonts(fig)
     return fig
 
 
