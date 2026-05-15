@@ -15,11 +15,11 @@ from persona_vectors.parser import (
 
 
 def extract_activations(cfg: ExtractConfig) -> None:
-    from nnterp import StandardizedTransformer
     from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.artifacts import PersonaVectorStore
     from persona_vectors.extraction import run_extraction
+    from persona_vectors.model_loading import load_extraction_model
 
     dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
     store = PersonaVectorStore(cfg.model, root_dir=cfg.activations_dir)
@@ -62,7 +62,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
             )
             return
 
-    model = StandardizedTransformer(cfg.model)
+    model = load_extraction_model(cfg)
     skipped: list[tuple[str, str]] = []
     for persona, qa_pairs in tqdm(runs, desc="personas", unit="persona"):
         try:
