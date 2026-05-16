@@ -36,10 +36,10 @@ def finalize(fig: go.Figure, filename: str | None, show: bool) -> None:
 
 # Shared figure typography so every plot's text reads at the same size.
 # Tuned to match the probe metric-comparison figure.
-TITLE_FONT_SIZE = 30
-BASE_FONT_SIZE = 20
-AXIS_TITLE_FONT_SIZE = 24
-TICK_FONT_SIZE = 18
+TITLE_FONT_SIZE = 24
+BASE_FONT_SIZE = 18
+AXIS_TITLE_FONT_SIZE = 20
+TICK_FONT_SIZE = 16
 
 
 def apply_fig_fonts(fig: go.Figure, title: str | None = None) -> go.Figure:

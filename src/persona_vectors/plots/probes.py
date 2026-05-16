@@ -54,7 +54,7 @@ def _style_line_fig(
     return apply_fig_fonts(fig, title=title)
 
 
-_COMPARISON_DASHES = ("solid", "dash", "dot", "dashdot")
+_COMPARISON_DASHES = ("solid", "dot", "dash", "dashdot")
 
 
 def _metric_lines(
@@ -70,11 +70,20 @@ def _metric_lines(
     single-sweep view). ``color_by="attribute"`` gives one line per
     (attribute, label): a distinct color per attribute and a dash per label,
     for overlaying full vs compressed sweeps across several attributes.
+    When multiple probe_kinds are present, they get distinct colors and the
+    probe_kind is appended to the trace name.
     """
+    all_probe_kinds = sorted({
+        str(r["probe_kind"])
+        for rows in rows_by_label.values()
+        for r in rows
+        if r.get("probe_kind") is not None
+    })
+    multi_probe = len(all_probe_kinds) > 1
+
     fig = go.Figure()
     baseline_drawn = False
     for attr_idx, attr in enumerate(attributes):
-        attr_color = _qualitative.Plotly[attr_idx % len(_qualitative.Plotly)]
         for dash, (label, rows) in zip(
             _COMPARISON_DASHES, rows_by_label.items(), strict=False
         ):
@@ -94,8 +103,11 @@ def _metric_lines(
                     name = str(probe_kind)
                     line = dict(dash=dash)  # color auto-assigned per trace
                 else:
-                    name = f"{attr} · {label}"
-                    line = dict(color=attr_color, dash=dash)
+                    pk_idx = all_probe_kinds.index(str(probe_kind)) if multi_probe else 0
+                    color_idx = attr_idx * max(1, len(all_probe_kinds)) + pk_idx
+                    color = _qualitative.Plotly[color_idx % len(_qualitative.Plotly)]
+                    name = f"{attr} · {label}" + (f" · {probe_kind}" if multi_probe else "")
+                    line = dict(color=color, dash=dash)
                 fig.add_trace(
                     go.Scatter(
                         x=[r["layer"] for r in series],
