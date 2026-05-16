@@ -11,8 +11,6 @@ from sklearn.model_selection import train_test_split
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
     LayeredSamples,
-    cluster_spectral,
-    laplacian_eigenvalues,
     load_persona_vectors,
     load_variant_vectors,
     run_saved_activation_analysis,
@@ -32,7 +30,6 @@ from persona_vectors.plots import (
     build_pair_similarity_figure,
     build_similarity_figures,
     plot_attribute_layer_selectivity_heatmap,
-    plot_laplacian_eigengap,
     plot_persona_dendrogram,
     prepare_kmeans_groups,
     prepare_layered_projection_data,
@@ -137,51 +134,6 @@ def test_projection_kmeans_modes_and_numeric_colors() -> None:
     assert numeric.data[0].marker.color == (0.0, 1.0, 2.0, 3.0)
     assert numeric.data[0].marker.colorbar.title.text == "Ordinal rank"
 
-
-@pytest.mark.parametrize("affinity", ["nearest_neighbors", "cosine"])
-def test_cluster_spectral_returns_valid_labels(affinity: str) -> None:
-    samples = _layered_samples(n_samples=8).vectors[:, 0, :]
-
-    labels = cluster_spectral(samples, n_clusters=3, affinity=affinity)
-
-    assert labels.shape == (8,)
-    assert set(labels.tolist()) == {0, 1, 2}
-
-
-def test_laplacian_eigenvalues_are_sorted_ascending() -> None:
-    samples = _layered_samples(n_samples=8).vectors[:, 0, :]
-
-    eigenvalues = laplacian_eigenvalues(samples)
-
-    assert eigenvalues.shape == (8,)
-    assert (eigenvalues[:-1] <= eigenvalues[1:] + 1e-9).all()
-
-    fig = plot_laplacian_eigengap({"layer 0": eigenvalues})
-    assert fig.data[0].type == "scatter"
-
-
-@pytest.mark.parametrize(
-    "cluster_mode", ["mean_across_layers", "first_layer", "per_layer"]
-)
-def test_projection_spectral_clustering_modes(cluster_mode: str) -> None:
-    samples = _layered_samples(n_samples=8)
-
-    fig = build_layered_figure(
-        samples,
-        "pca",
-        layers=[0, 1],
-        n_clusters=2,
-        cluster_mode=cluster_mode,
-        cluster_method="spectral",
-    )
-
-    cluster_names = {
-        trace.name
-        for frame in fig.frames
-        for trace in frame.data
-        if trace.name is not None and trace.name.startswith("Cluster")
-    }
-    assert cluster_names == {"Cluster 0", "Cluster 1"}
 
 
 def test_probe_regression_baseline_uses_held_out_split() -> None:
