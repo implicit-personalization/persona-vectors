@@ -68,7 +68,7 @@ src/persona_vectors/
 ├── activations.py   # low-level hidden-state extraction
 ├── extraction.py    # prompt formatting, masks, persona extraction flow
 ├── artifacts.py     # PersonaVectorStore (local) + HFPersonaVectorStore (Hub)
-├── analysis.py      # loading, PCA, cosine similarity, clustering
+├── analysis.py      # aligned dataset loading, PCA, cosine similarity, clustering
 ├── plots/           # Plotly figures
 ├── probes.py        # linear probes over saved persona vectors
 ├── steering.py      # experimental steering vectors

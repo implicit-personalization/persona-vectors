@@ -20,9 +20,10 @@ Each safetensors file contains one `activations` tensor with shape `(num_layers,
 `artifacts/activations/` is the default. `scripts/extraction_all_questions.sh` writes under `artifacts/persona-vectors/` to keep all-questions runs separate from train-split runs; pass `--activations-dir artifacts/persona-vectors` (or `root_dir=...` to the store) to read it back.
 
 Probe training writes a separate tree under `artifacts/probes/`. Each saved
-probe directory contains `probe.json` metadata and `weights.safetensors`
-containing the scaler/PCA tensors plus the linear head. See
-[Probes](probes.md) for the probe artifact schema.
+probe directory contains the canonical `probe.json` + `weights.safetensors`
+bundle. Use `persona_vectors.probes.load_probe_artifact(...)` to read that
+bundle without re-implementing the schema. See [Probes](probes.md) for the
+probe artifact contract.
 
 ## Local Store
 
@@ -77,6 +78,24 @@ methods as the local store: `load`, `available_variants`, `list_personas`,
 `persona_names`, and `list_layers`.
 
 `HFPersonaVectorStore.release_cache()` clears cached datasets and metadata.
+
+## Analysis-facing bundle
+
+The stores stay intentionally low-level. When analysis code needs vectors plus
+their aligned ids, names, and shared layers, build one dataset-facing bundle:
+
+```python
+from persona_vectors.analysis import load_analysis_dataset
+
+dataset = load_analysis_dataset(store, ["biography", "templated"])
+dataset.persona_ids
+dataset.persona_names
+dataset.layers
+dataset.samples("biography")
+```
+
+This keeps local and Hub reads on the same contract while avoiding repeated
+metadata calls in downstream tools.
 
 ## Publishing
 

@@ -63,8 +63,18 @@ For `--pca-components 10`, the final directory is named
 
 `probe.json` includes `schema_version`, `task`, `probe_kind`,
 `n_pca_components`, `layer`, `input_dim`, `artifact_feature_dim`,
-`class_names`, and the evaluation metrics. Persona-ui should load
-`weights.safetensors` and use the metadata to apply transforms in order:
+`class_names`, and the evaluation metrics. `schema_version == 2` is the
+current canonical format. Load it with:
+
+```python
+from persona_vectors.probes import load_probe_artifact
+
+artifact = load_probe_artifact("artifacts/probes/.../<probe>_layer20")
+metadata = artifact.metadata
+tensors = artifact.tensors
+```
+
+Consumers should use the metadata and tensors to apply transforms in order:
 
 1. If `scaler_mean` and `scaler_scale` exist, standardize the input vector.
 2. If `pca_mean` and `pca_components` exist, center and project with PCA.
@@ -79,17 +89,18 @@ inspection.
 
 ```python
 from persona_data.synth_persona import SynthPersonaDataset
-from persona_vectors.analysis import load_persona_vectors
+from persona_vectors.analysis import load_analysis_dataset
 from persona_vectors.artifacts import PersonaVectorStore
-from persona_vectors.probes import pick_layers, run_attribute_probe
+from persona_vectors.probes import load_probe_artifact, pick_layers, run_attribute_probe
 
 store = PersonaVectorStore(
     "google/gemma-2-9b-it",
     root_dir="artifacts/persona-vectors",
     mask_strategy="answer_mean",
 )
-persona_ids = store.list_personas(["templated"])
-samples = load_persona_vectors(store, "templated", persona_ids=persona_ids)
+dataset = load_analysis_dataset(store, ["templated"])
+persona_ids = list(dataset.persona_ids)
+samples = dataset.samples("templated")
 layers = pick_layers(int(samples.vectors.shape[1]), fast=True)
 
 directory, best_row, task = run_attribute_probe(
@@ -103,13 +114,15 @@ directory, best_row, task = run_attribute_probe(
     mask_strategy="answer_mean",
     output_dir="artifacts/probes",
 )
+
+artifact = load_probe_artifact(directory)
 ```
 
 Lower-level building blocks live in the same module:
 `attribute_probe_labels`, `evaluate_classification`, `evaluate_regression`,
 `sweep_attribute`, `shuffle_label_baseline`,
-`filter_attribute_samples_min_count`, `save_probe_artifact`, `best_row`, and
-`primary_metric`.
+`filter_attribute_samples_min_count`, `save_probe_artifact`,
+`load_probe_artifact`, `best_row`, and `primary_metric`.
 
 ## Plots
 

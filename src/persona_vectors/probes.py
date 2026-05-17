@@ -24,7 +24,7 @@ from typing import Literal
 
 import numpy as np
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import balanced_accuracy_score, mean_absolute_error, r2_score
@@ -55,6 +55,18 @@ class AttributeLabels:
     y: np.ndarray
     labels: list[str]
     class_names: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class ProbeArtifact:
+    """Portable probe artifact bundle shared by training and UI consumers."""
+
+    metadata: dict[str, object]
+    tensors: dict[str, torch.Tensor]
+
+    @property
+    def schema_version(self) -> int:
+        return int(self.metadata.get("schema_version", 0))
 
 
 # ---------------------------------------------------------------------------
@@ -700,6 +712,36 @@ def save_probe_artifact(
     metadata_path.write_text(json.dumps(_json_safe(metadata), indent=2))
     save_file(tensors, str(weights_path))
     return root
+
+
+def load_probe_artifact(path: str | Path) -> ProbeArtifact:
+    """Load the canonical ``probe.json`` + ``weights.safetensors`` bundle.
+
+    ``path`` may be either the artifact directory or one of the two files.
+    Validation stays intentionally narrow: the format is small, explicit, and
+    consumers should not need to reverse-engineer filename conventions.
+    """
+    source = Path(path)
+    root = source if source.is_dir() else source.parent
+    metadata_path = root / "probe.json"
+    weights_path = root / "weights.safetensors"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Missing probe metadata file: {metadata_path}")
+    if not weights_path.is_file():
+        raise FileNotFoundError(f"Missing probe weights file: {weights_path}")
+
+    metadata = json.loads(metadata_path.read_text())
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Probe metadata must be an object: {metadata_path}")
+    if int(metadata.get("schema_version", 0)) != 2:
+        raise ValueError(
+            f"Unsupported probe artifact schema_version="
+            f"{metadata.get('schema_version')!r}; expected 2"
+        )
+    tensors = load_file(str(weights_path), device="cpu")
+    if not {"weight", "bias"} <= tensors.keys():
+        raise ValueError(f"Probe weights are missing required tensors in {weights_path}")
+    return ProbeArtifact(metadata=metadata, tensors=tensors)
 
 
 def layer_matrix(samples: LayeredSamples, layer: int) -> np.ndarray:

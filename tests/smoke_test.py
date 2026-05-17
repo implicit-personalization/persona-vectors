@@ -10,6 +10,8 @@ from sklearn.model_selection import train_test_split
 
 import persona_vectors  # noqa: F401
 from persona_vectors.analysis import (
+    AnalysisDataset,
+    load_analysis_dataset,
     LayeredSamples,
     load_persona_vectors,
     load_variant_vectors,
@@ -34,7 +36,12 @@ from persona_vectors.plots import (
     prepare_kmeans_groups,
     prepare_layered_projection_data,
 )
-from persona_vectors.probes import evaluate_regression
+from persona_vectors.probes import (
+    AttributeLabels,
+    evaluate_regression,
+    load_probe_artifact,
+    save_probe_artifact,
+)
 from persona_vectors.steering import compute_steering_vector
 
 
@@ -241,6 +248,57 @@ def test_layered_projection_data_validates_graph_settings() -> None:
             graph_n_neighbors=3,
             projection_data=projection_data,
         )
+
+
+def test_load_analysis_dataset_aligns_metadata_and_vectors() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        store = PersonaVectorStore("test/model", root_dir=tmp)
+        for idx in range(2):
+            store.save(
+                "templated",
+                f"persona-{idx:03d}",
+                f"Persona {idx}",
+                torch.randn(3, 6),
+                ["q0"],
+            )
+        dataset = load_analysis_dataset(store, ["templated"])
+        assert isinstance(dataset, AnalysisDataset)
+        assert dataset.layers == (0, 1, 2)
+        assert dataset.persona_names == {
+            "persona-000": "Persona 0",
+            "persona-001": "Persona 1",
+        }
+        assert dataset.samples("templated").vectors.shape == (2, 3, 6)
+
+
+def test_probe_artifact_roundtrip_uses_canonical_schema() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        labels = AttributeLabels(
+            attribute_name="sex",
+            task="binary",
+            y=np.asarray([0, 1, 0, 1]),
+            labels=["f", "m", "f", "m"],
+            class_names=["f", "m"],
+        )
+        directory = save_probe_artifact(
+            X=np.asarray(
+                [[0.0, 1.0], [1.0, 0.0], [0.1, 1.1], [1.1, 0.1]],
+                dtype=np.float32,
+            ),
+            y=labels.y,
+            labels=labels,
+            task="binary",
+            probe_kind="logistic_regression",
+            layer=2,
+            model_name="test/model",
+            variant="templated",
+            mask_strategy="answer_mean",
+            output_dir=tmp,
+        )
+        artifact = load_probe_artifact(directory)
+        assert artifact.schema_version == 2
+        assert artifact.metadata["attribute_name"] == "sex"
+        assert {"weight", "bias", "scaler_mean", "scaler_scale"} <= artifact.tensors.keys()
 
 
 def test_prepare_kmeans_groups_can_be_passed_as_groups() -> None:

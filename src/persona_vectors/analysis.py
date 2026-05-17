@@ -13,7 +13,6 @@ from persona_vectors.artifacts import (
     PersonaVectorStore,
 )
 
-
 @dataclass(frozen=True)
 class LayeredSamples:
     """Samples ready for per-layer PCA or similarity."""
@@ -22,6 +21,75 @@ class LayeredSamples:
     labels: list[str]
     hover_text: list[str]
 
+
+@dataclass(frozen=True)
+class AnalysisDataset:
+    """One aligned persona selection across one or more prompt variants."""
+
+    variants: tuple[str, ...]
+    persona_ids: tuple[str, ...]
+    persona_names: dict[str, str]
+    layers: tuple[int, ...]
+    samples_by_variant: dict[str, LayeredSamples]
+
+    def samples(self, variant: str) -> LayeredSamples:
+        try:
+            return self.samples_by_variant[variant]
+        except KeyError as exc:
+            raise KeyError(
+                f"Variant {variant!r} is not loaded; available: {list(self.variants)}"
+            ) from exc
+
+
+def load_analysis_dataset(
+    store: PersonaVectorSource,
+    variants: list[str] | tuple[str, ...],
+    *,
+    mask_strategy: object | None = None,
+    persona_ids: list[str] | tuple[str, ...] | None = None,
+    include_baseline: bool = False,
+) -> AnalysisDataset:
+    """Load one aligned persona dataset for repeated downstream analysis."""
+    requested_variants = tuple(variants)
+    if not requested_variants:
+        raise ValueError("At least one variant is required")
+    resolved_ids = tuple(
+        persona_ids
+        or store.list_personas(
+            list(requested_variants),
+            mask_strategy=mask_strategy,
+            include_baseline=include_baseline,
+        )
+    )
+    if not resolved_ids:
+        raise FileNotFoundError(
+            f"No personas found for {store.model_name!r} / "
+            f"{list(requested_variants)!r} / {mask_strategy!r}"
+        )
+
+    names = store.persona_names(
+        list(resolved_ids),
+        variants=list(requested_variants),
+        mask_strategy=mask_strategy,
+    )
+    return AnalysisDataset(
+        variants=requested_variants,
+        persona_ids=resolved_ids,
+        persona_names={pid: names.get(pid, pid) for pid in resolved_ids},
+        layers=tuple(
+            store.list_layers(
+                list(requested_variants),
+                list(resolved_ids),
+                mask_strategy=mask_strategy,
+            )
+        ),
+        samples_by_variant=load_variant_vectors(
+            store,
+            requested_variants,
+            mask_strategy=mask_strategy,
+            persona_ids=list(resolved_ids),
+        ),
+    )
 
 def _resolve_personas(
     store: PersonaVectorSource,

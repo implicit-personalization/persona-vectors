@@ -427,6 +427,8 @@ class HFPersonaVectorStore:
         from datasets import get_dataset_config_names, get_dataset_split_names
 
         self._validate_mask_strategy(mask_strategy)
+        if variants is not None and not variants:
+            return []
         present = set(self._datasets)
         try:
             present.update(
