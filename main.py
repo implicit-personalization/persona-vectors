@@ -64,7 +64,11 @@ def extract_activations(cfg: ExtractConfig) -> None:
 
     model = StandardizedTransformer(cfg.model)
     skipped: list[tuple[str, str]] = []
-    for persona, qa_pairs in tqdm(runs, desc="personas", unit="persona"):
+    pbar = tqdm(runs, desc="personas", unit="persona")
+
+    for persona, qa_pairs in pbar:
+        pbar.set_postfix_str(f"{persona.name} | n={len(qa_pairs)}")
+
         try:
             results = run_extraction(
                 model=model,
@@ -80,16 +84,17 @@ def extract_activations(cfg: ExtractConfig) -> None:
         except Exception as e:
             if not cfg.skip_failed:
                 raise
+
             skipped.append((persona.name, f"{type(e).__name__}: {e}"))
-            print(f"Skipping {persona.name}: {type(e).__name__}: {e}")
+            tqdm.write(f"Skipping {persona.name}: {type(e).__name__}: {e}")
             continue
-        for r in results:
-            print(f"Saved {r.persona_name}/{r.variant} → {r.output_dir}")
+
+        tqdm.write(f"Finished {persona.name} ({len(results)} variants)")
 
     if skipped:
-        print(f"\nSkipped {len(skipped)} persona(s):")
+        tqdm.write(f"\nSkipped {len(skipped)} persona(s):")
         for name, reason in skipped:
-            print(f"  - {name}: {reason}")
+            tqdm.write(f"  - {name}: {reason}")
 
 
 def analyze_activations(cfg: AnalyzeConfig) -> None:
