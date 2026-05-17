@@ -1,0 +1,786 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../extraction/">
+      
+      
+        <link rel="next" href="../analysis/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Artifacts - persona-vectors</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#artifacts" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="persona-vectors" class="md-header__button md-logo" aria-label="persona-vectors" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            persona-vectors
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Artifacts
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/implicit-personalization/persona-vectors" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="persona-vectors" class="md-nav__button md-logo" aria-label="persona-vectors" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    persona-vectors
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/implicit-personalization/persona-vectors" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extraction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Activation Extraction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifacts
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local Store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hub-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hub Store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analysis-facing-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis-facing bundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helpers
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../probes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Probes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../steering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Steering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local Store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hub-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hub Store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analysis-facing-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis-facing bundle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helpers
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="artifacts">Artifacts</h1>
+<p><code>PersonaVectorStore</code> reads and writes local tensors. <code>HFPersonaVectorStore</code> reads published Hub datasets. The on-disk layout below matches what <code>HFPersonaVectorStore</code> expects on the Hub, so the same model code reads either source.</p>
+<p>Core module: <code>src/persona_vectors/artifacts.py</code></p>
+<h2 id="layout">Layout</h2>
+<div class="highlight"><pre><span></span><code>artifacts/activations/   # also: artifacts/persona-vectors/ from the all-questions script
+└── google__gemma-2-9b-it/
+    └── answer_mean/
+        └── biography/
+            ├── manifest.json
+            └── &lt;persona_id&gt;.safetensors
+</code></pre></div>
+<p>Each safetensors file contains one <code>activations</code> tensor with shape <code>(num_layers, hidden_size)</code> — the persona vector for that variant, averaged across QA pairs and selected tokens. The manifest stores shape metadata plus persona names and QA sample ids.</p>
+<p><code>artifacts/activations/</code> is the default. <code>scripts/extraction_all_questions.sh</code> writes under <code>artifacts/persona-vectors/</code> to keep all-questions runs separate from train-split runs; pass <code>--activations-dir artifacts/persona-vectors</code> (or <code>root_dir=...</code> to the store) to read it back.</p>
+<p>Probe training writes a separate tree under <code>artifacts/probes/</code>. Each saved
+probe directory contains the canonical <code>probe.json</code> + <code>weights.safetensors</code>
+bundle. Use <code>persona_vectors.probes.load_probe_artifact(...)</code> to read that
+bundle without re-implementing the schema. See <a href="../probes/">Probes</a> for the
+probe artifact contract.</p>
+<h2 id="local-store">Local Store</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">PersonaVectorStore</span>
+
+<span class="n">store</span> <span class="o">=</span> <span class="n">PersonaVectorStore</span><span class="p">(</span><span class="s2">&quot;google/gemma-2-9b-it&quot;</span><span class="p">,</span> <span class="n">mask_strategy</span><span class="o">=</span><span class="s2">&quot;answer_mean&quot;</span><span class="p">)</span>
+
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;biography&quot;</span><span class="p">,</span> <span class="s2">&quot;&lt;persona_id&gt;&quot;</span><span class="p">)</span>
+<span class="n">persona_ids</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">list_personas</span><span class="p">([</span><span class="s2">&quot;biography&quot;</span><span class="p">])</span>
+<span class="n">names</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">persona_names</span><span class="p">(</span><span class="n">persona_ids</span><span class="p">,</span> <span class="n">variants</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;biography&quot;</span><span class="p">])</span>
+<span class="n">available</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">available_variants</span><span class="p">([</span><span class="s2">&quot;biography&quot;</span><span class="p">,</span> <span class="s2">&quot;templated&quot;</span><span class="p">])</span>
+<span class="n">layers</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">list_layers</span><span class="p">([</span><span class="s2">&quot;biography&quot;</span><span class="p">],</span> <span class="n">persona_ids</span><span class="p">)</span>
+</code></pre></div>
+<p><code>list_personas(["biography", "templated"])</code> returns only personas present in
+both variants. This keeps variant comparisons aligned. <code>list_personas()</code>
+excludes <code>baseline_assistant</code> by default; pass <code>include_baseline=True</code> when the
+baseline should remain visible.</p>
+<p>To save:</p>
+<div class="highlight"><pre><span></span><code><span class="n">store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span>
+    <span class="n">prompt_variant</span><span class="o">=</span><span class="s2">&quot;biography&quot;</span><span class="p">,</span>
+    <span class="n">persona_id</span><span class="o">=</span><span class="n">persona</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+    <span class="n">persona_name</span><span class="o">=</span><span class="n">persona</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+    <span class="n">vectors</span><span class="o">=</span><span class="n">activations</span><span class="p">,</span>
+    <span class="n">sample_ids</span><span class="o">=</span><span class="p">[</span><span class="n">qa</span><span class="o">.</span><span class="n">qid</span> <span class="k">for</span> <span class="n">qa</span> <span class="ow">in</span> <span class="n">qa_pairs</span><span class="p">],</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="hub-store">Hub Store</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">HFPersonaVectorStore</span>
+
+<span class="n">store</span> <span class="o">=</span> <span class="n">HFPersonaVectorStore</span><span class="p">(</span>
+    <span class="s2">&quot;implicit-personalization/synth-persona-vectors&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;google/gemma-2-9b-it&quot;</span><span class="p">,</span>
+    <span class="n">mask_strategy</span><span class="o">=</span><span class="s2">&quot;answer_mean&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">variant</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">available_variants</span><span class="p">([</span><span class="s2">&quot;biography&quot;</span><span class="p">,</span> <span class="s2">&quot;templated&quot;</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">variant</span><span class="p">,</span> <span class="s2">&quot;&lt;persona_id&gt;&quot;</span><span class="p">)</span>
+<span class="n">layers</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">list_layers</span><span class="p">([</span><span class="n">variant</span><span class="p">],</span> <span class="p">[</span><span class="s2">&quot;&lt;persona_id&gt;&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p>Hub datasets use one config per <code>&lt;model_dir&gt;__&lt;mask_strategy&gt;</code> and one split per
+prompt variant. <code>HFPersonaVectorStore</code> is read-only and supports the same discovery
+methods as the local store: <code>load</code>, <code>available_variants</code>, <code>list_personas</code>,
+<code>persona_names</code>, and <code>list_layers</code>.</p>
+<p><code>HFPersonaVectorStore.release_cache()</code> clears cached datasets and metadata.</p>
+<h2 id="analysis-facing-bundle">Analysis-facing bundle</h2>
+<p>The stores stay intentionally low-level. When analysis code needs vectors plus
+their aligned ids, names, and shared layers, build one dataset-facing bundle:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_analysis_dataset</span>
+
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">load_analysis_dataset</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;biography&quot;</span><span class="p">,</span> <span class="s2">&quot;templated&quot;</span><span class="p">])</span>
+<span class="n">dataset</span><span class="o">.</span><span class="n">persona_ids</span>
+<span class="n">dataset</span><span class="o">.</span><span class="n">persona_names</span>
+<span class="n">dataset</span><span class="o">.</span><span class="n">layers</span>
+<span class="n">dataset</span><span class="o">.</span><span class="n">samples</span><span class="p">(</span><span class="s2">&quot;biography&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>This keeps local and Hub reads on the same contract while avoiding repeated
+metadata calls in downstream tools.</p>
+<h2 id="publishing">Publishing</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>main.py<span class="w"> </span>push<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--model<span class="w"> </span>google/gemma-2-9b-it<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--repo<span class="w"> </span>implicit-personalization/synth-persona-vectors
+</code></pre></div>
+<p>Python callers can use <code>persona_vectors.hub.push_to_hub(...)</code> directly.</p>
+<h2 id="helpers">Helpers</h2>
+<p><code>model_dir_name("google/gemma-2-9b-it")</code> returns <code>"google__gemma-2-9b-it"</code>.</p>
+<p>Use <code>discover_activation_models(root_dir, mask_strategy)</code> to list local model ids
+that have at least one saved artifact for a mask strategy.</p>
+<p>Use Hub discovery helpers when building model pickers or notebooks:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.hub</span><span class="w"> </span><span class="kn">import</span> <span class="n">list_hub_vector_models</span><span class="p">,</span> <span class="n">parse_vector_config_name</span>
+
+<span class="n">models_by_mask</span> <span class="o">=</span> <span class="n">list_hub_vector_models</span><span class="p">(</span>
+    <span class="s2">&quot;implicit-personalization/synth-persona-vectors&quot;</span>
+<span class="p">)</span>
+<span class="n">parsed</span> <span class="o">=</span> <span class="n">parse_vector_config_name</span><span class="p">(</span><span class="s2">&quot;google__gemma-2-9b-it__answer_mean&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
