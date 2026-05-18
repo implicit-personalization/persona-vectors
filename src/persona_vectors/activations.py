@@ -54,12 +54,15 @@ def extract_activations(
     token_masks: list[torch.Tensor],
     remote: bool = False,
     on_status: Callable[[str, str, str], None] | None = None,
+    backend_factory: Callable[[], object] | None = None,
 ) -> torch.Tensor:
     """Return mean hidden states with shape ``(num_layers, hidden_size)``.
 
     ``input_ids_list`` and ``token_masks`` must be aligned 1-D tensors. Passing
     pre-tokenized ids avoids retokenization and keeps masks aligned with the
     traced model input. Remote NDIF runs retry transient network failures.
+    ``backend_factory`` can override backend construction for callers that need
+    to bind per-request credentials while preserving fresh backends on retries.
     """
 
     if len(input_ids_list) != len(token_masks):
@@ -82,7 +85,11 @@ def extract_activations(
     max_retries = 3 if remote else 1
     for attempt in range(max_retries):
         try:
-            backend = _build_backend(model, remote, on_status)
+            backend = (
+                backend_factory()
+                if backend_factory is not None
+                else _build_backend(model, remote, on_status)
+            )
             with torch.no_grad(), model.session(remote=remote, backend=backend):
                 per_sample_hs: list[torch.Tensor] = []
 

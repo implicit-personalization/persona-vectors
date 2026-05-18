@@ -299,6 +299,7 @@ def run_extraction(
     mask_strategy: MaskStrategy = MaskStrategy.ANSWER_MEAN,
     remote: bool = False,
     on_status: Callable | None = None,
+    backend_factory: Callable[[], object] | None = None,
     verbose: bool = False,
     activations_dir: str | Path | None = None,
 ) -> list[ExtractionResult]:
@@ -309,7 +310,9 @@ def run_extraction(
     pairs before saving a ``(num_layers, hidden_size)`` tensor. Each variant
     reads ``<variant>_view`` off ``persona``; the Assistant baseline is just
     another ``PersonaData``. ``on_status`` receives NDIF status updates as
-    ``(job_id, status_name, description)`` for remote runs.
+    ``(job_id, status_name, description)`` for remote runs. ``backend_factory``
+    can override remote backend construction for callers with request-scoped
+    credentials.
     """
     if invalid := set(variants) - set(SUPPORTED_VARIANTS):
         raise ValueError(f"Unsupported variants: {invalid}")
@@ -345,6 +348,7 @@ def run_extraction(
             token_masks=[p.token_mask for p in prepared],
             remote=remote,
             on_status=on_status,
+            backend_factory=backend_factory,
         )
 
         artifact_dir = store.save(

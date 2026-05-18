@@ -67,7 +67,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
     pbar = tqdm(runs, desc="personas", unit="persona")
 
     for persona, qa_pairs in pbar:
-        pbar.set_postfix_str(f"{persona.name} | n={len(qa_pairs)}")
+        pbar.set_postfix_str(f"{persona.name}")
 
         try:
             results = run_extraction(
