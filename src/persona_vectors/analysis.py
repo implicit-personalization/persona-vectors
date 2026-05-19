@@ -212,7 +212,7 @@ def project_pca(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
     """Project a ``(n_samples, hidden_size)`` tensor to ``n_components`` PCA dimensions."""
     _validate_projection(samples, n_components, method="PCA")
 
-    embedding = PCA(n_components=n_components).fit_transform(
+    embedding = PCA(n_components=n_components, random_state=0).fit_transform(
         samples.float().cpu().numpy()
     )
     return torch.from_numpy(embedding)
@@ -233,7 +233,7 @@ def pca_explained_variance(
     else:
         n_components = min(n_components, max_components)
 
-    pca = PCA(n_components=n_components).fit(x)
+    pca = PCA(n_components=n_components, random_state=0).fit(x)
     return pca.explained_variance_ratio_
 
 

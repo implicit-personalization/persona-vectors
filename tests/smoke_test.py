@@ -601,11 +601,11 @@ def test_smoke() -> None:
     print("✓ smoke test passed")
 
 
-def test_hf_metadata_stops_after_requested_personas() -> None:
-    class CountingDataset(list):
+def test_hf_metadata_uses_vectorized_columnar_scan() -> None:
+    class ColumnarDataset(list):
         def __init__(self, rows):
             super().__init__(rows)
-            self.rows_read = 0
+            self.column_reads = 0
 
         def select_columns(self, columns):
             source = self
@@ -614,14 +614,16 @@ def test_hf_metadata_stops_after_requested_personas() -> None:
                 def __len__(self):
                     return len(source)
 
-                def __getitem__(self, i: int):
-                    source.rows_read += 1
-                    return {column: source[i][column] for column in columns}
+                def __getitem__(self, column: str):
+                    # Reject per-row indexing: the scan must be columnar.
+                    assert isinstance(column, str), "metadata scan must be columnar"
+                    source.column_reads += 1
+                    return [row[column] for row in source]
 
             return Selected()
 
     vector = torch.zeros(2, 3)
-    dataset = CountingDataset(
+    dataset = ColumnarDataset(
         [
             {
                 "persona_id": f"persona-{idx:03d}",
@@ -640,20 +642,14 @@ def test_hf_metadata_stops_after_requested_personas() -> None:
         "persona-001": "Persona 1",
         "persona-003": "Persona 3",
     }
-    assert dataset.rows_read == 4
+    # One vectorized pass reads exactly the two metadata columns, once.
+    assert dataset.column_reads == 2
 
+    # Every subsequent metadata query is served from the cache.
     assert torch.allclose(store.load("templated", "persona-001"), vector)
-    assert dataset.rows_read == 4
-
-    # Asking for a not-yet-seen id resumes from the last scanned row instead
-    # of restarting at 0.
     assert store.persona_names(["persona-007"], variants=["templated"]) == {
         "persona-007": "Persona 7",
     }
-    assert dataset.rows_read == 8
-
-    # A full listing finishes the scan; subsequent calls are cached.
     assert len(store.list_personas(["templated"])) == 20
-    assert dataset.rows_read == 20
     assert store.list_personas(["templated"])[:2] == ["persona-000", "persona-001"]
-    assert dataset.rows_read == 20
+    assert dataset.column_reads == 2

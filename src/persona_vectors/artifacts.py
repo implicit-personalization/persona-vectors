@@ -351,7 +351,6 @@ class HFPersonaVectorStore:
         self._datasets: dict[str, object] = {}
         self._index: dict[str, dict[str, int]] = {}
         self._names: dict[str, dict[str, str]] = {}
-        self._scan_progress: dict[str, int] = {}
         self._metadata_complete: set[str] = set()
 
     def _dataset(self, variant: str):
@@ -364,35 +363,24 @@ class HFPersonaVectorStore:
         return self._datasets[variant]
 
     def _metadata(
-        self,
-        variant: str,
-        persona_ids: list[str] | tuple[str, ...] | None = None,
+        self, variant: str
     ) -> tuple[dict[str, int], dict[str, str]]:
         """Return ``(persona_id -> row_index, persona_id -> name)`` for ``variant``.
 
-        When ``persona_ids`` is provided, the metadata scan stops once all
-        requested ids are found. Subsequent calls resume from the last scanned
-        row instead of restarting at index 0.
+        Reads the ``persona_id``/``name`` columns in a single vectorized pass
+        (the heavy ``vector`` column is excluded) and caches the result.
         """
         idx = self._index.setdefault(variant, {})
         names = self._names.setdefault(variant, {})
-        requested = set(persona_ids or [])
-        if variant in self._metadata_complete or (
-            requested and requested <= idx.keys()
-        ):
+        if variant in self._metadata_complete:
             return idx, names
 
         meta = self._dataset(variant).select_columns(["persona_id", "name"])
-        start = self._scan_progress.get(variant, 0)
-        total = len(meta)
-        for i in range(start, total):
-            row = meta[i]
-            pid = row["persona_id"]
+        pids = meta["persona_id"]
+        raw_names = meta["name"]
+        for i, pid in enumerate(pids):
             idx[pid] = i
-            names[pid] = row.get("name") or pid
-            self._scan_progress[variant] = i + 1
-            if requested and requested <= idx.keys():
-                return idx, names
+            names[pid] = raw_names[i] or pid
         self._metadata_complete.add(variant)
         return idx, names
 
@@ -415,7 +403,6 @@ class HFPersonaVectorStore:
             self._datasets.pop(variant, None)
             self._index.pop(variant, None)
             self._names.pop(variant, None)
-            self._scan_progress.pop(variant, None)
             self._metadata_complete.discard(variant)
 
     def available_variants(
@@ -462,7 +449,7 @@ class HFPersonaVectorStore:
     ) -> torch.Tensor:
         """Load the mean activation vector for a persona from the Hub."""
         self._validate_mask_strategy(mask_strategy)
-        idx, _ = self._metadata(prompt_variant, [persona_id])
+        idx, _ = self._metadata(prompt_variant)
         if persona_id not in idx:
             raise FileNotFoundError(
                 f"{persona_id!r} not in {self.repo_id} {self.config_name}/{prompt_variant}"
@@ -509,7 +496,7 @@ class HFPersonaVectorStore:
         self._validate_mask_strategy(mask_strategy)
         requested = self.available_variants() if variants is None else list(variants)
         name_maps = {
-            variant: self._metadata(variant, persona_ids)[1] for variant in requested
+            variant: self._metadata(variant)[1] for variant in requested
         }
         return _first_nonempty_name(
             persona_ids,
@@ -534,7 +521,7 @@ class HFPersonaVectorStore:
 
         shared_layers: set[int] | None = None
         for variant in variants:
-            idx, _ = self._metadata(variant, persona_ids)
+            idx, _ = self._metadata(variant)
             ids = list(persona_ids or []) or list(idx)
             if not ids or any(pid not in idx for pid in ids):
                 return []
