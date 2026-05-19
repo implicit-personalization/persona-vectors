@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Extract baseline_assistant + first N personas across all questions without pushing.
+# Extract baseline_assistant + first N personas across all questions, push to the
+# HF Hub, and refresh the dataset card. Writes under artifacts/persona-vectors/.
 
 set -euo pipefail
 

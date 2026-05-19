@@ -5,7 +5,11 @@
 
 Extract persona vectors from language models, then probe, project, or steer with them.
 
-> Experimental.
+A *persona vector* is the mean hidden-state activation a model produces while answering as a given persona. Extraction saves one `(num_layers, hidden_size)` tensor per persona, prompt variant, model, and mask strategy; everything downstream reads those tensors back.
+
+```text
+personas + QA pairs -> prompts -> token masks -> hidden states -> saved vectors -> analysis
+```
 
 ## Install
 
@@ -16,7 +20,7 @@ cp .env.example .env
 
 Requires Python `>=3.12`. Set `NDIF_API_KEY` in `.env` for remote extraction.
 
-Dataset loading comes from sibling [`persona-data`](../persona-data); the Streamlit UI lives in sibling [`persona-ui`](../persona-ui). For local dev, uncomment the `persona-data` path source in `pyproject.toml`.
+Dataset loading comes from [`persona-data`](https://github.com/implicit-personalization/persona-data); the
 
 ## Quickstart
 
@@ -42,14 +46,13 @@ Notebooks under `notebooks/` cover the same flows interactively.
 ## Extraction scripts
 
 ```bash
-# Steering: train split, push to Hub
+# Steering: train split, push to Hub, refresh the dataset card
 MODEL=google/gemma-2-9b-it scripts/extraction_train_split.sh
 
-# All-questions (explicit only): first 100 personas under artifacts/persona-vectors/
+# All-questions (explicit only): first 100 personas under artifacts/persona-vectors/,
+# then push and refresh the dataset card
 MODEL=google/gemma-2-9b-it scripts/extraction_all_questions.sh
 ```
-
-Both refresh the Hub dataset card after pushing.
 
 ## What gets saved
 
@@ -59,7 +62,9 @@ artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
 └── <persona_id>.safetensors
 ```
 
-`<model_dir>` is the HF id with `/` → `__`. Each safetensors file holds one `activations` tensor — the persona vector for that variant, averaged across QA pairs and selected tokens. `scripts/extraction_all_questions.sh` writes under `artifacts/persona-vectors/` to separate from train-split runs; pass `--activations-dir artifacts/persona-vectors` to subsequent commands. See [artifacts docs](https://implicit-personalization.github.io/persona-vectors/artifacts/) for the full layout.
+`<model_dir>` is the HF id with `/` → `__`. Each safetensors file holds one `activations` tensor — the persona vector for that variant, averaged across QA pairs and selected tokens. 
+`scripts/extraction_all_questions.sh` writes under `artifacts/persona-vectors/` to keep all-questions runs separate from train-split runs; pass `--activations-dir artifacts/persona-vectors` to read it back. 
+See the [artifacts docs](https://implicit-personalization.github.io/persona-vectors/artifacts/) for the full layout.
 
 ## Layout
 
@@ -67,9 +72,12 @@ artifacts/activations/<model_dir>/<mask_strategy>/<prompt_variant>/
 src/persona_vectors/
 ├── activations.py   # low-level hidden-state extraction
 ├── extraction.py    # prompt formatting, masks, persona extraction flow
+├── preview.py       # token-mask preview for --verbose
 ├── artifacts.py     # PersonaVectorStore (local) + HFPersonaVectorStore (Hub)
+├── hub.py           # push to / discover Hub vector datasets
 ├── analysis.py      # aligned dataset loading, PCA, cosine similarity, clustering
 ├── plots/           # Plotly figures
+├── attributes.py    # attribute schema + color helpers for plots
 ├── probes.py        # linear probes over saved persona vectors
 ├── steering.py      # experimental steering vectors
 └── parser.py        # CLI parser
