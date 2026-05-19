@@ -314,10 +314,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#flow" class="md-nav__link">
+  <a href="#what-is-a-persona-vector" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Flow
+        What is a persona vector?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline
       
     </span>
   </a>
@@ -329,28 +340,6 @@
     <span class="md-ellipsis">
       
         Install
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#common-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Commands
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reference
       
     </span>
   </a>
@@ -527,10 +516,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#flow" class="md-nav__link">
+  <a href="#what-is-a-persona-vector" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Flow
+        What is a persona vector?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline
       
     </span>
   </a>
@@ -542,28 +542,6 @@
     <span class="md-ellipsis">
       
         Install
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#common-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Commands
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reference
       
     </span>
   </a>
@@ -591,56 +569,59 @@
 
 
 <h1 id="persona-vectors">persona-vectors</h1>
-<p>Extract persona vectors from language models, then compare those vectors across layers and prompt variants, probe them for attribute information, or use them for experimental steering.</p>
+<p>Extract persona vectors from language models, then compare those vectors across
+layers and prompt variants, probe them for attribute information, or use them for experimental steering.</p>
 <blockquote>
 <p>This project is experimental.</p>
 </blockquote>
-<h2 id="flow">Flow</h2>
+<h2 id="what-is-a-persona-vector">What is a persona vector?</h2>
+<p>A persona vector is the mean hidden-state activation a model produces while
+answering as a given persona. Extraction saves one <code>(num_layers, hidden_size)</code>
+tensor per persona, prompt variant, model, and mask strategy. Every downstream tool — similarity, projection, probes, steering — reads those saved tensors back; nothing re-runs the model.</p>
+<h2 id="pipeline">Pipeline</h2>
 <div class="highlight"><pre><span></span><code>personas + QA pairs -&gt; prompts -&gt; token masks -&gt; hidden states -&gt; saved vectors -&gt; analysis
 </code></pre></div>
-<p>Extraction saves one <code>(num_layers, hidden_size)</code> persona vector per persona, prompt variant, model, and mask strategy. Downstream code loads those tensors for PCA, UMAP, Isomap, centered cosine similarity, clustering, linear probes, and experimental steering.</p>
-<h2 id="install">Install</h2>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
-cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-</code></pre></div>
-<p>Set <code>NDIF_API_KEY</code> to use remote extraction.</p>
-<h2 id="common-commands">Common Commands</h2>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>main.py<span class="w"> </span>extract<span class="w"> </span>--model<span class="w"> </span>google/gemma-2-9b-it<span class="w"> </span>--backend<span class="w"> </span>remote
-uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>main.py<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>google/gemma-2-9b-it<span class="w"> </span>--variant<span class="w"> </span>biography
-uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>main.py<span class="w"> </span>probe<span class="w"> </span>--model<span class="w"> </span>google/gemma-2-9b-it<span class="w"> </span>--variant<span class="w"> </span>templated
-uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>main.py<span class="w"> </span>steer<span class="w"> </span>--model<span class="w"> </span>google/gemma-2-9b-it<span class="w"> </span>--persona-id<span class="w"> </span>&lt;UUID&gt;<span class="w"> </span>--layer<span class="w"> </span><span class="m">20</span>
-</code></pre></div>
-<h2 id="reference">Reference</h2>
 <table>
 <thead>
 <tr>
-<th>Page</th>
-<th>Contents</th>
+<th>Stage</th>
+<th>What happens</th>
+<th>Reference</th>
 </tr>
 </thead>
 <tbody>
 <tr>
+<td>Extraction</td>
+<td>Format persona QA prompts, build token masks, run the model, save one vector per persona and prompt variant</td>
 <td><a href="extraction/">Activation Extraction</a></td>
-<td>prompt formatting, masks, and NDIF extraction</td>
 </tr>
 <tr>
+<td>Storage</td>
+<td>Local <code>PersonaVectorStore</code> and read-only Hub <code>HFPersonaVectorStore</code> over one shared on-disk layout</td>
 <td><a href="artifacts/">Artifacts</a></td>
-<td>local <code>PersonaVectorStore</code> + Hub <code>HFPersonaVectorStore</code></td>
 </tr>
 <tr>
+<td>Analysis</td>
+<td>Aligned vector loading, centered cosine similarity, PCA / UMAP / Isomap, clustering, plots</td>
 <td><a href="analysis/">Analysis</a></td>
-<td>vector loading, similarity, PCA, UMAP, Isomap, clustering, plots</td>
 </tr>
 <tr>
+<td>Probes</td>
+<td>Linear probes that read a persona attribute out of the vectors</td>
 <td><a href="probes/">Probes</a></td>
-<td>linear probes over saved persona vectors</td>
 </tr>
 <tr>
+<td>Steering</td>
+<td>Experimental biography-minus-templated direction</td>
 <td><a href="steering/">Steering</a></td>
-<td>biography-minus-templated steering vectors</td>
 </tr>
 </tbody>
 </table>
+<h2 id="install">Install</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
+cp<span class="w"> </span>.env.example<span class="w"> </span>.env
+</code></pre></div>
+<p>Requires Python <code>&gt;=3.12</code>. Set <code>NDIF_API_KEY</code> to use remote extraction. See the <a href="https://github.com/implicit-personalization/persona-vectors#readme">README</a> for quickstart commands and extraction scripts.</p>
 
 
 
