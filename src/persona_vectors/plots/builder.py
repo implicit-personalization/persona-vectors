@@ -26,6 +26,7 @@ def build_layered_figure(
     groups: list[str] | dict[int, list[str]] | None = None,
     graph_overlay: bool = False,
     graph_n_neighbors: int = 5,
+    projection_normalize: bool = True,
     color_values: list[float] | dict[int, list[float]] | None = None,
     color_label: str = "Value",
     colorscale: str = "Viridis",
@@ -55,6 +56,9 @@ def build_layered_figure(
       and ``color_ticktext`` control the colorbar.
     - ``graph_overlay=True``: draw the centered/unit-vector kNN graph behind
       projection points. This is most useful for Isomap.
+    - ``projection_normalize``: center and L2-normalize persona vectors before
+      PCA/UMAP projection. Enabled by default to match cosine, Isomap, and
+      k-means geometry.
     - ``projection_data``: precomputed coordinates returned by
       ``prepare_layered_projection_data``. This lets callers redraw the same
       projection with different colors without recomputing PCA/UMAP/Isomap.
@@ -86,8 +90,16 @@ def build_layered_figure(
         )
 
     if kind in ("pca", "umap", "isomap"):
+        effective_projection_normalize = (
+            projection_normalize if kind in ("pca", "umap") else True
+        )
         default_title, project_fn, x_label, y_label, z_label, project_kwargs = (
-            projection_spec(kind, n_components, graph_n_neighbors)
+            projection_spec(
+                kind,
+                n_components,
+                graph_n_neighbors,
+                normalize=effective_projection_normalize,
+            )
         )
         return build_layered_projection_figure(
             samples,
@@ -109,6 +121,7 @@ def build_layered_figure(
             color_ticktext=color_ticktext,
             project_kwargs=project_kwargs,
             projection_data=projection_data,
+            normalize=effective_projection_normalize,
         )
     if kind == "similarity":
         if projection_data is not None:

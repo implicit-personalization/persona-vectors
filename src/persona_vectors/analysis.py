@@ -208,25 +208,35 @@ def cosine_similarity_matrix(
     return normalized @ normalized.T
 
 
-def project_pca(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
-    """Project a ``(n_samples, hidden_size)`` tensor to ``n_components`` PCA dimensions."""
+def project_pca(
+    samples: torch.Tensor, n_components: int = 2, *, normalize: bool = True
+) -> torch.Tensor:
+    """Project samples to ``n_components`` PCA dimensions after shared preprocessing."""
     _validate_projection(samples, n_components, method="PCA")
 
+    prepared = prepare_cluster_samples(samples, center=True, normalize=normalize)
     embedding = PCA(n_components=n_components, random_state=0).fit_transform(
-        samples.float().cpu().numpy()
+        prepared.cpu().numpy()
     )
     return torch.from_numpy(embedding)
 
 
 def pca_explained_variance(
-    samples: torch.Tensor, n_components: int | None = None
+    samples: torch.Tensor,
+    n_components: int | None = None,
+    *,
+    normalize: bool = True,
 ) -> np.ndarray:
-    """Return the explained variance ratio for each principal component."""
+    """Return PCA explained variance ratios after shared preprocessing."""
 
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
 
-    x = samples.float().cpu().numpy()
+    x = (
+        prepare_cluster_samples(samples, center=True, normalize=normalize)
+        .cpu()
+        .numpy()
+    )
     max_components = min(x.shape)
     if n_components is None:
         n_components = max_components
@@ -413,11 +423,14 @@ def project_isomap(
     return torch.from_numpy(embedding)
 
 
-def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
-    """Project samples to ``n_components`` dimensions using UMAP after centering features.
+def project_umap(
+    samples: torch.Tensor, n_components: int = 2, *, normalize: bool = True
+) -> torch.Tensor:
+    """Project samples to ``n_components`` dimensions using UMAP after shared preprocessing.
 
     Centering removes the shared DC component before UMAP fits, matching the
-    convention used by the centered cosine views.
+    convention used by the centered cosine views. Normalization keeps UMAP's
+    Euclidean distances focused on direction/profile similarity by default.
     """
     _validate_projection(samples, n_components, method="UMAP", min_samples=3)
 
@@ -426,7 +439,7 @@ def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
     except ImportError as exc:
         raise ImportError("umap-learn is required for UMAP projections") from exc
 
-    centered = _center_features(samples)
+    prepared = prepare_cluster_samples(samples, center=True, normalize=normalize)
     n_neighbors = min(15, int(samples.shape[0]) - 1)
     embedding = umap.UMAP(
         n_components=n_components,
@@ -434,5 +447,5 @@ def project_umap(samples: torch.Tensor, n_components: int = 2) -> torch.Tensor:
         init="random",
         random_state=42,
         n_jobs=1,
-    ).fit_transform(centered.float().cpu().numpy())
+    ).fit_transform(prepared.cpu().numpy())
     return torch.from_numpy(embedding)

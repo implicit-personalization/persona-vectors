@@ -100,10 +100,6 @@ for name in persona_dataset.attribute_names:
 console.print(attribute_summary)
 
 # %% Attribute-colored PCA views
-# HACK: Just for current tsting speedup
-# VARIANTS = ["biography"]
-VARIANTS = ["biography"]
-
 for variant, s in samples.items():
     build_layered_figure(
         s,

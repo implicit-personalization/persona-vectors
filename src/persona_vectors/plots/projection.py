@@ -38,6 +38,7 @@ class LayeredProjectionData:
     kind: ProjectionKind
     layers: tuple[int, ...]
     n_components: int
+    normalize: bool
     graph_n_neighbors: int
     layer_coords: dict[int, torch.Tensor]
     layer_ranges: dict[int, tuple[tuple[float, float], ...]]
@@ -230,6 +231,7 @@ def _prepare_layered_projection_data(
     *,
     project_fn: Callable[..., torch.Tensor],
     n_components: int,
+    normalize: bool,
     graph_overlay: bool,
     graph_n_neighbors: int,
     project_kwargs: dict | None = None,
@@ -263,6 +265,7 @@ def _prepare_layered_projection_data(
         kind=kind,
         layers=tuple(selected_layers),
         n_components=n_components,
+        normalize=normalize,
         graph_n_neighbors=graph_n_neighbors,
         layer_coords=layer_coords,
         layer_ranges=layer_ranges,
@@ -276,6 +279,7 @@ def _validate_projection_data(
     kind: ProjectionKind,
     selected_layers: list[int],
     n_components: int,
+    normalize: bool,
     graph_overlay: bool,
     graph_n_neighbors: int,
 ) -> None:
@@ -293,6 +297,11 @@ def _validate_projection_data(
         raise ValueError(
             "projection_data n_components must match the requested n_components; "
             f"got {projection_data.n_components} and {n_components}"
+        )
+    if projection_data.normalize != normalize:
+        raise ValueError(
+            "projection_data normalize must match the requested normalize setting; "
+            f"got {projection_data.normalize} and {normalize}"
         )
     if projection_data.graph_n_neighbors != graph_n_neighbors:
         raise ValueError(
@@ -316,6 +325,7 @@ def projection_spec(
     kind: ProjectionKind,
     n_components: int,
     graph_n_neighbors: int,
+    normalize: bool = True,
 ) -> tuple[str, Callable[..., torch.Tensor], str, str, str | None, dict | None]:
     if kind == "pca":
         return (
@@ -324,7 +334,7 @@ def projection_spec(
             "PC1",
             "PC2",
             "PC3" if n_components == 3 else None,
-            None,
+            {"normalize": normalize},
         )
     if kind == "umap":
         return (
@@ -337,7 +347,7 @@ def projection_spec(
             "UMAP 1",
             "UMAP 2",
             "UMAP 3" if n_components == 3 else None,
-            None,
+            {"normalize": normalize},
         )
     if kind == "isomap":
         return (
@@ -360,6 +370,7 @@ def prepare_layered_projection_data(
     kind: ProjectionKind,
     layers: list[int] | None = None,
     n_components: int = 2,
+    normalize: bool = True,
     graph_overlay: bool = False,
     graph_n_neighbors: int = 5,
 ) -> LayeredProjectionData:
@@ -373,8 +384,9 @@ def prepare_layered_projection_data(
     n_samples = samples.vectors.shape[0]
     if n_samples < 2:
         raise ValueError("At least two samples are required")
+    effective_normalize = normalize if kind in ("pca", "umap") else True
     _, project_fn, _, _, _, project_kwargs = projection_spec(
-        kind, n_components, graph_n_neighbors
+        kind, n_components, graph_n_neighbors, normalize=effective_normalize
     )
     return _prepare_layered_projection_data(
         samples,
@@ -382,6 +394,7 @@ def prepare_layered_projection_data(
         selected_layers,
         project_fn=project_fn,
         n_components=n_components,
+        normalize=effective_normalize,
         graph_overlay=graph_overlay,
         graph_n_neighbors=graph_n_neighbors,
         project_kwargs=project_kwargs,
@@ -637,9 +650,11 @@ def build_layered_projection_figure(
     color_ticktext: list[str] | None = None,
     project_kwargs: dict | None = None,
     projection_data: LayeredProjectionData | None = None,
+    normalize: bool = True,
 ) -> go.Figure:
     if n_components not in (2, 3):
         raise ValueError("n_components must be 2 or 3")
+    effective_normalize = normalize if kind in ("pca", "umap") else True
 
     if projection_data is None:
         projection_data = _prepare_layered_projection_data(
@@ -648,6 +663,7 @@ def build_layered_projection_figure(
             selected_layers,
             project_fn=project_fn,
             n_components=n_components,
+            normalize=effective_normalize,
             graph_overlay=graph_overlay,
             graph_n_neighbors=graph_n_neighbors,
             project_kwargs=project_kwargs,
@@ -658,6 +674,7 @@ def build_layered_projection_figure(
             kind=kind,
             selected_layers=selected_layers,
             n_components=n_components,
+            normalize=effective_normalize,
             graph_overlay=graph_overlay,
             graph_n_neighbors=graph_n_neighbors,
         )

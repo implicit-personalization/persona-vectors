@@ -69,6 +69,7 @@ variance = pca_explained_variance(layer_vectors)
 ```
 
 Cosine similarity is centered by default — removes the shared residual-stream DC component that otherwise pushes raw cosines toward 1.
+PCA, UMAP, Isomap, k-means, dendrogram inputs, and PCA scree calculations use centered + L2-normalized vectors by default so projection and grouping views compare persona direction/profile rather than raw activation magnitude. For PCA and UMAP, pass `normalize=False` when magnitude-sensitive geometry is the goal.
 
 ## Clustering
 
@@ -98,8 +99,8 @@ All plot helpers return a Plotly `go.Figure`.
 
 | Function | Use |
 | --- | --- |
-| `build_layered_figure(samples, kind, layers=..., n_clusters=..., cluster_mode=..., groups=..., color_values=...)` | PCA, UMAP, Isomap, or similarity with layer controls |
-| `prepare_layered_projection_data(samples, kind, layers=...)` | precompute projection coordinates for manual reuse |
+| `build_layered_figure(samples, kind, layers=..., projection_normalize=..., n_clusters=..., cluster_mode=..., groups=..., color_values=...)` | PCA, UMAP, Isomap, or similarity with layer controls |
+| `prepare_layered_projection_data(samples, kind, layers=..., normalize=...)` | precompute projection coordinates for manual reuse; `normalize` affects PCA/UMAP |
 | `prepare_kmeans_groups(samples, layers=..., n_clusters=...)` | precompute k-means labels for reuse as categorical colors |
 | `build_pair_similarity_figure(samples, layers=...)` | pairwise similarity trajectories |
 | `plot_persona_dendrogram(samples, linkage=...)` | hierarchical dendrogram |
@@ -129,7 +130,7 @@ fig = build_layered_figure(
 fig.show()
 ```
 
-When a UI switches between attributes, reuse `projection_data` and call `build_layered_figure(..., projection_data=projection_data)` with different `attribute_color_kwargs(...)`. Recreate the projection data only when the projection inputs change, such as method, layers, component count, samples, or graph settings.
+When a UI switches between attributes, reuse `projection_data` and call `build_layered_figure(..., projection_data=projection_data)` with different `attribute_color_kwargs(...)`. Recreate the projection data only when the projection inputs change, such as method, layers, component count, samples, normalization, or graph settings.
 
 ## Notebooks
 

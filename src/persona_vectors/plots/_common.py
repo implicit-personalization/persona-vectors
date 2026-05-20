@@ -41,6 +41,12 @@ BASE_FONT_SIZE = 18
 AXIS_TITLE_FONT_SIZE = 20
 TICK_FONT_SIZE = 16
 
+# NOTE: To download figure plots for presentation etc
+# TITLE_FONT_SIZE = 45
+# BASE_FONT_SIZE = 28
+# AXIS_TITLE_FONT_SIZE = 32
+# TICK_FONT_SIZE = 26
+
 
 def apply_fig_fonts(fig: go.Figure, title: str | None = None) -> go.Figure:
     """Apply the shared font sizes so every plot's text reads at one size.

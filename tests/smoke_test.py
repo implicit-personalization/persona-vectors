@@ -1,5 +1,7 @@
 import json
+import sys
 import tempfile
+import types
 
 import numpy as np
 import pytest
@@ -9,12 +11,17 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
 
 import persona_vectors  # noqa: F401
+from persona_vectors import analysis as analysis_module
 from persona_vectors.analysis import (
     AnalysisDataset,
-    load_analysis_dataset,
     LayeredSamples,
+    load_analysis_dataset,
     load_persona_vectors,
     load_variant_vectors,
+    prepare_cluster_samples,
+    pca_explained_variance,
+    project_pca,
+    project_umap,
     run_saved_activation_analysis,
 )
 from persona_vectors.artifacts import (
@@ -142,6 +149,101 @@ def test_projection_kmeans_modes_and_numeric_colors() -> None:
     assert numeric.data[0].marker.colorbar.title.text == "Ordinal rank"
 
 
+def test_pca_and_umap_projection_preprocessing_normalizes_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vectors = torch.tensor(
+        [
+            [2.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 0.0, 4.0],
+            [4.0, 0.0, 0.0],
+        ]
+    )
+    captured: dict[str, np.ndarray] = {}
+
+    class FakePCA:
+        def __init__(self, n_components: int, random_state: int):
+            self.n_components = n_components
+
+        def fit_transform(self, values: np.ndarray) -> np.ndarray:
+            captured["pca"] = values.copy()
+            return values[:, : self.n_components]
+
+    class FakeUMAP:
+        def __init__(self, **kwargs):
+            self.n_components = kwargs["n_components"]
+
+        def fit_transform(self, values: np.ndarray) -> np.ndarray:
+            captured["umap"] = values.copy()
+            return np.zeros((values.shape[0], self.n_components), dtype=values.dtype)
+
+    monkeypatch.setattr(analysis_module, "PCA", FakePCA)
+    monkeypatch.setitem(sys.modules, "umap", types.SimpleNamespace(UMAP=FakeUMAP))
+
+    project_pca(vectors, n_components=2)
+    np.testing.assert_allclose(
+        captured["pca"],
+        prepare_cluster_samples(vectors, center=True, normalize=True).numpy(),
+    )
+
+    project_umap(vectors, n_components=2)
+    np.testing.assert_allclose(
+        captured["umap"],
+        prepare_cluster_samples(vectors, center=True, normalize=True).numpy(),
+    )
+
+    project_pca(vectors, n_components=2, normalize=False)
+    np.testing.assert_allclose(
+        captured["pca"],
+        prepare_cluster_samples(vectors, center=True, normalize=False).numpy(),
+    )
+
+    project_umap(vectors, n_components=2, normalize=False)
+    np.testing.assert_allclose(
+        captured["umap"],
+        prepare_cluster_samples(vectors, center=True, normalize=False).numpy(),
+    )
+
+
+def test_pca_scree_preprocessing_normalizes_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vectors = torch.tensor(
+        [
+            [2.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 0.0, 4.0],
+            [4.0, 0.0, 0.0],
+        ]
+    )
+    captured: dict[str, np.ndarray] = {}
+
+    class FakePCA:
+        explained_variance_ratio_ = np.asarray([1.0])
+
+        def __init__(self, n_components: int, random_state: int):
+            pass
+
+        def fit(self, values: np.ndarray):
+            captured["scree"] = values.copy()
+            return self
+
+    monkeypatch.setattr(analysis_module, "PCA", FakePCA)
+
+    pca_explained_variance(vectors, n_components=1)
+    np.testing.assert_allclose(
+        captured["scree"],
+        prepare_cluster_samples(vectors, center=True, normalize=True).numpy(),
+    )
+
+    pca_explained_variance(vectors, n_components=1, normalize=False)
+    np.testing.assert_allclose(
+        captured["scree"],
+        prepare_cluster_samples(vectors, center=True, normalize=False).numpy(),
+    )
+
+
 
 def test_probe_regression_baseline_uses_held_out_split() -> None:
     X = np.arange(60, dtype=np.float32).reshape(10, 6)
@@ -225,6 +327,14 @@ def test_layered_projection_data_can_be_reused_for_color_changes() -> None:
             samples,
             "umap",
             layers=[0, 1],
+            projection_data=projection_data,
+        )
+    with pytest.raises(ValueError, match="projection_data normalize"):
+        build_layered_figure(
+            samples,
+            "pca",
+            layers=[0, 1],
+            projection_normalize=False,
             projection_data=projection_data,
         )
 

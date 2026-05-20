@@ -28,7 +28,7 @@ Dataset loading comes from [`persona-data`](https://github.com/implicit-personal
 # Extract — one (num_layers, hidden_size) vector per persona/variant/mask
 uv run python main.py extract --model google/gemma-2-9b-it --backend remote
 
-# Analyze — PCA, similarity, clustering, scree plots
+# Analyze — normalized PCA/UMAP, similarity, clustering, scree plots
 uv run python main.py analyze --model google/gemma-2-9b-it --variant biography
 
 # Probe — linear probes per persona attribute
