@@ -693,7 +693,8 @@ re-query the store piecemeal.</p>
 <span class="n">isomap</span> <span class="o">=</span> <span class="n">project_isomap</span><span class="p">(</span><span class="n">layer_vectors</span><span class="p">,</span> <span class="n">n_components</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
 <span class="n">variance</span> <span class="o">=</span> <span class="n">pca_explained_variance</span><span class="p">(</span><span class="n">layer_vectors</span><span class="p">)</span>
 </code></pre></div>
-<p>Cosine similarity is centered by default — removes the shared residual-stream DC component that otherwise pushes raw cosines toward 1.</p>
+<p>Cosine similarity is centered by default — removes the shared residual-stream DC component that otherwise pushes raw cosines toward 1.
+PCA, UMAP, Isomap, k-means, dendrogram inputs, and PCA scree calculations use centered + L2-normalized vectors by default so projection and grouping views compare persona direction/profile rather than raw activation magnitude. For PCA and UMAP, pass <code>normalize=False</code> when magnitude-sensitive geometry is the goal.</p>
 <h2 id="clustering">Clustering</h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">cluster_kmeans</span><span class="p">,</span> <span class="n">prepare_layer_mean_cluster_samples</span>
 
@@ -722,12 +723,12 @@ reuse as <code>groups=...</code>. <code>cluster_mode</code> controls stability a
 </thead>
 <tbody>
 <tr>
-<td><code>build_layered_figure(samples, kind, layers=..., n_clusters=..., cluster_mode=..., groups=..., color_values=...)</code></td>
+<td><code>build_layered_figure(samples, kind, layers=..., projection_normalize=..., n_clusters=..., cluster_mode=..., groups=..., color_values=...)</code></td>
 <td>PCA, UMAP, Isomap, or similarity with layer controls</td>
 </tr>
 <tr>
-<td><code>prepare_layered_projection_data(samples, kind, layers=...)</code></td>
-<td>precompute projection coordinates for manual reuse</td>
+<td><code>prepare_layered_projection_data(samples, kind, layers=..., normalize=...)</code></td>
+<td>precompute projection coordinates for manual reuse; <code>normalize</code> affects PCA/UMAP</td>
 </tr>
 <tr>
 <td><code>prepare_kmeans_groups(samples, layers=..., n_clusters=...)</code></td>
@@ -771,7 +772,7 @@ reuse as <code>groups=...</code>. <code>cluster_mode</code> controls stability a
 <span class="p">)</span>
 <span class="n">fig</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </code></pre></div>
-<p>When a UI switches between attributes, reuse <code>projection_data</code> and call <code>build_layered_figure(..., projection_data=projection_data)</code> with different <code>attribute_color_kwargs(...)</code>. Recreate the projection data only when the projection inputs change, such as method, layers, component count, samples, or graph settings.</p>
+<p>When a UI switches between attributes, reuse <code>projection_data</code> and call <code>build_layered_figure(..., projection_data=projection_data)</code> with different <code>attribute_color_kwargs(...)</code>. Recreate the projection data only when the projection inputs change, such as method, layers, component count, samples, normalization, or graph settings.</p>
 <h2 id="notebooks">Notebooks</h2>
 <p><code>notebooks/unsupervised/manifold.py</code> and <code>notebooks/unsupervised/similarity.py</code> read the published Hub dataset by default and include commented lines for local artifacts.</p>
 
