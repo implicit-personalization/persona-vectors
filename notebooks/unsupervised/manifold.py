@@ -70,7 +70,7 @@ samples = {
 }
 
 # %% Scree plot - PCA explained variance for representative layers
-# NOTE: Usually the first 5-6 components carry most of the visible structure.
+# NOTE: Usually the first 5 components carry most of the visible structure.
 for variant, s in samples.items():
     num_layers = int(s.vectors.shape[1])
     scree_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
@@ -100,13 +100,15 @@ for name in persona_dataset.attribute_names:
 console.print(attribute_summary)
 
 # %% Attribute-colored PCA views
+ATTRIBUTE = "age"
+
 for variant, s in samples.items():
     build_layered_figure(
         s,
         "pca",
-        title=f"PCA (2D) - {variant} - colored by age",
+        title=f"PCA (2D) - {variant} - colored by {ATTRIBUTE}",
         n_components=2,
-        **attribute_color_kwargs(persona_dataset, "age", persona_ids),
+        **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
     ).show()
 
 # %% Attribute-colored UMAP views

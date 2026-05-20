@@ -18,8 +18,8 @@ from persona_vectors.analysis import (
     load_analysis_dataset,
     load_persona_vectors,
     load_variant_vectors,
-    prepare_cluster_samples,
     pca_explained_variance,
+    prepare_cluster_samples,
     project_pca,
     project_umap,
     run_saved_activation_analysis,
@@ -244,7 +244,6 @@ def test_pca_scree_preprocessing_normalizes_by_default(
     )
 
 
-
 def test_probe_regression_baseline_uses_held_out_split() -> None:
     X = np.arange(60, dtype=np.float32).reshape(10, 6)
     y = np.asarray([0.0, 1.0, 3.0, 6.0, 10.0, 15.0, 21.0, 28.0, 36.0, 45.0])
@@ -408,7 +407,12 @@ def test_probe_artifact_roundtrip_uses_canonical_schema() -> None:
         artifact = load_probe_artifact(directory)
         assert artifact.schema_version == 2
         assert artifact.metadata["attribute_name"] == "sex"
-        assert {"weight", "bias", "scaler_mean", "scaler_scale"} <= artifact.tensors.keys()
+        assert {
+            "weight",
+            "bias",
+            "scaler_mean",
+            "scaler_scale",
+        } <= artifact.tensors.keys()
 
 
 def test_prepare_kmeans_groups_can_be_passed_as_groups() -> None:
@@ -626,9 +630,10 @@ def test_smoke() -> None:
             sample_ids,
         )
         assert store.list_personas(["templated"]) == ["persona-001"]
-        assert store.list_personas(
-            ["templated"], include_baseline=True
-        ) == [BASELINE_PERSONA_ID, "persona-001"]
+        assert store.list_personas(["templated"], include_baseline=True) == [
+            BASELINE_PERSONA_ID,
+            "persona-001",
+        ]
 
     with tempfile.TemporaryDirectory() as tmp:
         store = PersonaVectorStore("test/model", root_dir=tmp)

@@ -362,9 +362,7 @@ class HFPersonaVectorStore:
             )
         return self._datasets[variant]
 
-    def _metadata(
-        self, variant: str
-    ) -> tuple[dict[str, int], dict[str, str]]:
+    def _metadata(self, variant: str) -> tuple[dict[str, int], dict[str, str]]:
         """Return ``(persona_id -> row_index, persona_id -> name)`` for ``variant``.
 
         Reads the ``persona_id``/``name`` columns in a single vectorized pass
@@ -495,9 +493,7 @@ class HFPersonaVectorStore:
         """Return display names for known persona ids from Hub rows."""
         self._validate_mask_strategy(mask_strategy)
         requested = self.available_variants() if variants is None else list(variants)
-        name_maps = {
-            variant: self._metadata(variant)[1] for variant in requested
-        }
+        name_maps = {variant: self._metadata(variant)[1] for variant in requested}
         return _first_nonempty_name(
             persona_ids,
             requested,

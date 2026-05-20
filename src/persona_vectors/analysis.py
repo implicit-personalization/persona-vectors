@@ -8,10 +8,8 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap
 
-from persona_vectors.artifacts import (
-    PersonaVectorSource,
-    PersonaVectorStore,
-)
+from persona_vectors.artifacts import PersonaVectorSource, PersonaVectorStore
+
 
 @dataclass(frozen=True)
 class LayeredSamples:
@@ -90,6 +88,7 @@ def load_analysis_dataset(
             persona_ids=list(resolved_ids),
         ),
     )
+
 
 def _resolve_personas(
     store: PersonaVectorSource,
@@ -232,11 +231,7 @@ def pca_explained_variance(
     if samples.ndim != 2:
         raise ValueError("samples must have shape (n_samples, hidden_size)")
 
-    x = (
-        prepare_cluster_samples(samples, center=True, normalize=normalize)
-        .cpu()
-        .numpy()
-    )
+    x = prepare_cluster_samples(samples, center=True, normalize=normalize).cpu().numpy()
     max_components = min(x.shape)
     if n_components is None:
         n_components = max_components
@@ -396,7 +391,6 @@ def cluster_kmeans(
     return KMeans(n_clusters=n_clusters, n_init="auto", random_state=seed).fit_predict(
         _samples_to_numpy(samples, center=center, normalize=normalize)
     )
-
 
 
 def project_isomap(

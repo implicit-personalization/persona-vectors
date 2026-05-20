@@ -105,9 +105,9 @@ attributes = ["born_in_us", "mothers_work_history"]
 # full activations and the 5-component compression, then overlay them in one
 # figure to see how much of the attribute lives in the top components.
 # NOTE: difference_of_means only, so the overlay stays readable.
+kw = dict(task="binary", probe_kinds=["difference_of_means"])
 all_rows, all_pca_rows = [], []
 for attr in attributes:
-    kw = dict(task="binary", probe_kinds=["difference_of_means"])
     all_rows.extend(run_probe(attr, **kw))
     all_pca_rows.extend(run_probe(attr, **kw, n_pca_components=5))
 
@@ -121,10 +121,18 @@ report_best(all_pca_rows, "pca5")
 # %% Categorical — multinomial logistic regression
 # Swap `attribute` to: marital_status
 
-attribute = "race"
-rows = run_probe(attribute, task="categorical")
-plot_metric_over_layers(rows, attribute, metric="balanced_accuracy").show()
-report_best(rows, attribute)
+attributes = ["residence_at_16", "detailed_race"]
+kw = dict(task="categorical")
+for attr in attributes:
+    all_rows.extend(run_probe(attr, **kw))
+    all_pca_rows.extend(run_probe(attr, **kw, n_pca_components=5))
+
+
+plot_metric_comparison(
+    {"full": all_rows, "pca5": all_pca_rows}, attributes, metric="balanced_accuracy"
+).show()
+report_best(all_rows, "full")
+report_best(all_pca_rows, "pca5")
 
 # %% Ordinal — ridge on rank, rounded back to integer
 # Swap `attribute` to: political_views, total_wealth

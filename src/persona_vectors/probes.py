@@ -312,9 +312,7 @@ def evaluate_classification(
         predictions, _ = predict_difference_of_means(X_test_f, direction, bias)
     else:
         pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
-        pipeline.fit(
-            X_train, y_train.astype(float) if task == "ordinal" else y_train
-        )
+        pipeline.fit(X_train, y_train.astype(float) if task == "ordinal" else y_train)
         if task == "ordinal":
             low, high = int(y.min()), int(y.max())
             rounded = np.clip(np.rint(pipeline.predict(X_test)), low, high)
@@ -322,11 +320,7 @@ def evaluate_classification(
         else:
             predictions = pipeline.predict(X_test)
 
-    mae = (
-        float(mean_absolute_error(y_test, predictions))
-        if task == "ordinal"
-        else None
-    )
+    mae = float(mean_absolute_error(y_test, predictions)) if task == "ordinal" else None
     return {
         "layer": layer,
         "probe_kind": probe_kind,
@@ -531,11 +525,7 @@ def _metric_row(
         "balanced_accuracy": metrics["balanced_accuracy"],
         "mae": metrics["mae"],
         "r2": metrics["r2"],
-        **{
-            key: value
-            for key, value in metrics.items()
-            if key.startswith("baseline_")
-        },
+        **{key: value for key, value in metrics.items() if key.startswith("baseline_")},
     }
 
 
@@ -554,9 +544,7 @@ def _scaler_tensors(scaler: StandardScaler) -> dict[str, torch.Tensor]:
 def _pca_tensors(pca: PCA) -> dict[str, torch.Tensor]:
     # sklearn's components_ is a non-contiguous view; safetensors needs C-order.
     return {
-        "pca_mean": torch.from_numpy(
-            np.ascontiguousarray(pca.mean_, dtype=np.float32)
-        ),
+        "pca_mean": torch.from_numpy(np.ascontiguousarray(pca.mean_, dtype=np.float32)),
         "pca_components": torch.from_numpy(
             np.ascontiguousarray(pca.components_, dtype=np.float32)
         ),
@@ -672,13 +660,9 @@ def save_probe_artifact(
     X = np.asarray(X, dtype=np.float32)
     y = np.asarray(y)
     if probe_kind == "difference_of_means":
-        tensors = _fit_difference_artifact(
-            X, y.astype(int), n_pca_components, seed
-        )
+        tensors = _fit_difference_artifact(X, y.astype(int), n_pca_components, seed)
     else:
-        tensors = _fit_pipeline_artifact(
-            X, y, task, probe_kind, n_pca_components, seed
-        )
+        tensors = _fit_pipeline_artifact(X, y, task, probe_kind, n_pca_components, seed)
 
     suffix = "" if n_pca_components is None else f"_pca{n_pca_components}"
     root = (
@@ -740,7 +724,9 @@ def load_probe_artifact(path: str | Path) -> ProbeArtifact:
         )
     tensors = load_file(str(weights_path), device="cpu")
     if not {"weight", "bias"} <= tensors.keys():
-        raise ValueError(f"Probe weights are missing required tensors in {weights_path}")
+        raise ValueError(
+            f"Probe weights are missing required tensors in {weights_path}"
+        )
     return ProbeArtifact(metadata=metadata, tensors=tensors)
 
 
