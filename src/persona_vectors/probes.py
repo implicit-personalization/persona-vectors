@@ -31,6 +31,7 @@ from sklearn.metrics import balanced_accuracy_score, mean_absolute_error, r2_sco
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
 
 from persona_vectors.analysis import LayeredSamples
 from persona_vectors.artifacts import model_dir_name, normalize_mask_strategy
@@ -396,7 +397,9 @@ def sweep_attribute(
     vectors = samples.vectors.float().cpu().numpy()
 
     rows: list[dict[str, object]] = []
-    for layer in layers:
+    for layer in tqdm(
+        layers, desc=f"{labels.attribute_name}", unit="layer", leave=False
+    ):
         X = vectors[:, layer, :]
         for probe_kind in probe_kinds:
             if labels.task == "numeric":

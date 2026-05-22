@@ -180,7 +180,7 @@ def probe_activations(cfg: ProbeConfig) -> None:
         f"Loaded {len(persona_ids)} personas; layers={num_layers}; testing layers={layers}"
     )
 
-    for attribute in cfg.attributes:
+    for attribute in tqdm(cfg.attributes, desc="attributes", unit="attr"):
         directory, best, task = run_attribute_probe(
             samples,
             dataset,
