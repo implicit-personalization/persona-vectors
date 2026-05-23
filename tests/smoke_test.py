@@ -6,12 +6,15 @@ import types
 import numpy as np
 import pytest
 import torch
+from nnterp import StandardizedTransformer
 from persona_data.synth_persona import BASELINE_PERSONA_ID, BASELINE_PERSONA_NAME
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
+from transformers import GPT2Config, GPT2LMHeadModel
 
 import persona_vectors  # noqa: F401
 from persona_vectors import analysis as analysis_module
+from persona_vectors.activations import extract_activations
 from persona_vectors.analysis import (
     AnalysisDataset,
     LayeredSamples,
@@ -58,6 +61,23 @@ def _layered_samples(n_samples: int = 5) -> LayeredSamples:
     )
     labels = [f"Persona {idx}" for idx in range(n_samples)]
     return LayeredSamples(values, labels, labels)
+
+
+def test_extract_activations_returns_masked_layer_means() -> None:
+    torch.manual_seed(0)
+    base = GPT2LMHeadModel(
+        GPT2Config(n_layer=2, n_head=2, n_embd=8, n_positions=16, vocab_size=32)
+    ).eval()
+    model = StandardizedTransformer(base, check_renaming=False, allow_dispatch=False)
+
+    input_ids = torch.tensor([1, 2, 3, 4], dtype=torch.long)
+    token_mask = torch.tensor([False, True, True, False])
+
+    activations = extract_activations(model, [input_ids], [token_mask], remote=False)
+
+    assert isinstance(activations, torch.Tensor)
+    assert activations.shape == (2, 8)
+    assert torch.isfinite(activations).all()
 
 
 def test_projection_plots_cover_2d_and_3d() -> None:

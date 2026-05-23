@@ -14,7 +14,7 @@ NETWORK_ERRORS = (
 )
 
 
-class _CallbackJobStatusDisplay(JobStatusDisplay):
+class CallbackJobStatusDisplay(JobStatusDisplay):
     """JobStatusDisplay subclass that fires an extra callback on each update.
 
     The callback receives ``(job_id, status_name, description)`` so callers
@@ -42,7 +42,7 @@ def _build_backend(
     backend = RemoteBackend(model.to_model_key())
     backend.CONNECT_TIMEOUT = 300.0
     if on_status is not None:
-        backend.status_display = _CallbackJobStatusDisplay(
+        backend.status_display = CallbackJobStatusDisplay(
             on_status, enabled=True, verbose=backend.verbose
         )
     return backend
