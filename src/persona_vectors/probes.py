@@ -183,6 +183,7 @@ def predict_difference_of_means(
 def make_linear_probe(
     probe_kind: ProbeKind,
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     seed: int = 0,
 ) -> Pipeline:
     """Pipeline: scaler (+ optional PCA) + classifier/regressor.
@@ -193,7 +194,9 @@ def make_linear_probe(
     if probe_kind == "difference_of_means":
         raise ValueError("difference_of_means is not an sklearn pipeline")
 
-    steps: list = [("scale", StandardScaler())]
+    steps: list = []
+    if n_pca_components is None or normalize_pca:
+        steps.append(("scale", StandardScaler()))
     if n_pca_components is not None:
         steps.append(("pca", PCA(n_components=n_pca_components, random_state=seed)))
 
@@ -282,6 +285,7 @@ def evaluate_classification(
     layer: int,
     probe_kind: ProbeKind,
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     seed: int = 0,
 ) -> dict[str, object]:
     """Single 80/20 stratified split for binary/categorical/ordinal labels.
@@ -308,11 +312,22 @@ def evaluate_classification(
     y_train, y_test = y[train_idx], y[test_idx]
 
     if probe_kind == "difference_of_means":
-        X_train_f, X_test_f = _maybe_pca(X_train, X_test, n_pca_components, seed)
+        X_train_f, X_test_f = _pca_split(
+            X_train,
+            X_test,
+            n_pca_components,
+            seed,
+            normalize=normalize_pca,
+        )
         direction, bias = difference_of_means_direction(X_train_f, y_train)
         predictions, _ = predict_difference_of_means(X_test_f, direction, bias)
     else:
-        pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
+        pipeline = make_linear_probe(
+            probe_kind,
+            n_pca_components,
+            normalize_pca=normalize_pca,
+            seed=seed,
+        )
         pipeline.fit(X_train, y_train.astype(float) if task == "ordinal" else y_train)
         if task == "ordinal":
             low, high = int(y.min()), int(y.max())
@@ -339,6 +354,7 @@ def evaluate_regression(
     layer: int,
     probe_kind: ProbeKind = "ridge_regression",
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     seed: int = 0,
 ) -> dict[str, object]:
     """Single 80/20 split for numeric attributes (ridge regression)."""
@@ -348,7 +364,12 @@ def evaluate_regression(
     y = np.asarray(y, dtype=float)
 
     train_idx, test_idx = _split_indices(y, classification=False, seed=seed)
-    pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
+    pipeline = make_linear_probe(
+        probe_kind,
+        n_pca_components,
+        normalize_pca=normalize_pca,
+        seed=seed,
+    )
     pipeline.fit(X[train_idx], y[train_idx])
     predictions = pipeline.predict(X[test_idx])
     y_test = y[test_idx]
@@ -363,12 +384,26 @@ def evaluate_regression(
     }
 
 
-def _maybe_pca(
-    X_train: np.ndarray, X_test: np.ndarray, n_pca_components: int | None, seed: int
+def _pca_split(
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    n_pca_components: int | None,
+    seed: int,
+    *,
+    normalize: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """PCA the split (fit on train only) when ``n_pca_components`` is set."""
+    """Reduce dimensionality with PCA fit on train only.
+
+    When ``normalize=True`` (default) the data is z-scored before PCA so that
+    high-variance dimensions do not dominate the principal components.
+    Returns the original arrays unchanged when ``n_pca_components`` is None.
+    """
     if n_pca_components is None:
         return X_train, X_test
+    if normalize:
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
     pca = PCA(n_components=n_pca_components, random_state=seed)
     return pca.fit_transform(X_train), pca.transform(X_test)
 
@@ -385,6 +420,7 @@ def sweep_attribute(
     layers: list[int],
     probe_kinds: list[ProbeKind] | None = None,
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     seed: int = 0,
 ) -> list[dict[str, object]]:
     """Sweep one attribute across layers x probe_kinds; return metric rows.
@@ -409,6 +445,7 @@ def sweep_attribute(
                     layer=layer,
                     probe_kind=probe_kind,
                     n_pca_components=n_pca_components,
+                    normalize_pca=normalize_pca,
                     seed=seed,
                 )
             else:
@@ -419,6 +456,7 @@ def sweep_attribute(
                     layer=layer,
                     probe_kind=probe_kind,
                     n_pca_components=n_pca_components,
+                    normalize_pca=normalize_pca,
                     seed=seed,
                 )
             rows.append(_metric_row(labels, metrics))
@@ -433,6 +471,7 @@ def shuffle_label_baseline(
     layer: int,
     probe_kind: ProbeKind,
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     n_repeats: int = 5,
     seed: int = 0,
 ) -> dict[str, float]:
@@ -458,6 +497,7 @@ def shuffle_label_baseline(
             layer=layer,
             probe_kind=probe_kind,
             n_pca_components=n_pca_components,
+            normalize_pca=normalize_pca,
             seed=seed + repeat,
         )
         accuracies.append(float(metrics["balanced_accuracy"]))
@@ -554,18 +594,43 @@ def _pca_tensors(pca: PCA) -> dict[str, torch.Tensor]:
     }
 
 
-def _fit_difference_artifact(
-    X: np.ndarray, y: np.ndarray, n_pca_components: int | None, seed: int
-) -> dict[str, torch.Tensor]:
-    if n_pca_components is not None:
-        scaler = StandardScaler()
-        pca = PCA(n_components=n_pca_components, random_state=seed)
-        features = pca.fit_transform(scaler.fit_transform(X))
-        transform_tensors = {**_scaler_tensors(scaler), **_pca_tensors(pca)}
-    else:
-        features = X
-        transform_tensors = {}
+def _fit_pca_features(
+    X: np.ndarray,
+    n_pca_components: int | None,
+    seed: int,
+    *,
+    normalize_pca: bool = True,
+) -> tuple[np.ndarray, dict[str, torch.Tensor]]:
+    if n_pca_components is None:
+        return X, {}
 
+    transform_tensors: dict[str, torch.Tensor] = {}
+    features = X
+    if normalize_pca:
+        scaler = StandardScaler()
+        features = scaler.fit_transform(features)
+        transform_tensors.update(_scaler_tensors(scaler))
+
+    pca = PCA(n_components=n_pca_components, random_state=seed)
+    features = pca.fit_transform(features)
+    transform_tensors.update(_pca_tensors(pca))
+    return features, transform_tensors
+
+
+def _fit_difference_artifact(
+    X: np.ndarray,
+    y: np.ndarray,
+    n_pca_components: int | None,
+    seed: int,
+    *,
+    normalize_pca: bool = True,
+) -> dict[str, torch.Tensor]:
+    features, transform_tensors = _fit_pca_features(
+        X,
+        n_pca_components,
+        seed,
+        normalize_pca=normalize_pca,
+    )
     direction, bias = difference_of_means_direction(features, y)
     # Two-row weight matrix so persona-ui's 2-class linear head loads it directly.
     weights = np.stack([-0.5 * direction, 0.5 * direction]).astype(np.float32)
@@ -585,15 +650,22 @@ def _fit_pipeline_artifact(
     task: ProbeTask,
     probe_kind: ProbeKind,
     n_pca_components: int | None,
+    normalize_pca: bool,
     seed: int,
 ) -> dict[str, torch.Tensor]:
-    pipeline = make_linear_probe(probe_kind, n_pca_components, seed=seed)
+    pipeline = make_linear_probe(
+        probe_kind,
+        n_pca_components,
+        normalize_pca=normalize_pca,
+        seed=seed,
+    )
     fit_y = y.astype(float) if task in {"ordinal", "numeric"} else y
     pipeline.fit(X, fit_y)
 
-    scaler = pipeline.named_steps["scale"]
     final = pipeline.named_steps["probe"]
-    tensors: dict[str, torch.Tensor] = dict(_scaler_tensors(scaler))
+    tensors: dict[str, torch.Tensor] = {}
+    if "scale" in pipeline.named_steps:
+        tensors.update(_scaler_tensors(pipeline.named_steps["scale"]))
     if "pca" in pipeline.named_steps:
         tensors.update(_pca_tensors(pipeline.named_steps["pca"]))
 
@@ -646,6 +718,7 @@ def save_probe_artifact(
     variant: str,
     mask_strategy: object,
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     output_dir: str | Path = "artifacts/probes",
     metrics: dict[str, object] | None = None,
     seed: int = 0,
@@ -663,9 +736,23 @@ def save_probe_artifact(
     X = np.asarray(X, dtype=np.float32)
     y = np.asarray(y)
     if probe_kind == "difference_of_means":
-        tensors = _fit_difference_artifact(X, y.astype(int), n_pca_components, seed)
+        tensors = _fit_difference_artifact(
+            X,
+            y.astype(int),
+            n_pca_components,
+            seed,
+            normalize_pca=normalize_pca,
+        )
     else:
-        tensors = _fit_pipeline_artifact(X, y, task, probe_kind, n_pca_components, seed)
+        tensors = _fit_pipeline_artifact(
+            X,
+            y,
+            task,
+            probe_kind,
+            n_pca_components,
+            normalize_pca,
+            seed,
+        )
 
     suffix = "" if n_pca_components is None else f"_pca{n_pca_components}"
     root = (
@@ -689,6 +776,7 @@ def save_probe_artifact(
         "task": task,
         "probe_kind": probe_kind,
         "n_pca_components": n_pca_components,
+        "normalize_pca": bool(normalize_pca) if n_pca_components is not None else None,
         "layer": layer,
         "location": location,
         "input_dim": int(X.shape[1]),
@@ -779,6 +867,7 @@ def run_attribute_probe(
     *,
     layers: list[int],
     n_pca_components: int | None = None,
+    normalize_pca: bool = True,
     min_class_count: int = 5,
     model_name: str,
     variant: str,
@@ -803,6 +892,7 @@ def run_attribute_probe(
         labels,
         layers=layers,
         n_pca_components=n_pca_components,
+        normalize_pca=normalize_pca,
         seed=seed,
     )
     best = best_row(rows, primary_metric(task))
@@ -819,6 +909,7 @@ def run_attribute_probe(
         variant=variant,
         mask_strategy=mask_strategy,
         n_pca_components=n_pca_components,
+        normalize_pca=normalize_pca,
         output_dir=output_dir,
         metrics=best,
         seed=seed,

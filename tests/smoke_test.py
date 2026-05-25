@@ -50,6 +50,7 @@ from persona_vectors.probes import (
     AttributeLabels,
     evaluate_regression,
     load_probe_artifact,
+    make_linear_probe,
     save_probe_artifact,
 )
 from persona_vectors.steering import compute_steering_vector
@@ -433,6 +434,67 @@ def test_probe_artifact_roundtrip_uses_canonical_schema() -> None:
             "scaler_mean",
             "scaler_scale",
         } <= artifact.tensors.keys()
+
+
+def test_pca_normalization_flag_controls_probe_pipeline() -> None:
+    normalized = make_linear_probe(
+        "logistic_regression",
+        n_pca_components=2,
+        normalize_pca=True,
+    )
+    raw_pca = make_linear_probe(
+        "logistic_regression",
+        n_pca_components=2,
+        normalize_pca=False,
+    )
+    raw_full = make_linear_probe("logistic_regression", normalize_pca=False)
+
+    assert list(normalized.named_steps) == ["scale", "pca", "probe"]
+    assert list(raw_pca.named_steps) == ["pca", "probe"]
+    assert list(raw_full.named_steps) == ["scale", "probe"]
+
+
+def test_probe_artifact_pca_without_normalization_omits_scaler() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        labels = AttributeLabels(
+            attribute_name="sex",
+            task="binary",
+            y=np.asarray([0, 1, 0, 1]),
+            labels=["f", "m", "f", "m"],
+            class_names=["f", "m"],
+        )
+        X = np.asarray(
+            [
+                [0.0, 1.0, 2.0],
+                [1.0, 0.0, 3.0],
+                [0.1, 1.1, 2.1],
+                [1.1, 0.1, 3.1],
+            ],
+            dtype=np.float32,
+        )
+        directory = save_probe_artifact(
+            X=X,
+            y=labels.y,
+            labels=labels,
+            task="binary",
+            probe_kind="logistic_regression",
+            layer=2,
+            model_name="test/model",
+            variant="templated",
+            mask_strategy="answer_mean",
+            n_pca_components=2,
+            normalize_pca=False,
+            output_dir=tmp,
+        )
+
+        artifact = load_probe_artifact(directory)
+        assert artifact.metadata["normalize_pca"] is False
+        assert "scaler_mean" not in artifact.tensors
+        assert "scaler_scale" not in artifact.tensors
+        torch.testing.assert_close(
+            artifact.tensors["pca_mean"],
+            torch.from_numpy(X.mean(axis=0)),
+        )
 
 
 def test_prepare_kmeans_groups_can_be_passed_as_groups() -> None:

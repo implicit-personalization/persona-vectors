@@ -62,7 +62,7 @@ For `--pca-components 10`, the final directory is named
 `<probe>_pca10_layer<layer>`.
 
 `probe.json` includes `schema_version`, `task`, `probe_kind`,
-`n_pca_components`, `layer`, `input_dim`, `artifact_feature_dim`,
+`n_pca_components`, `normalize_pca`, `layer`, `input_dim`, `artifact_feature_dim`,
 `class_names`, and the evaluation metrics. `schema_version == 2` is the
 current canonical format. Load it with:
 
