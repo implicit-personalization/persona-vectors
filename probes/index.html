@@ -644,7 +644,7 @@ or <code>--activations-dir artifacts/persona-vectors</code> to read all-question
 <p>For <code>--pca-components 10</code>, the final directory is named
 <code>&lt;probe&gt;_pca10_layer&lt;layer&gt;</code>.</p>
 <p><code>probe.json</code> includes <code>schema_version</code>, <code>task</code>, <code>probe_kind</code>,
-<code>n_pca_components</code>, <code>layer</code>, <code>input_dim</code>, <code>artifact_feature_dim</code>,
+<code>n_pca_components</code>, <code>normalize_pca</code>, <code>layer</code>, <code>input_dim</code>, <code>artifact_feature_dim</code>,
 <code>class_names</code>, and the evaluation metrics. <code>schema_version == 2</code> is the
 current canonical format. Load it with:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.probes</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_probe_artifact</span>
