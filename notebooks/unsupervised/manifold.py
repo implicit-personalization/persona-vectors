@@ -3,7 +3,7 @@
 """Manifold and attribute views over persona vectors from Hub or local artifacts.
 
 For pairwise similarity, dendrograms, and prompt-variant comparisons see
-``notebook_similarity.py``.
+``similarity.py``.
 """
 
 # %% Imports

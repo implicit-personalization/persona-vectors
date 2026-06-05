@@ -369,7 +369,7 @@ def prepare_layer_mean_cluster_samples(
     return prepared.mean(dim=1)
 
 
-def _samples_to_numpy(
+def samples_to_numpy(
     samples: torch.Tensor, *, center: bool = True, normalize: bool = True
 ) -> np.ndarray:
     return (
@@ -377,6 +377,10 @@ def _samples_to_numpy(
         .cpu()
         .numpy()
     )
+
+
+# Back-compat alias: older call sites (and persona-ui) import the private name.
+_samples_to_numpy = samples_to_numpy
 
 
 def cluster_kmeans(
@@ -389,7 +393,7 @@ def cluster_kmeans(
 ) -> np.ndarray:
     """K-means (k-means++ init) cluster labels for a (n_samples, hidden) tensor."""
     return KMeans(n_clusters=n_clusters, n_init="auto", random_state=seed).fit_predict(
-        _samples_to_numpy(samples, center=center, normalize=normalize)
+        samples_to_numpy(samples, center=center, normalize=normalize)
     )
 
 
@@ -413,7 +417,7 @@ def project_isomap(
         n_components=n_components,
         n_neighbors=n_neighbors,
         metric="euclidean",
-    ).fit_transform(_samples_to_numpy(samples, center=True, normalize=True))
+    ).fit_transform(samples_to_numpy(samples, center=True, normalize=True))
     return torch.from_numpy(embedding)
 
 

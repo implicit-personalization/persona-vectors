@@ -3,7 +3,7 @@
 """Pairwise similarity, dendrogram, and prompt-variant views over persona vectors.
 
 For PCA, UMAP, Isomap, and attribute-colored projection views see
-``notebook_manifold.py``.
+``manifold.py``.
 """
 
 # %% Imports

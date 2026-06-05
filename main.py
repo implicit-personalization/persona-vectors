@@ -1,4 +1,22 @@
 #!/usr/bin/env python
+"""Persona-vectors CLI and reproduction pipeline.
+
+CLI subcommands (flags live in ``persona_vectors.parser``):
+  extract  - run a model over the SynthPersona QA set, save per-layer activations
+  push     - upload an activation set to the Hugging Face Hub
+  probe    - supervised per-attribute linear probes (the decodability ceiling)
+  steer    - compute / save a per-persona steering vector
+  analyze  - saved-activation analysis report
+
+To reproduce results end to end:
+  1. Extract activations for a model (writes artifacts/persona-vectors/<model>/):
+       python main.py extract --model meta-llama/Llama-3.1-405B-Instruct --variants templated
+  2. (optional) Supervised probe ceiling for comparison:
+       python main.py probe --model <model> --variant templated --attributes sex age total_wealth
+
+  # similarity.py / manifold.py - focused single-view notebooks
+"""
+
 from pathlib import Path
 
 from dotenv import load_dotenv
