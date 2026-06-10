@@ -48,33 +48,37 @@ TICK_FONT_SIZE = 16
 # TICK_FONT_SIZE = 18
 
 
-def apply_fig_fonts(fig: go.Figure, title: str | None = None) -> go.Figure:
+def apply_fig_fonts(
+    fig: go.Figure, title: str | None = None, tick_size: int | None = None
+) -> go.Figure:
     """Apply the shared font sizes so every plot's text reads at one size.
 
     Fonts only — axis ranges, legends, templates and traces are left
     untouched, so this is safe to call on line plots, heatmaps and
-    dendrograms alike. Pass ``title`` to also set the title text.
+    dendrograms alike. Pass ``title`` to also set the title text, and
+    ``tick_size`` to override ``TICK_FONT_SIZE`` for dense axes.
     """
+    tick = TICK_FONT_SIZE if tick_size is None else tick_size
     title_kw: dict = {"font": {"size": TITLE_FONT_SIZE}}
     if title is not None:
         title_kw["text"] = title
     fig.update_layout(font=dict(size=BASE_FONT_SIZE), title=title_kw)
     fig.update_xaxes(
         title_font=dict(size=AXIS_TITLE_FONT_SIZE),
-        tickfont=dict(size=TICK_FONT_SIZE),
+        tickfont=dict(size=tick),
     )
     fig.update_yaxes(
         title_font=dict(size=AXIS_TITLE_FONT_SIZE),
-        tickfont=dict(size=TICK_FONT_SIZE),
+        tickfont=dict(size=tick),
     )
     # 3D scatter plots use scene axes, not cartesian ones; no-op otherwise.
     fig.update_scenes(
         xaxis_title_font=dict(size=AXIS_TITLE_FONT_SIZE),
         yaxis_title_font=dict(size=AXIS_TITLE_FONT_SIZE),
         zaxis_title_font=dict(size=AXIS_TITLE_FONT_SIZE),
-        xaxis_tickfont=dict(size=TICK_FONT_SIZE),
-        yaxis_tickfont=dict(size=TICK_FONT_SIZE),
-        zaxis_tickfont=dict(size=TICK_FONT_SIZE),
+        xaxis_tickfont=dict(size=tick),
+        yaxis_tickfont=dict(size=tick),
+        zaxis_tickfont=dict(size=tick),
     )
     return fig
 
