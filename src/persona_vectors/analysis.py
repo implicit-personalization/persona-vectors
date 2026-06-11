@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap
+from sklearn.neighbors import NearestNeighbors
 
 from persona_vectors.artifacts import PersonaVectorSource, PersonaVectorStore
 
@@ -447,3 +448,31 @@ def project_umap(
         n_jobs=1,
     ).fit_transform(prepared.cpu().numpy())
     return torch.from_numpy(embedding)
+
+
+def twonn(data: np.ndarray, discard_fraction: float = 0.1) -> float:
+    """TwoNN intrinsic-dimension estimator (Facco et al. 2017)."""
+
+    if data.shape[0] < 3:
+        raise ValueError("TwoNN needs at least 3 samples")
+
+    # Need to compute the 3-NN since we also consider the point itself
+    dists, _ = NearestNeighbors(n_neighbors=3).fit(data).kneighbors(data)
+    r1 = dists[:, 1]
+    r2 = dists[:, 2]
+
+    # Remove degenerate cases (duplicates)
+    valid = (r1 > 0) & (r2 > r1)
+
+    mu = np.sort(r2[valid] / r1[valid])
+    n = len(mu)
+    keep = max(2, int(n * (1.0 - discard_fraction)))
+    mu = mu[:keep]
+
+    # empirical CDF uses full
+    F = np.arange(1, keep + 1) / n
+    x = np.log(mu)
+    y = -np.log1p(-F)
+
+    # OLS slope constrained through the origin
+    return float(np.dot(x, y) / np.dot(x, x))

@@ -135,3 +135,5 @@ When a UI switches between attributes, reuse `projection_data` and call `build_l
 ## Notebooks
 
 `notebooks/unsupervised/manifold.py` and `notebooks/unsupervised/similarity.py` read the published Hub dataset by default and include commented lines for local artifacts.
+
+`notebooks/unsupervised/datamap.py` renders two interactive datamapplot maps (UMAP + HDBSCAN clusters auto-named by attribute) — one for persona vectors, one for the persona-mean representation — using the helpers in `persona_vectors.plots.datamap` (requires the `datamapplot` dev dependency).

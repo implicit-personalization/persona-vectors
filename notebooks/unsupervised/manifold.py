@@ -27,9 +27,10 @@ load_dotenv()
 torch.set_grad_enabled(False)
 
 REPO_ID = "implicit-personalization/synth-persona-vectors"
-MODEL_NAME = "google/gemma-3-27b-it"
+# MODEL_NAME = "google/gemma-3-27b-it"
+MODEL_NAME = "meta-llama/Llama-3.1-405B-Instruct"
 MASK_STRATEGY = MaskStrategy.ANSWER_MEAN
-VARIANTS = ["biography", "templated"]
+VARIANT = "templated"  # the single prompt variant every view below uses
 INCLUDE_BASELINE = False
 
 # %% Load activation store
@@ -39,17 +40,11 @@ store = HFPersonaVectorStore(REPO_ID, MODEL_NAME, mask_strategy=MASK_STRATEGY)
 
 # NOTE: This is an example of how you may get things from another position locally
 
-# MODEL_NAME = "meta-llama/Llama-3.1-405B-Instruct"
 # store = PersonaVectorStore(
 #     MODEL_NAME, mask_strategy=MASK_STRATEGY, root_dir="artifacts/persona-vectors"
 # )
 
-available_variants = store.available_variants(VARIANTS)
-comparison_variants = [variant for variant in VARIANTS if variant in available_variants]
-persona_ids = store.list_personas(
-    comparison_variants,
-    include_baseline=INCLUDE_BASELINE,
-)
+persona_ids = store.list_personas([VARIANT], include_baseline=INCLUDE_BASELINE)
 
 summary = Table(title="Activation Dataset")
 summary.add_column("Property", style="cyan")
@@ -58,30 +53,25 @@ summary.add_row("Store", type(store).__name__)
 summary.add_row("Repo", getattr(store, "repo_id", "local artifacts"))
 summary.add_row("Model", store.model_name)
 summary.add_row("Config", getattr(store, "config_name", str(MASK_STRATEGY)))
-summary.add_row("Available variants", ", ".join(available_variants))
-summary.add_row("Compared variants", ", ".join(comparison_variants))
+summary.add_row("Variant", VARIANT)
 summary.add_row("Personas loaded", str(len(persona_ids)))
 console.print(summary)
 
-# %% Load persona vectors for each variant
-samples = {
-    variant: load_persona_vectors(store, variant, persona_ids=persona_ids)
-    for variant in comparison_variants
-}
+# %% Load persona vectors
+s = load_persona_vectors(store, VARIANT, persona_ids=persona_ids)
 
 # %% Scree plot - PCA explained variance for representative layers
 # NOTE: Usually the first 5 components carry most of the visible structure.
-for variant, s in samples.items():
-    num_layers = int(s.vectors.shape[1])
-    scree_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
-    plot_scree(
-        {
-            f"layer {layer}": pca_explained_variance(s.vectors[:, layer, :])
-            for layer in scree_layers
-        },
-        title=f"PCA explained variance - {variant} persona vectors",
-        show=True,
-    )
+num_layers = int(s.vectors.shape[1])
+scree_layers = sorted({0, num_layers // 3, (2 * num_layers) // 3, num_layers - 1})
+plot_scree(
+    {
+        f"layer {layer}": pca_explained_variance(s.vectors[:, layer, :])
+        for layer in scree_layers
+    },
+    title=f"PCA explained variance - {VARIANT} persona vectors",
+    show=True,
+)
 
 # %% Attribute schema overview
 persona_dataset = SynthPersonaDataset()
@@ -101,34 +91,30 @@ console.print(attribute_summary)
 
 # %% Attribute-colored PCA views
 ATTRIBUTE = "age"
-
-for variant, s in samples.items():
-    build_layered_figure(
-        s,
-        "pca",
-        title=f"PCA (2D) - {variant} - colored by {ATTRIBUTE}",
-        n_components=2,
-        **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
-    ).show()
+build_layered_figure(
+    s,
+    "pca",
+    title=f"PCA (2D) - {VARIANT} - colored by {ATTRIBUTE}",
+    n_components=2,
+    **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
+).show()
 
 # %% Attribute-colored UMAP views
 ATTRIBUTE = "total_wealth"
-for variant, s in samples.items():
-    build_layered_figure(
-        s,
-        "umap",
-        title=f"UMAP (3D) - {variant} - colored by {ATTRIBUTE}",
-        n_components=3,
-        **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
-    ).show()
+build_layered_figure(
+    s,
+    "umap",
+    title=f"UMAP (3D) - {VARIANT} - colored by {ATTRIBUTE}",
+    n_components=3,
+    **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
+).show()
 
 # %% Attribute-colored Isomap views with kNN graph overlay
-# for variant, s in samples.items():
-#     build_layered_figure(
-#         s,
-#         "isomap",
-#         title=f"Isomap (3D) - {variant} - colored by {ATTRIBUTE}",
-#         n_components=3,
-#         graph_overlay=True,
-#         **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
-#     ).show()
+# build_layered_figure(
+#     s,
+#     "isomap",
+#     title=f"Isomap (3D) - {VARIANT} - colored by {ATTRIBUTE}",
+#     n_components=3,
+#     graph_overlay=True,
+#     **attribute_color_kwargs(persona_dataset, ATTRIBUTE, persona_ids),
+# ).show()

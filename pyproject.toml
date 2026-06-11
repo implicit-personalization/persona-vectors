@@ -20,6 +20,7 @@ dependencies = [
     "transformers>=5.8.0",
     "datasets>=4.8.5",
     "nnterp",
+    "datamapplot>=0.7.3",
 ]
 
 [build-system]

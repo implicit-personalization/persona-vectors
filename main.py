@@ -37,7 +37,7 @@ def extract_activations(cfg: ExtractConfig) -> None:
     from persona_data.synth_persona import SynthPersonaDataset
 
     from persona_vectors.artifacts import PersonaVectorStore
-    from persona_vectors.extraction import run_extraction
+    from persona_vectors.extraction import MaskStrategy, run_extraction
 
     dataset = SynthPersonaDataset(sample_size=cfg.sample_size)
     store = PersonaVectorStore(cfg.model, root_dir=cfg.activations_dir)
@@ -60,7 +60,13 @@ def extract_activations(cfg: ExtractConfig) -> None:
         return train if qa_type is None else [q for q in train if q.type == qa_type]
 
     def matches_current_selection(persona, qa_pairs) -> bool:
-        expected_sample_ids = [q.qid for q in qa_pairs]
+        # Persona-only strategies extract (and store) just the first QA pair;
+        # mirror that here or resume re-extracts every persona.
+        persona_only = cfg.mask_strategy in (
+            MaskStrategy.PERSONA_MEAN,
+            MaskStrategy.PERSONA_LAST,
+        )
+        expected_sample_ids = [q.qid for q in (qa_pairs[:1] if persona_only else qa_pairs)]
         for variant in cfg.variants:
             stored = store.persona_sample_ids(variant, persona.id, cfg.mask_strategy)
             if stored != expected_sample_ids:

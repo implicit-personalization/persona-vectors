@@ -7,6 +7,11 @@ callers can keep using ``from persona_vectors.plots import ...``.
 from persona_vectors.plots._common import save_plot_html
 from persona_vectors.plots.builder import build_layered_figure
 from persona_vectors.plots.correlations import build_cooccurrence_heatmap
+from persona_vectors.plots.datamap import (
+    attribute_cluster_labels,
+    cluster_color_map,
+    persona_datamap,
+)
 from persona_vectors.plots.dendrogram import plot_persona_dendrogram
 from persona_vectors.plots.probes import (
     plot_attribute_layer_selectivity_heatmap,
@@ -31,10 +36,13 @@ __all__ = [
     "ClusterMode",
     "LayeredProjectionData",
     "ProjectionKind",
+    "attribute_cluster_labels",
     "build_cooccurrence_heatmap",
     "build_layered_figure",
     "build_pair_similarity_figure",
     "build_similarity_figures",
+    "cluster_color_map",
+    "persona_datamap",
     "plot_attribute_layer_selectivity_heatmap",
     "plot_layer_similarity",
     "plot_metric_comparison",
