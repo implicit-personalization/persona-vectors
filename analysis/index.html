@@ -775,6 +775,7 @@ reuse as <code>groups=...</code>. <code>cluster_mode</code> controls stability a
 <p>When a UI switches between attributes, reuse <code>projection_data</code> and call <code>build_layered_figure(..., projection_data=projection_data)</code> with different <code>attribute_color_kwargs(...)</code>. Recreate the projection data only when the projection inputs change, such as method, layers, component count, samples, normalization, or graph settings.</p>
 <h2 id="notebooks">Notebooks</h2>
 <p><code>notebooks/unsupervised/manifold.py</code> and <code>notebooks/unsupervised/similarity.py</code> read the published Hub dataset by default and include commented lines for local artifacts.</p>
+<p><code>notebooks/unsupervised/datamap.py</code> renders two interactive datamapplot maps (UMAP + HDBSCAN clusters auto-named by attribute) — one for persona vectors, one for the persona-mean representation — using the helpers in <code>persona_vectors.plots.datamap</code> (requires the <code>datamapplot</code> dev dependency).</p>
 
 
 
