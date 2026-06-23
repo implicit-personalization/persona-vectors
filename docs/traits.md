@@ -46,6 +46,15 @@ info = build_trait_direction(deltas, candidate_layers=[13])
 `gap_norm`, `auc`, `positive`, …), so a trait vector drops straight into the
 steering harness via `build_steering_spec` / `generate_steered`.
 
+## Storage
+
+Trait vectors are persisted with `TraitVectorStore` —
+`save_trait_deltas(store, deltas)` writes the full per-layer mean delta plus
+contrast metadata, and `load_trait_direction(store, attribute, layer=...)`
+rebuilds a steering-ready dict at any layer. See the
+[Trait Vector Store](artifacts.md#trait-vector-store) section of Artifacts for
+the layout and API.
+
 ## Steering
 
 A trait `info` dict feeds `build_steering_spec` / `generate_steered` unchanged
@@ -54,6 +63,7 @@ A trait `info` dict feeds `build_steering_spec` / `generate_steered` unchanged
 ## Notebook
 
 `notebooks/notebook_extract_trait.py` runs the full flow: extract a trait vector
-per binary attribute, then compare the **trait-cosine** matrix against the
-**co-occurrence** (Cramér's V) matrix — high co-occurrence with low trait-cosine
-means the minimal-pair extraction successfully deconfounded that pair.
+per binary attribute (saving each one), then compare the **trait-cosine** matrix
+against the **co-occurrence** (Cramér's V) matrix — high co-occurrence with low
+trait-cosine means the minimal-pair extraction successfully deconfounded that
+pair.

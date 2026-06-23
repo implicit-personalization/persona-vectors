@@ -4,6 +4,11 @@
 
 Core module: `src/persona_vectors/artifacts.py`
 
+`PersonaVectorStore` and `TraitVectorStore` share a `LocalVectorStore` base that
+owns the local safetensors + manifest machinery
+(`<root>/<model>/<mask_strategy>/<variant>/<item>.safetensors`); they differ only
+in the item key (persona vs attribute) and per-item metadata.
+
 ## Layout
 
 ```text
@@ -78,6 +83,37 @@ methods as the local store: `load`, `available_variants`, `list_personas`,
 `persona_names`, and `list_layers`.
 
 `HFPersonaVectorStore.release_cache()` clears cached datasets and metadata.
+
+## Trait Vector Store
+
+`TraitVectorStore` stores minimal-pair [trait vectors](traits.md): one tensor per
+**attribute** — the per-layer mean swap delta `(num_layers, hidden_size)` — so a
+steering direction can be rebuilt at any layer. It lives under `trait_vectors/`
+so it never collides with persona activations.
+
+```text
+artifacts/trait_vectors/
+└── google__gemma-2-2b-it/
+    └── persona_mean/
+        └── templated/
+            ├── manifest.json    # per-attribute: positive, value_from/to,
+            │                    # n_personas, auc_by_layer, act_norm_by_layer
+            └── sex.safetensors   # (num_layers, hidden) mean delta
+```
+
+```python
+from persona_vectors.artifacts import TraitVectorStore
+from persona_vectors.traits import save_trait_deltas, load_trait_direction
+
+store = TraitVectorStore("google/gemma-2-2b-it", mask_strategy="persona_mean")
+save_trait_deltas(store, deltas, mask_strategy="persona_mean")
+
+info = load_trait_direction(store, "sex", layer=13)   # steering-ready dict
+attrs = store.list_attributes(variant="templated")
+```
+
+Trait vectors load locally today; an `HFTraitVectorStore` (mirroring
+`HFPersonaVectorStore`) can be added when they are published to the Hub.
 
 ## Analysis-facing bundle
 
