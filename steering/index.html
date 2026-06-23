@@ -12,6 +12,8 @@
         <link rel="prev" href="../probes/">
       
       
+        <link rel="next" href="../traits/">
+      
       
         
       
@@ -489,6 +491,60 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../traits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trait Vectors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../future_work/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Future Work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -610,6 +666,9 @@
 └── metadata.json
 </code></pre></div>
 <p>Mid layers are usually the first place to try, but layer choice is model and task dependent. Use <code>notebooks/notebook_steer.py</code> for experiments.</p>
+<p>Steering is applied uniformly at every generated position (<code>tracer.all()</code>).
+Modulating the coefficient <em>over generation steps</em> is deferred — see
+<a href="../future_work/">Future work</a>.</p>
 
 
 
