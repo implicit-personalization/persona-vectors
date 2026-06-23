@@ -33,3 +33,5 @@ nav:
   - Analysis: analysis.md
   - Probes: probes.md
   - Steering: steering.md
+  - Trait Vectors: traits.md
+  - Future Work: future_work.md

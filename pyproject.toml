@@ -35,7 +35,5 @@ dev = [
 # Nnterp dev version for VLM support 
 [tool.uv.sources]
 nnterp = { git = "https://github.com/ndif-team/nnterp.git", branch = "dev" }
-
 # Local development:
-# [tool.uv.sources]
 # persona-data = { path = "../persona-data", editable = true }

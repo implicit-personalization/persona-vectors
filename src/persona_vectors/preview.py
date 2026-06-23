@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -141,3 +142,49 @@ def preview_prepared_inputs(
                 border_style="blue",
             )
         )
+
+
+def trait_contrast_lines(from_view: str, to_view: str) -> list[tuple[str | None, str | None]]:
+    """Return the changed ``(from_line, to_line)`` pairs between two views.
+
+    The templated view is one sentence per line, so a single-attribute swap
+    shows up as one (or, for the religion-``None`` drop, an added/removed) line.
+    """
+    a, b = from_view.splitlines(), to_view.splitlines()
+    changes: list[tuple[str | None, str | None]] = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b).get_opcodes():
+        if tag == "equal":
+            continue
+        old, new = a[i1:i2] or [None], b[j1:j2] or [None]
+        for k in range(max(len(old), len(new))):
+            changes.append(
+                (old[k] if k < len(old) else None, new[k] if k < len(new) else None)
+            )
+    return changes
+
+
+def preview_trait_contrast(
+    attribute: str,
+    value_from: object,
+    value_to: object,
+    from_view: str,
+    to_view: str,
+) -> None:
+    """Show the contrasted sentence(s) of a minimal-pair attribute swap."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+
+    body = Text()
+    for old, new in trait_contrast_lines(from_view, to_view):
+        if old is not None:
+            body.append(f"- {old}\n", style="red")
+        if new is not None:
+            body.append(f"+ {new}\n", style="green")
+    Console().print(
+        Panel(
+            body,
+            title=f"contrast {attribute}: {value_from!r} → {value_to!r}",
+            border_style="magenta",
+        )
+    )

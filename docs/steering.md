@@ -55,3 +55,7 @@ artifacts/vectors/<persona_id>/
 ```
 
 Mid layers are usually the first place to try, but layer choice is model and task dependent. Use `notebooks/notebook_steer.py` for experiments.
+
+Steering is applied uniformly at every generated position (`tracer.all()`).
+Modulating the coefficient *over generation steps* is deferred — see
+[Future work](future_work.md).

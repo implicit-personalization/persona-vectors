@@ -24,6 +24,7 @@ personas + QA pairs -> prompts -> token masks -> hidden states -> saved vectors 
 | Analysis | Aligned vector loading, centered cosine similarity, PCA / UMAP / Isomap, clustering, plots | [Analysis](analysis.md) |
 | Probes | Linear probes that read a persona attribute out of the vectors | [Probes](probes.md) |
 | Steering | Experimental biography-minus-templated direction | [Steering](steering.md) |
+| Trait Vectors | Deconfounded per-attribute directions from minimal-pair swaps | [Trait Vectors](traits.md) |
 
 ## Install
 
