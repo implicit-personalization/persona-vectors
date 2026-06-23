@@ -18,6 +18,7 @@ vectors plug straight into the steering harness.
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -27,6 +28,7 @@ from persona_data.templated import swap_attribute
 from sklearn.metrics import roc_auc_score
 
 from persona_vectors.activations import extract_activations
+from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.attributes import attribute_schema
 from persona_vectors.extraction import MaskStrategy, prepare_inputs_for_strategy
 
@@ -328,4 +330,50 @@ def build_trait_direction(deltas: TraitDeltas, *, candidate_layers: Sequence[int
         auc=stats[best]["auc"],
         act_norm=stats[best]["act_norm"],
         n_personas=len(deltas.persona_ids),
+    )
+
+
+def save_trait_deltas(
+    store: TraitVectorStore, deltas: TraitDeltas, *, mask_strategy: object | None = None
+) -> Path:
+    """Persist a trait vector: the per-layer mean delta plus contrast metadata.
+
+    Stores the full ``(num_layers, hidden)`` mean delta so a direction can later
+    be rebuilt at any layer with :func:`load_trait_direction`.
+    """
+    stats = deltas.layer_stats()
+    return store.save(
+        deltas.attribute,
+        torch.from_numpy(deltas.mean_delta),
+        variant=deltas.variant,
+        mask_strategy=mask_strategy,
+        positive=deltas.value_to,
+        value_from=deltas.value_from,
+        value_to=deltas.value_to,
+        n_personas=len(deltas.persona_ids),
+        auc_by_layer={str(layer): s["auc"] for layer, s in stats.items()},
+        act_norm_by_layer={str(layer): s["act_norm"] for layer, s in stats.items()},
+    )
+
+
+def load_trait_direction(
+    store: TraitVectorStore,
+    attribute: str,
+    *,
+    layer: int,
+    variant: str = "templated",
+    mask_strategy: object | None = None,
+) -> dict:
+    """Rebuild a steering-ready trait direction at ``layer`` from a saved vector."""
+    mean = store.load(attribute, variant=variant, mask_strategy=mask_strategy).numpy()
+    meta = store.metadata(attribute, variant=variant, mask_strategy=mask_strategy)
+    return _trait_direction_dict(
+        mean[layer],
+        attribute=attribute,
+        variant=variant,
+        positive=meta["positive"],
+        layer=layer,
+        auc=meta.get("auc_by_layer", {}).get(str(layer), float("nan")),
+        act_norm=meta.get("act_norm_by_layer", {}).get(str(layer), float("nan")),
+        n_personas=meta.get("n_personas", 0),
     )

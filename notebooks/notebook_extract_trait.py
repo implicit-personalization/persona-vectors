@@ -25,12 +25,17 @@ from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
 
+from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.attributes import attribute_schema
 from persona_vectors.correlations import attribute_association_matrix
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots.correlations import build_cooccurrence_heatmap
 from persona_vectors.steer_generate import generate_steered, steering_coefficient
-from persona_vectors.traits import build_trait_direction, extract_trait_deltas
+from persona_vectors.traits import (
+    build_trait_direction,
+    extract_trait_deltas,
+    save_trait_deltas,
+)
 
 console = Console()
 
@@ -86,7 +91,11 @@ console.print(dataset_table)
 
 # %% Extract a trait vector per binary attribute
 # `verbose=True` on the first attribute prints the contrasted sentence for every
-# persona (the minimal-pair diff) plus, once, the averaged token region.
+# persona (the minimal-pair diff) plus, once, the averaged token region. Each
+# trait vector is saved locally (safetensors + metadata) under
+# artifacts/trait_vectors/<model>/<mask>/<variant>/ and reloadable with
+# `persona_vectors.traits.load_trait_direction`.
+store = TraitVectorStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 directions: dict[str, dict] = {}
 for i, attr in enumerate(binary_attrs):
     console.rule(f"trait: {attr}")
@@ -100,6 +109,7 @@ for i, attr in enumerate(binary_attrs):
         remote=REMOTE,
         verbose=(i == 0),
     )
+    save_trait_deltas(store, deltas, mask_strategy=MASK_STRATEGY)
     directions[attr] = build_trait_direction(deltas, candidate_layers=[TRAIT_LAYER])
 
 trait_table = Table(title=f"Trait directions @ layer {TRAIT_LAYER}")
