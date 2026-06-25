@@ -41,14 +41,14 @@ deltas = extract_trait_deltas(
 info = build_trait_direction(deltas, candidate_layers=[13])
 ```
 
-`build_trait_direction` returns the **same dict schema** as
-[`build_attribute_direction`](steering.md) (`layer`, `unit_direction`,
-`gap_norm`, `auc`, `positive`, …), so a trait vector drops straight into the
-steering harness via `build_steering_spec` / `generate_steered`.
+`build_trait_direction` returns a steering-harness direction dict (`layer`,
+`unit_direction`, `gap_norm`, `auc`, `positive`, …), so a trait vector drops
+straight into `generate_steered` / `steering_coefficient` (see
+[Steering](steering.md)).
 
 ## Steering
 
-A trait `info` dict feeds `build_steering_spec` / `generate_steered` unchanged
+A trait `info` dict feeds `generate_steered` / `steering_coefficient` unchanged
 (see [Steering](steering.md)).
 
 ## Notebook

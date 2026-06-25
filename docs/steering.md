@@ -59,3 +59,28 @@ Mid layers are usually the first place to try, but layer choice is model and tas
 Steering is applied uniformly at every generated position (`tracer.all()`).
 Modulating the coefficient *over generation steps* is deferred — see
 [Future work](future_work.md).
+
+## Steering during generation
+
+To add a direction on the *live* model and read off the behavioral shift, use
+`generate_steered` with a direction dict (e.g. from
+[`build_trait_direction`](traits.md)):
+
+```python
+from persona_vectors.steering import generate_steered, steering_coefficient
+
+out = generate_steered(
+    model,
+    "Tell me about where you grew up.",
+    info["layer"],
+    info["unit_direction"],
+    [0.0, steering_coefficient(info, 4.0), steering_coefficient(info, -4.0)],
+    system="You are a human being having a casual conversation.",
+    max_new_tokens=120,
+    remote=False,
+)  # -> {factor: continuation}
+```
+
+`steering_coefficient(info, strength)` calibrates the push in **gap units**
+(`strength=1` lands the activation at the opposite-class centroid); `strength=0`
+is the unsteered baseline.

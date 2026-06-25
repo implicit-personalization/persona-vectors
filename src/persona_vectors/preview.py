@@ -144,7 +144,9 @@ def preview_prepared_inputs(
         )
 
 
-def trait_contrast_lines(from_view: str, to_view: str) -> list[tuple[str | None, str | None]]:
+def trait_contrast_lines(
+    from_view: str, to_view: str
+) -> list[tuple[str | None, str | None]]:
     """Return the changed ``(from_line, to_line)`` pairs between two views.
 
     The templated view is one sentence per line, so a single-attribute swap

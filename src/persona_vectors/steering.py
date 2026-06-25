@@ -18,9 +18,11 @@ Output saved to: artifacts/vectors/{persona_id}/steering_vector.safetensors
 """
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
+from persona_data.prompts import format_messages
 from rich.console import Console
 from rich.table import Table
 from safetensors.torch import load_file, save_file
@@ -188,3 +190,126 @@ def load_steering_vector(path: str | Path) -> dict:
         "steering_vector": tensors["steering_vector"],
         **metadata,
     }
+
+
+# ── Causal steering during generation (nnterp / nnsight) ──────────────────────
+#
+#   with model.generate(prompt, remote=remote) as tracer:
+#       with tracer.all():                      # apply to *every* decoded step
+#           model.steer(layers=L,               # residual stream after block L
+#                       steering_vector=v,       # 1-D tensor, hidden_size
+#                       factor=c)                # adds c * v to that residual
+#       out = model.generator.output.save()
+#
+# ``tracer.all()`` scopes the intervention to all generated positions (without
+# it, only the prompt's last position is steered). ``model.steer`` registers an
+# additive hook on the layer's residual output: h <- h + factor * vector.
+
+
+def steering_coefficient(info: dict, strength: float, *, sign: float = 1.0) -> float:
+    """Calibrated steering coefficient in *gap units* from a direction ``info``.
+
+    ``info`` is a direction dict (e.g. from
+    :func:`persona_vectors.traits.build_trait_direction`). ``strength`` is in gap
+    units: ``strength=1`` lands the activation at the opposite-class centroid
+    (``coefficient = strength * gap_norm``). Scaling by the residual *norm*
+    (``act_norm``) instead over-steers 8-28x the real class separation and
+    collapses the model off-manifold. ``sign`` flips the causal polarity: a
+    decode-optimal difference-of-means axis can steer the *opposite* way
+    behaviourally, so pass ``sign=-1`` to invert.
+    """
+    return float(strength * sign * info["gap_norm"])
+
+
+def generate_steered_once(
+    model,
+    prompt: str,
+    *,
+    layer: int | None = None,
+    steering_vector: torch.Tensor | None = None,
+    factor: float = 0.0,
+    remote: bool = True,
+    backend=None,
+    **generation_kwargs,
+) -> torch.Tensor:
+    """One generation pass, optionally steering ``layer`` by ``factor * steering_vector``.
+
+    Returns the full output ids (prompt + continuation).
+    """
+    # NOTE: This workaround is required due to unexpected behavior in NDIF.
+    if "max_new_tokens" in generation_kwargs:
+        generation_kwargs.setdefault(
+            "min_new_tokens", generation_kwargs["max_new_tokens"]
+        )
+
+    out = None
+    with model.generate(
+        prompt, remote=remote, backend=backend, **generation_kwargs
+    ) as tracer:
+        if factor and layer is not None:
+            with tracer.all():
+                model.steer(
+                    layers=layer,
+                    steering_vector=steering_vector,
+                    factor=float(factor),
+                )
+        out = model.generator.output.save()
+    if out is None:
+        raise RuntimeError(
+            f"steered generation returned no output (layer={layer}, factor={factor}): "
+            "the NDIF job completed but model.generator.output was empty."
+        )
+    return out
+
+
+def generate_steered(
+    model,
+    prompt: str,
+    layer: int,
+    steering_vector: torch.Tensor,
+    factors: Sequence[float],
+    *,
+    system: str | None = None,
+    max_new_tokens: int = 120,
+    remote: bool = True,
+) -> dict[float, str]:
+    """Generate ``prompt`` once per ``factor`` with the steering vector added.
+
+    ``factor`` multiplies ``steering_vector`` at every generated position
+    (``tracer.all()``); ``factor=0`` is the unsteered baseline. ``system``, if
+    given, is placed in the system turn — e.g. an in-context persona to steer
+    against. The chat template is always applied (via ``format_messages``, which
+    also normalizes the system turn for models like gemma that lack one).
+
+    Every run emits exactly ``max_new_tokens`` tokens (``min_new_tokens`` is
+    pinned to ``max_new_tokens``), so the model can't stop early and
+    steered/baseline continuations stay the same length and come back populated
+    from NDIF.
+
+    Returns ``{factor: continuation}``. The prompt is sliced off by token count
+    (``prompt_token_count`` from ``format_messages``) rather than by string
+    matching: decoding with ``skip_special_tokens`` drops the chat-template
+    markers, so a string prefix test fails and the prompt leaks into the output.
+    """
+    messages = ([{"role": "system", "content": system}] if system else []) + [
+        {"role": "user", "content": prompt}
+    ]
+    text, prompt_token_count = format_messages(
+        messages, model.tokenizer, add_generation_prompt=True
+    )
+
+    outputs: dict[float, str] = {}
+    for factor in factors:
+        out = generate_steered_once(
+            model,
+            text,
+            layer=layer,
+            steering_vector=steering_vector,
+            factor=factor,
+            remote=remote,
+            max_new_tokens=max_new_tokens,
+        )
+        outputs[float(factor)] = model.tokenizer.decode(
+            out[0][prompt_token_count:], skip_special_tokens=True
+        ).strip()
+    return outputs

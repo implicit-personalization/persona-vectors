@@ -66,7 +66,9 @@ def extract_activations(cfg: ExtractConfig) -> None:
             MaskStrategy.PERSONA_MEAN,
             MaskStrategy.PERSONA_LAST,
         )
-        expected_sample_ids = [q.qid for q in (qa_pairs[:1] if persona_only else qa_pairs)]
+        expected_sample_ids = [
+            q.qid for q in (qa_pairs[:1] if persona_only else qa_pairs)
+        ]
         for variant in cfg.variants:
             stored = store.persona_sample_ids(variant, persona.id, cfg.mask_strategy)
             if stored != expected_sample_ids:

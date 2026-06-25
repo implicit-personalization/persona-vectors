@@ -141,8 +141,12 @@ def attribute_columns(persona_ids: list[str]):
         "18-29" if a < 30 else "30-44" if a < 45 else "45-64" if a < 65 else "65+"
         for a in ages
     ]
-    hover_values = {name: attribute_display(name, persona_ids) for name in HOVER_ATTRIBUTES}
-    naming_values = {name: attribute_display(name, persona_ids) for name in NAMING_ATTRIBUTES}
+    hover_values = {
+        name: attribute_display(name, persona_ids) for name in HOVER_ATTRIBUTES
+    }
+    naming_values = {
+        name: attribute_display(name, persona_ids) for name in NAMING_ATTRIBUTES
+    }
     naming_values["age"] = age_bands  # raw ages never reach a cluster majority
     return hover_values, naming_values, ages
 
@@ -236,9 +240,15 @@ pv_store = PersonaVectorStore(
 )
 pv_ids = pv_store.list_personas(["templated"], include_baseline=False)
 pv_samples = load_persona_vectors(pv_store, "templated", persona_ids=pv_ids)
-console.print(f"[bold]persona vectors[/bold] templated: {tuple(pv_samples.vectors.shape)}")
+console.print(
+    f"[bold]persona vectors[/bold] templated: {tuple(pv_samples.vectors.shape)}"
+)
 pv_fig = build_map(
-    pv_samples, pv_ids, 65, "Persona vectors - 405B answer_mean L65", "datamap_persona_vectors"
+    pv_samples,
+    pv_ids,
+    65,
+    "Persona vectors - 405B answer_mean L65",
+    "datamap_persona_vectors",
 )
 pv_fig
 
@@ -256,6 +266,10 @@ pm_ids = pm_store.list_personas(["templated"])
 pm_samples = load_persona_vectors(pm_store, "templated", persona_ids=pm_ids)
 console.print(f"[bold]persona-mean[/bold] templated: {tuple(pm_samples.vectors.shape)}")
 pm_fig = build_map(
-    pm_samples, pm_ids, 30, "Persona-mean representation - 70B persona_mean L30", "datamap_persona_mean"
+    pm_samples,
+    pm_ids,
+    30,
+    "Persona-mean representation - 70B persona_mean L30",
+    "datamap_persona_mean",
 )
 pm_fig

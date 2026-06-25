@@ -11,9 +11,10 @@ deltas over personas cancels everything that did not change.
 This builds the **description-level** flavor (``PERSONA_MEAN`` over the swapped
 ``templated_view``); the answer-level flavor (force-decoded explicit answer,
 ``ANSWER_MEAN``) reuses the same orientation logic with a different mask.
-:func:`build_trait_direction` returns the same dict schema as
-:func:`persona_vectors.steer_generate.build_attribute_direction`, so trait
-vectors plug straight into the steering harness.
+:func:`build_trait_direction` returns a steering-harness direction dict
+(``layer``, ``unit_direction``, ``gap_norm``, ``auc``, ``positive``, …), so trait
+vectors plug straight into :func:`persona_vectors.steering.generate_steered` /
+:func:`persona_vectors.steering.steering_coefficient`.
 """
 
 from collections.abc import Callable, Sequence
@@ -134,7 +135,9 @@ def attribute_contrast_values(persona_dataset, attribute: str) -> tuple[object, 
     )
 
 
-def _render_at_pole(persona_dataset, persona: PersonaData, attribute: str, value: object):
+def _render_at_pole(
+    persona_dataset, persona: PersonaData, attribute: str, value: object
+):
     """Return ``persona`` re-rendered with ``attribute == value`` (minimal pair pole).
 
     Reuses :func:`swap_attribute` (which validates the v4.0 template and only
@@ -286,8 +289,9 @@ def _trait_direction_dict(
 ) -> dict:
     """Steering-ready direction dict from one layer's mean delta.
 
-    Same schema as :func:`persona_vectors.steer_generate.build_attribute_direction`
-    so trait vectors plug into ``build_steering_spec`` / ``generate_steered``.
+    Schema consumed by :func:`persona_vectors.steering.generate_steered` /
+    :func:`persona_vectors.steering.steering_coefficient` (``layer``,
+    ``unit_direction``, ``gap_norm``, ``auc``, ``positive``, …).
     """
     d = np.asarray(mean_delta_row, dtype=np.float32)
     unit = d / (np.linalg.norm(d) + 1e-12)
@@ -306,15 +310,17 @@ def _trait_direction_dict(
     }
 
 
-def build_trait_direction(deltas: TraitDeltas, *, candidate_layers: Sequence[int]) -> dict:
+def build_trait_direction(
+    deltas: TraitDeltas, *, candidate_layers: Sequence[int]
+) -> dict:
     """Mean minimal-pair delta at the best-separating layer.
 
     The direction is the mean of ``act(value_to) - act(value_from)`` over
     personas (so ``+`` points to ``value_to``); the chosen layer maximises how
     well projecting the paired ``from``/``to`` activations onto that direction
-    separates the two values (``|AUC - 0.5|``, reusing
-    :func:`build_attribute_direction`'s criterion but on minimal pairs). Returns
-    that builder's dict schema so the result drops into the steering harness.
+    separates the two values (``|AUC - 0.5|``, the same criterion as the
+    population difference-of-means builder, but on minimal pairs). Returns a
+    steering-harness direction dict so the result drops into the steering flow.
     """
     stats = deltas.layer_stats()
     mean = deltas.mean_delta

@@ -29,7 +29,7 @@ from persona_vectors.attributes import attribute_schema
 from persona_vectors.correlations import attribute_association_matrix
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots.correlations import build_cooccurrence_heatmap
-from persona_vectors.steer_generate import generate_steered, steering_coefficient
+from persona_vectors.steering import generate_steered, steering_coefficient
 from persona_vectors.traits import build_trait_direction, extract_trait_deltas
 
 console = Console()
@@ -74,7 +74,9 @@ runs = [
 runs = [(p, qa) for p, qa in runs if qa]
 
 binary_attrs = [
-    name for name, info in attribute_schema(dataset).items() if info.get("kind") == "binary"
+    name
+    for name, info in attribute_schema(dataset).items()
+    if info.get("kind") == "binary"
 ]
 
 dataset_table = Table(title="Dataset")
