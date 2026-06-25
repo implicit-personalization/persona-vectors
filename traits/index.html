@@ -682,12 +682,12 @@ the same orientation logic.</p>
 <span class="p">)</span>
 <span class="n">info</span> <span class="o">=</span> <span class="n">build_trait_direction</span><span class="p">(</span><span class="n">deltas</span><span class="p">,</span> <span class="n">candidate_layers</span><span class="o">=</span><span class="p">[</span><span class="mi">13</span><span class="p">])</span>
 </code></pre></div>
-<p><code>build_trait_direction</code> returns the <strong>same dict schema</strong> as
-<a href="../steering/"><code>build_attribute_direction</code></a> (<code>layer</code>, <code>unit_direction</code>,
-<code>gap_norm</code>, <code>auc</code>, <code>positive</code>, …), so a trait vector drops straight into the
-steering harness via <code>build_steering_spec</code> / <code>generate_steered</code>.</p>
+<p><code>build_trait_direction</code> returns a steering-harness direction dict (<code>layer</code>,
+<code>unit_direction</code>, <code>gap_norm</code>, <code>auc</code>, <code>positive</code>, …), so a trait vector drops
+straight into <code>generate_steered</code> / <code>steering_coefficient</code> (see
+<a href="../steering/">Steering</a>).</p>
 <h2 id="steering">Steering</h2>
-<p>A trait <code>info</code> dict feeds <code>build_steering_spec</code> / <code>generate_steered</code> unchanged
+<p>A trait <code>info</code> dict feeds <code>generate_steered</code> / <code>steering_coefficient</code> unchanged
 (see <a href="../steering/">Steering</a>).</p>
 <h2 id="notebook">Notebook</h2>
 <p><code>notebooks/notebook_extract_trait.py</code> runs the full flow: extract a trait vector

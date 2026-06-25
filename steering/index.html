@@ -483,6 +483,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#steering-during-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Steering during generation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -604,6 +615,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#steering-during-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Steering during generation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -669,6 +691,26 @@
 <p>Steering is applied uniformly at every generated position (<code>tracer.all()</code>).
 Modulating the coefficient <em>over generation steps</em> is deferred — see
 <a href="../future_work/">Future work</a>.</p>
+<h2 id="steering-during-generation">Steering during generation</h2>
+<p>To add a direction on the <em>live</em> model and read off the behavioral shift, use
+<code>generate_steered</code> with a direction dict (e.g. from
+<a href="../traits/"><code>build_trait_direction</code></a>):</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.steering</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_steered</span><span class="p">,</span> <span class="n">steering_coefficient</span>
+
+<span class="n">out</span> <span class="o">=</span> <span class="n">generate_steered</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="s2">&quot;Tell me about where you grew up.&quot;</span><span class="p">,</span>
+    <span class="n">info</span><span class="p">[</span><span class="s2">&quot;layer&quot;</span><span class="p">],</span>
+    <span class="n">info</span><span class="p">[</span><span class="s2">&quot;unit_direction&quot;</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">steering_coefficient</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">),</span> <span class="n">steering_coefficient</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="o">-</span><span class="mf">4.0</span><span class="p">)],</span>
+    <span class="n">system</span><span class="o">=</span><span class="s2">&quot;You are a human being having a casual conversation.&quot;</span><span class="p">,</span>
+    <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>
+    <span class="n">remote</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>  <span class="c1"># -&gt; {factor: continuation}</span>
+</code></pre></div>
+<p><code>steering_coefficient(info, strength)</code> calibrates the push in <strong>gap units</strong>
+(<code>strength=1</code> lands the activation at the opposite-class centroid); <code>strength=0</code>
+is the unsteered baseline.</p>
 
 
 
