@@ -84,3 +84,32 @@ out = generate_steered(
 `steering_coefficient(info, strength)` calibrates the push in **gap units**
 (`strength=1` lands the activation at the opposite-class centroid); `strength=0`
 is the unsteered baseline.
+
+## Band + adaptive steering (recommended)
+
+A single-layer push is weak in-distribution. The strongest, still-on-manifold
+method steers a **band** of layers — each with its own trait direction at a modest
+per-layer strength — optionally modulating intensity over generation steps.
+
+```python
+from persona_vectors.artifacts import TraitVectorStore
+from persona_vectors.traits import load_trait_band
+from persona_vectors.steering import (
+    band_steering_vectors, generate_band_steered, dim_schedule,
+)
+
+store = TraitVectorStore("google/gemma-2-9b-it")
+band = load_trait_band(store, "age", layers=range(14, 31))   # {layer: direction}
+vectors = band_steering_vectors(band, strength=1.0)          # strength=1 = opposite centroid
+
+# constant (drop-in for fixed steering, just multi-layer and stronger)
+text = generate_band_steered(model, prompt, vectors, system=SYS, max_new_tokens=120)
+
+# adaptive: pass the schedule bare; it's called as schedule(step, max_new_tokens)
+text = generate_band_steered(model, prompt, vectors, schedule=dim_schedule, ...)
+```
+
+Pass a **list** of bands to `band_steering_vectors` to compose several traits
+(summed per layer; correlated traits reinforce). `dim_schedule` tapers intensity
+1→0 to keep long, hard-steered generations fluent; `start_schedule` steers only
+the opening tokens. You keep the strength dial — the schedule just shapes it.

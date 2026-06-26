@@ -11,14 +11,14 @@ deltas over personas cancels everything that did not change.
 This builds the **description-level** flavor (``PERSONA_MEAN`` over the swapped
 ``templated_view``); the answer-level flavor (force-decoded explicit answer,
 ``ANSWER_MEAN``) reuses the same orientation logic with a different mask.
-:func:`build_trait_direction` returns a steering-harness direction dict
-(``layer``, ``unit_direction``, ``gap_norm``, ``auc``, ``positive``, …), so trait
-vectors plug straight into :func:`persona_vectors.steering.generate_steered` /
-:func:`persona_vectors.steering.steering_coefficient`.
+:func:`build_trait_direction` returns a steering-harness direction dict (consumed
+by :mod:`persona_vectors.steering`), so trait vectors plug straight into the
+steering flow.
 """
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -28,6 +28,7 @@ from persona_data.templated import swap_attribute
 from sklearn.metrics import roc_auc_score
 
 from persona_vectors.activations import extract_activations
+from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.attributes import attribute_schema
 from persona_vectors.extraction import MaskStrategy, prepare_inputs_for_strategy
 
@@ -135,9 +136,7 @@ def attribute_contrast_values(persona_dataset, attribute: str) -> tuple[object, 
     )
 
 
-def _render_at_pole(
-    persona_dataset, persona: PersonaData, attribute: str, value: object
-):
+def _render_at_pole(persona_dataset, persona: PersonaData, attribute: str, value: object):
     """Return ``persona`` re-rendered with ``attribute == value`` (minimal pair pole).
 
     Reuses :func:`swap_attribute` (which validates the v4.0 template and only
@@ -289,9 +288,8 @@ def _trait_direction_dict(
 ) -> dict:
     """Steering-ready direction dict from one layer's mean delta.
 
-    Schema consumed by :func:`persona_vectors.steering.generate_steered` /
-    :func:`persona_vectors.steering.steering_coefficient` (``layer``,
-    ``unit_direction``, ``gap_norm``, ``auc``, ``positive``, …).
+    Schema consumed by :mod:`persona_vectors.steering` (``steering_coefficient`` /
+    ``generate_steered`` / ``generate_band_steered``).
     """
     d = np.asarray(mean_delta_row, dtype=np.float32)
     unit = d / (np.linalg.norm(d) + 1e-12)
@@ -310,9 +308,7 @@ def _trait_direction_dict(
     }
 
 
-def build_trait_direction(
-    deltas: TraitDeltas, *, candidate_layers: Sequence[int]
-) -> dict:
+def build_trait_direction(deltas: TraitDeltas, *, candidate_layers: Sequence[int]) -> dict:
     """Mean minimal-pair delta at the best-separating layer.
 
     The direction is the mean of ``act(value_to) - act(value_from)`` over
@@ -335,3 +331,84 @@ def build_trait_direction(
         act_norm=stats[best]["act_norm"],
         n_personas=len(deltas.persona_ids),
     )
+
+
+def save_trait_deltas(
+    store: TraitVectorStore, deltas: TraitDeltas, *, mask_strategy: object | None = None
+) -> Path:
+    """Persist a trait vector: the per-layer mean delta plus contrast metadata.
+
+    Stores the full ``(num_layers, hidden)`` mean delta so a direction can later
+    be rebuilt at any layer with :func:`load_trait_direction`.
+    """
+    stats = deltas.layer_stats()
+    return store.save(
+        deltas.attribute,
+        torch.from_numpy(deltas.mean_delta),
+        variant=deltas.variant,
+        mask_strategy=mask_strategy,
+        value_from=deltas.value_from,
+        value_to=deltas.value_to,
+        n_personas=len(deltas.persona_ids),
+        auc_by_layer={str(layer): s["auc"] for layer, s in stats.items()},
+        act_norm_by_layer={str(layer): s["act_norm"] for layer, s in stats.items()},
+    )
+
+
+def load_trait_direction(
+    store: TraitVectorStore,
+    attribute: str,
+    *,
+    layer: int,
+    variant: str = "templated",
+    mask_strategy: object | None = None,
+) -> dict:
+    """Rebuild a steering-ready trait direction at ``layer`` from a saved vector."""
+    mean = store.load(attribute, variant=variant, mask_strategy=mask_strategy).numpy()
+    meta = store.metadata(attribute, variant=variant, mask_strategy=mask_strategy)
+    return _trait_direction_dict(
+        mean[layer],
+        attribute=attribute,
+        variant=variant,
+        positive=meta["value_to"],
+        layer=layer,
+        auc=meta.get("auc_by_layer", {}).get(str(layer), float("nan")),
+        act_norm=meta.get("act_norm_by_layer", {}).get(str(layer), float("nan")),
+        n_personas=meta.get("n_personas", 0),
+    )
+
+
+def load_trait_band(
+    store: TraitVectorStore,
+    attribute: str,
+    layers: Sequence[int],
+    *,
+    variant: str = "templated",
+    mask_strategy: object | None = None,
+) -> dict[int, dict]:
+    """Per-layer trait directions across ``layers`` for band steering (one file read).
+
+    Returns ``{layer: direction_dict}`` for
+    :func:`persona_vectors.steering.band_steering_vectors` — each layer carries its
+    own unit direction and gap norm, so a modest per-layer strength stays
+    in-distribution at every layer while the band compounds the effect. Reads the
+    saved per-layer mean delta once (cheaper than per-layer
+    :func:`load_trait_direction`).
+    """
+    mean = store.load(attribute, variant=variant, mask_strategy=mask_strategy).numpy()
+    meta = store.metadata(attribute, variant=variant, mask_strategy=mask_strategy)
+    auc = meta.get("auc_by_layer", {})
+    act_norm = meta.get("act_norm_by_layer", {})
+    return {
+        int(layer): _trait_direction_dict(
+            mean[layer],
+            attribute=attribute,
+            variant=variant,
+            positive=meta["value_to"],
+            layer=int(layer),
+            auc=auc.get(str(layer), float("nan")),
+            act_norm=act_norm.get(str(layer), float("nan")),
+            n_personas=meta.get("n_personas", 0),
+        )
+        for layer in layers
+    }

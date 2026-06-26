@@ -1,0 +1,50 @@
+helios 2
+
+10 days
+
+- lit review
+- coding
+- experiment designe
+- long horizon planning
+
+### Obs
+
+1. 31 gap in paper analyses + followup -> strategic experiments
+2. neglect alternative hypoteisis and very agentic answers (keeps on going with the idea) -> 7 % of difficult tasks
+3. Identifies mistakes, but when convinced it fails to detect problems. Not good at higher level analyses
+4. Multi agent -> Improvements no favourite theory 
+5. two investigation (large scale, interp, behavioural) -> (immediate, staged, delayed)
+
+
+### Hypoteisis
+
+H1. The model lacks high lever understanding and thus get fixated on the first theory
+
+- This is supported by evidence 3
+- This is also supported by evidence 2 espcially showcasing the fact that hard scenarios are the worst
+- Not really fully supported by 4 but that is also do to the different setting
+
+What wuold change my hypotesis would be evidence of the model beeing able to decide on a different theory mid way through it's conversation. I think this could be tested and especially extending this it would be interesting to test in a agentic scenario (in which the model has access to tool to see how things change)
+Together with this based on the lack of information on the actual reasoning level the model was tested on we currently are missing this very important inforamtion which might be very signficat. In particular at higher reasoning levels models (to the best of my knowoledge) often tend to check again and again their statements and not only pick the first explainations especially in more agentic settings.
+Therefore I would be extreamily interested in also evaluating this
+
+Given those statements I wouldn't be particurally concerned with even and immidiate model deployment. Possibly a good path forward would just be transparancy with the users mentioning in the chat that the model is likely to follow on idea throught and not really chagne it's mind even when wrong (if our farther analyses support it).
+Our farther anaalyses could start today with evaluating simple settings with prefilled hypotestsi / chain of thoughts and see if the model would cahnge it's mind. And in general my raccomandation would be to be transparenet and make users aware of the promblem and possible mitigation which we have seen to be very successfull (as per observation 4. this multi agentic setting where the person asks multiple instances of the llms to verify).
+
+H2. Model always pick the first idea
+
+- This is somehowt supported by obs 2 but we didn't test if it also occures in easy ideas or not and I think this would be quite relevant to evalute to make sure also under the framing of the previous hypotests that the problem is due to a lack of understanding rather then the model simple beeing "lazy".
+
+
+H3. The model is beeing lazy
+
+- As I said the model might just be "lazy" as an emergent behaviour caming from something in the post trainign probably (though I have no evidence on this). 
+- This is showed by the fact that the 4. shows that other instances of the model can avoid folling to the "favuiorite theory". 
+
+We could procede by testing this testing at different reasoning levels and with different prompts to make the model more thorough in its investigations. Tough one of the first thing I would do is actually get more info from the team that runned the evaluation on what reasoning levels where applied and what sort of prompts were used. 
+This might have an impact on users downstream but I don't consider it a concerning behaviour that might let us delay model deployment but rather a "product" problem we can deal with with future post-trainign release in case we actually find it to be a problem.
+
+### Summary  
+
+> I would probably start with a summary with the main hypotesis and the takeway I got from it and my suggestion that I wrote and then continue describing those hypotests and what might explain them and what is the most plausible idea (based on the eveidences we have) and what further test we might perform.
+

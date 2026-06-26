@@ -850,3 +850,40 @@ def test_hf_metadata_uses_vectorized_columnar_scan() -> None:
     assert len(store.list_personas(["templated"])) == 20
     assert store.list_personas(["templated"])[:2] == ["persona-000", "persona-001"]
     assert dataset.column_reads == 2
+
+
+def test_band_steering_vectors_and_schedules() -> None:
+    from persona_vectors.steering import (
+        band_steering_vectors,
+        dim_schedule,
+        start_schedule,
+        steering_coefficient,
+    )
+
+    def info(layer: int, gap: float) -> dict:
+        v = torch.randn(8)
+        return {"layer": layer, "gap_norm": gap, "unit_direction": v / v.norm()}
+
+    age = {14: info(14, 2.0), 21: info(21, 4.0)}
+    sex = {14: info(14, 1.0), 21: info(21, 3.0)}
+
+    # single trait: one combined vector per layer, coefficient = strength * gap
+    single = band_steering_vectors(age, strength=2.0)
+    assert set(single) == {14, 21}
+    expected = steering_coefficient(age[21], 2.0) * age[21]["unit_direction"]
+    assert torch.allclose(single[21], expected)
+
+    # multi-trait: vectors sum per layer
+    multi = band_steering_vectors([age, sex], strength=1.0)
+    summed = (
+        steering_coefficient(age[21], 1.0) * age[21]["unit_direction"]
+        + steering_coefficient(sex[21], 1.0) * sex[21]["unit_direction"]
+    )
+    assert torch.allclose(multi[21], summed)
+
+    # schedules are [0, 1] multipliers, called with (step, n_steps)
+    assert dim_schedule(0, 10) == 1.0
+    assert dim_schedule(9, 10) == 0.0
+    assert 0.0 < dim_schedule(5, 10) < 1.0
+    assert start_schedule(0, 9) == 1.0 and start_schedule(2, 9) == 1.0
+    assert start_schedule(3, 9) == 0.0
