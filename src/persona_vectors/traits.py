@@ -31,6 +31,7 @@ from persona_vectors.activations import extract_activations
 from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.attributes import attribute_schema
 from persona_vectors.extraction import MaskStrategy, prepare_inputs_for_strategy
+from persona_vectors.steering import band_steering_vectors
 
 
 @dataclass
@@ -412,3 +413,27 @@ def load_trait_band(
         )
         for layer in layers
     }
+
+
+def merge_trait_bands(
+    store: TraitVectorStore,
+    attributes: Sequence[str],
+    layers: Sequence[int],
+    *,
+    strength: float = 1.0,
+    variant: str = "templated",
+    mask_strategy: object | None = None,
+) -> dict[int, torch.Tensor]:
+    """Merge several attributes' trait bands into one ``{layer: vector}`` for co-steering.
+
+    Loads each attribute's per-layer trait band (:func:`load_trait_band`) and sums
+    them per layer at gap-unit ``strength`` (:func:`band_steering_vectors`). A single
+    attribute gives that attribute's solo band; several compose the joint vector used
+    in the merge experiment. Feed the result to
+    :func:`persona_vectors.steering.generate_band_steered` or score it directly.
+    """
+    bands = [
+        load_trait_band(store, a, layers, variant=variant, mask_strategy=mask_strategy)
+        for a in attributes
+    ]
+    return band_steering_vectors(bands, strength)

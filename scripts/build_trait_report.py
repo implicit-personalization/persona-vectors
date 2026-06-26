@@ -60,6 +60,10 @@ oodg = jload(ROOT / "ood_geometry.json")
 gen = jload(ROOT / "generalization.json")
 cp = jload(ROOT / "copyhead.json")
 merge = jload(ROOT / "merge.json")
+decomp = jload(ROOT / "magnitude_decomp.json")
+ctrl = jload(ROOT / "merge_control.json")
+ctrlflu = jload(ROOT / "merge_control_fluency.json")
+ctrldir = jload(ROOT / "merge_control_dirnorm.json")
 adapt = jload(ROOT / "adaptive.json")
 
 parts = []
@@ -71,7 +75,20 @@ parts.append(
     "deltas yields directions that (i) track meaning rather than dataset co-occurrence, and "
     "(ii) causally steer an instruction-tuned model — most effectively across a band of layers, "
     "at strengths that stay in-distribution.</p>"
-    "<p class='by'>google/gemma-2-9b-it · SynthPersona (100 personas) · steering run remotely on NDIF</p>")
+    "<p class='by'>google/gemma-2-9b-it · SynthPersona (100 personas) · steering run remotely on NDIF</p>"
+    "<div class='key'><div><b>Model.</b> Every result and figure below is "
+    "<code>google/gemma-2-9b-it</code> (42-layer instruction-tuned), run remotely on NDIF — a single "
+    "model throughout §§1–6, so cross-section comparisons are apples-to-apples.</div>"
+    "<div><b>Data &amp; method.</b> SynthPersona — 100 templated synthetic personas, 14 attributes. "
+    "Trait vectors are minimal-pair activation deltas with the <code>PERSONA_MEAN</code> "
+    "(description-level) mask; decodability is reported at layer 21, steering uses the per-layer band "
+    "L14–30. The MCQ control adds a generic-human framing (<code>PERSONA_SYS</code>) and reads option "
+    "probabilities (no LLM judge).</div></div>"
+    "<p class='m'>Scope note: results here are single-model. In separate analyses the trait "
+    "<em>directions</em> (e.g. sex AUC≈1) and attribute <em>manifolds</em> (age as the leading "
+    "diffusion axis) replicate on <code>gemma-2-9b-it</code> and <code>gemma-3-27b</code>, with "
+    "templated extraction also run on Llama-3.1-70B / 405B — none of which are plotted in this "
+    "report.</p>")
 
 # ---------- 1. method ----------
 parts.append(
@@ -171,9 +188,103 @@ if merge:
         "axis (|cos| 0.25–0.33).</div>"
         "<div><b>Orthogonal traits coexist but with cross-talk.</b> The summed perturbation grows, so "
         "joint effects differ from solo (here <code>sex</code> amplified, <code>born_in_us</code> "
-        "partly suppressed). Composition is not a clean linear sum.</div></div>"
-        "<p class='m'>Caveat: the joint condition also has larger total magnitude, a partial confound "
-        "with the correlation effect.</p>")
+        "partly suppressed). Composition is not a clean linear sum.</div></div>")
+    if decomp:
+        rows = []
+        for sn, d in decomp["sets"].items():
+            rows.append(f"<tr><td class='a' colspan='3'>{esc(sn)}</td></tr>")
+            for a, r in d["per_attr"].items():
+                rows.append(f"<tr><td>{esc(a)}</td><td>{r['raw_amp']}×</td>"
+                            f"<td class='dl'>{r['proj_own_over_solo']}×</td></tr>")
+        b = decomp["band"]
+        parts.append(
+            "<p><b>Is the joint effect just larger magnitude?</b> The raw joint vector is "
+            "several× longer, but what causally moves an attribute is the push along its <em>own</em> "
+            f"steering direction. Decomposing the band-{b[0]}–{b[1]} joint vector onto each member's "
+            "unit direction separates the two:</p>"
+            f"<table class='t'><tr><th>attribute</th><th>raw ‖joint‖/‖solo‖</th>"
+            f"<th>push on own axis / solo</th></tr>{''.join(rows)}</table>"
+            "<div class='key'><div><b>The orthogonal cross-talk is magnitude-controlled.</b> "
+            "<code>born_in_us</code> and <code>sex</code> get essentially the <em>same</em> push along "
+            "their own axis in joint as solo (1.02× and 0.93×) — yet their effects swing "
+            "(0.95→0.29 and 0.15→0.95). With own-axis magnitude matched, that can only be "
+            "interference from the orthogonal additions, not extra magnitude.</div>"
+            "<div><b>For correlated traits, joint adds magnitude on the shared axis.</b> "
+            "<code>citizenship</code>'s own-axis push is <b>1.76×</b> larger in joint and its total "
+            "norm <b>3.29×</b>, because the correlated neighbours (|cos| 0.03–0.29) project onto its "
+            "axis. Is that magnitude what flips it, or the borrowed direction? The steering control "
+            "below decides.</div></div>")
+    if ctrl:
+        cz = ctrl["us_citizenship_status"]["p_pole"]
+        parts.append(
+            "<h3>Magnitude-matched control (steering run, PERSONA_SYS context)</h3>"
+            "<p>The decomposition is a proxy; the generation control settles it. We steer the bare "
+            "citizenship MCQ under a generic human framing (so the model isn't pinned at a pole) and "
+            "compare conditions by the per-layer magnitude they put on citizenship's axis:</p>"
+            "<table class='t'>"
+            "<tr><th>condition</th><th>own-axis push</th><th>total norm</th><th>P(+pole)</th></tr>"
+            f"<tr><td>unsteered</td><td>—</td><td>—</td><td>{cz['unsteered']}</td></tr>"
+            f"<tr><td>solo t=1</td><td>1×</td><td>1×</td><td>{cz['solo_t1']}</td></tr>"
+            f"<tr><td class='c'>joint t=1</td><td>1.76×</td><td>3.29×</td><td class='dl'>{cz['joint_t1']}</td></tr>"
+            f"<tr><td>solo, own-axis matched</td><td>1.76×</td><td>1.76×</td><td>{cz['solo_matched_1.76']}</td></tr>"
+            f"<tr><td>solo, total-norm matched</td><td>3.29×</td><td>3.29×</td><td>{cz['solo_normmatched_3.29']}</td></tr>"
+            + (f"<tr><td class='c'>joint direction @ solo norm</td><td>—</td><td>1×</td>"
+               f"<td>{ctrldir['joint_dir_at_solo_norm']['p_pole']}</td></tr>" if ctrldir else "")
+            + "</table>"
+            "<div class='key'><div><b>The effect tracks magnitude, not direction.</b> Matching "
+            f"citizenship's own-axis magnitude (1.76×) leaves it inert ({cz['solo_matched_1.76']}); "
+            f"matching the joint's <em>total</em> norm (3.29×) flips it ({cz['solo_normmatched_3.29']}). "
+            + (f"And the joint <em>direction</em> renormalised back to solo magnitude (1×) is again inert "
+               f"({ctrldir['joint_dir_at_solo_norm']['p_pole']} ≈ solo {ctrldir['solo_t1']['p_pole']}) — "
+               "so at fixed norm the correlated blend is no better than pure citizenship. " if ctrldir else "")
+            + "P is governed by total push magnitude in this subspace, direction-agnostic among the "
+            "correlated axes.</div>"
+            "<div><b>Correlation reinforces by supplying in-distribution magnitude, not a better "
+            "direction.</b> The flip needs a threshold total push; co-steering reaches it with each "
+            "trait at a modest, on-manifold t=1, whereas one trait alone needs 3.29× strength. The "
+            "neighbours contribute magnitude, not steering know-how.</div></div>")
+        # figure: P(+pole) by condition, coloured by outcome (flip = magnitude, not direction)
+        lab = ["unsteered", "solo t=1", "joint t=1", "solo<br>own-axis 1.76×", "solo<br>norm 3.29×"]
+        val = [cz["unsteered"], cz["solo_t1"], cz["joint_t1"],
+               cz["solo_matched_1.76"], cz["solo_normmatched_3.29"]]
+        col = ["#9ca3af", "#9ca3af", "#dc2626", "#f59e0b", "#16a34a"]
+        if ctrldir:
+            lab.append("joint dir<br>@ solo norm")
+            val.append(ctrldir["joint_dir_at_solo_norm"]["p_pole"])
+            col.append("#9ca3af")
+        cfig = go.Figure(go.Bar(x=lab, y=val, marker_color=col,
+                                text=[f"{v:.2f}" for v in val], textposition="outside"))
+        cfig.update_layout(
+            title="Citizenship flip P(+pole) by condition — tracks total magnitude, not direction",
+            template="plotly_white", width=820, height=440, yaxis=dict(range=[0, 1.08], title="P(+pole)"),
+            margin=dict(t=70, b=40))
+        parts.append(figdiv(cfig))
+        if ctrlflu:
+            j, s = ctrlflu["joint_t1"], ctrlflu["solo_normmatched_3.29"]
+            ffig = go.Figure(go.Bar(
+                x=["joint (each t=1)", "solo citizenship 3.29×"],
+                y=[j["rep_frac"], s["rep_frac"]],
+                marker_color=["#dc2626", "#16a34a"],
+                text=[f"{j['rep_frac']:.3f}", f"{s['rep_frac']:.3f}"], textposition="outside"))
+            ffig.update_layout(
+                title="Fluency at matched total norm (repeat-frac, lower = better)",
+                template="plotly_white", width=620, height=380,
+                yaxis=dict(range=[0, max(j["rep_frac"], s["rep_frac"]) * 1.3 + 0.02], title="repeat-frac"),
+                margin=dict(t=70, b=40))
+            parts.append(figdiv(ffig))
+            parts.append(
+                "<p><b>And pooling stays more on-manifold.</b> Generating free text at the matched "
+                f"total norm, the joint (each trait t=1) keeps repeat-frac <b>{j['rep_frac']}</b> "
+                f"while concentrating the same norm on citizenship's axis (solo 3.29×) rises to "
+                f"<b>{s['rep_frac']}</b> — a measurable coherence cost for reaching the flip the "
+                "concentrated way. Both flip the persona (joint → "
+                "<span class='m'>“originally from Argentina… I speak Spanish… picking up Catalan”</span>; "
+                "solo → <span class='m'>“south of France… French… dabble in Spanish”</span>), so the "
+                "effect is real but modest at this strength, not a collapse.</p>"
+                "<p class='m'>Readout is MCQ option-probability (deterministic, no judge), a faithful "
+                "but not bit-identical stand-in for the original free-text+judge merge metric; "
+                "born_in_us 0.04→0.96 and language 0.01→0.99 reproduce the same solo&lt;joint "
+                "ordering.</p>")
 
 # ---------- 5. adaptive / per-position ----------
 if adapt:
@@ -297,8 +408,11 @@ parts.append(
     "<li><b>Steer a band, modestly.</b> A mid-stack band at in-distribution per-layer strength flips "
     "categorical attributes (born_in_us 0.06→0.95) and stays fluent; late layers are dead, skipping "
     "hurts, large single-layer pushes go off-manifold.</li>"
-    "<li><b>Correlation shapes composition.</b> Correlated traits reinforce when merged "
-    "(citizenship 0.06→0.99); orthogonal traits coexist with nonlinear cross-talk.</li>"
+    "<li><b>Merging is a magnitude effect.</b> Co-steering correlated traits reinforces "
+    "(citizenship 0.06→0.99) — but the control shows it tracks total push magnitude, not the "
+    "borrowed direction: one trait steered harder reproduces it, and the joint blend at solo "
+    "magnitude does not. Correlation's only edge is staying on-manifold. Orthogonal traits coexist "
+    "with magnitude-matched cross-talk.</li>"
     "<li><b>Adaptive / per-position steering buys headroom</b> — it preserves fluency when steering "
     "hard, where constant steering degenerates.</li>"
     "<li><b>In-context verbatim facts dominate</b> via copy heads, gating steering for stated "
