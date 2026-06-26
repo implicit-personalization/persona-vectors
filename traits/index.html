@@ -500,6 +500,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#steering" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -605,6 +616,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#steering" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -684,16 +706,25 @@ the same orientation logic.</p>
 </code></pre></div>
 <p><code>build_trait_direction</code> returns a steering-harness direction dict (<code>layer</code>,
 <code>unit_direction</code>, <code>gap_norm</code>, <code>auc</code>, <code>positive</code>, …), so a trait vector drops
-straight into <code>generate_steered</code> / <code>steering_coefficient</code> (see
+straight into <code>generate_steered</code> / <code>generate_band_steered</code> (see
 <a href="../steering/">Steering</a>).</p>
+<h2 id="storage">Storage</h2>
+<p>Trait vectors are persisted with <code>TraitVectorStore</code> —
+<code>save_trait_deltas(store, deltas)</code> writes the full per-layer mean delta plus
+contrast metadata, and <code>load_trait_direction(store, attribute, layer=...)</code>
+rebuilds a steering-ready dict at any layer. See the
+<a href="../artifacts/#trait-vector-store">Trait Vector Store</a> section of Artifacts for
+the layout and API.</p>
 <h2 id="steering">Steering</h2>
-<p>A trait <code>info</code> dict feeds <code>generate_steered</code> / <code>steering_coefficient</code> unchanged
-(see <a href="../steering/">Steering</a>).</p>
+<p>A trait <code>info</code> dict feeds <code>generate_steered</code> / <code>generate_band_steered</code> unchanged;
+<code>load_trait_band</code> builds the <code>{layer: info}</code> band for multi-layer steering (see
+<a href="../steering/">Steering</a>).</p>
 <h2 id="notebook">Notebook</h2>
 <p><code>notebooks/notebook_extract_trait.py</code> runs the full flow: extract a trait vector
-per binary attribute, then compare the <strong>trait-cosine</strong> matrix against the
-<strong>co-occurrence</strong> (Cramér's V) matrix — high co-occurrence with low trait-cosine
-means the minimal-pair extraction successfully deconfounded that pair.</p>
+per binary attribute (saving each one), then compare the <strong>trait-cosine</strong> matrix
+against the <strong>co-occurrence</strong> (Cramér's V) matrix — high co-occurrence with low
+trait-cosine means the minimal-pair extraction successfully deconfounded that
+pair.</p>
 
 
 

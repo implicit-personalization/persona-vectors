@@ -494,6 +494,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#band-adaptive-steering-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Band + adaptive steering (recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -626,6 +637,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#band-adaptive-steering-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Band + adaptive steering (recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -711,6 +733,30 @@ Modulating the coefficient <em>over generation steps</em> is deferred — see
 <p><code>steering_coefficient(info, strength)</code> calibrates the push in <strong>gap units</strong>
 (<code>strength=1</code> lands the activation at the opposite-class centroid); <code>strength=0</code>
 is the unsteered baseline.</p>
+<h2 id="band-adaptive-steering-recommended">Band + adaptive steering (recommended)</h2>
+<p>A single-layer push is weak in-distribution. The strongest, still-on-manifold
+method steers a <strong>band</strong> of layers — each with its own trait direction at a modest
+per-layer strength — optionally modulating intensity over generation steps.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">TraitVectorStore</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.traits</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_trait_band</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.steering</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">band_steering_vectors</span><span class="p">,</span> <span class="n">generate_band_steered</span><span class="p">,</span> <span class="n">dim_schedule</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">store</span> <span class="o">=</span> <span class="n">TraitVectorStore</span><span class="p">(</span><span class="s2">&quot;google/gemma-2-9b-it&quot;</span><span class="p">)</span>
+<span class="n">band</span> <span class="o">=</span> <span class="n">load_trait_band</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="s2">&quot;age&quot;</span><span class="p">,</span> <span class="n">layers</span><span class="o">=</span><span class="nb">range</span><span class="p">(</span><span class="mi">14</span><span class="p">,</span> <span class="mi">31</span><span class="p">))</span>   <span class="c1"># {layer: direction}</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">band_steering_vectors</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">strength</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>          <span class="c1"># strength=1 = opposite centroid</span>
+
+<span class="c1"># constant (drop-in for fixed steering, just multi-layer and stronger)</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">generate_band_steered</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">vectors</span><span class="p">,</span> <span class="n">system</span><span class="o">=</span><span class="n">SYS</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+
+<span class="c1"># adaptive: pass the schedule bare; it&#39;s called as schedule(step, max_new_tokens)</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">generate_band_steered</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">vectors</span><span class="p">,</span> <span class="n">schedule</span><span class="o">=</span><span class="n">dim_schedule</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p>Pass a <strong>list</strong> of bands to <code>band_steering_vectors</code> to compose several traits
+(summed per layer; correlated traits reinforce). <code>dim_schedule</code> tapers intensity
+1→0 to keep long, hard-steered generations fluent; <code>start_schedule</code> steers only
+the opening tokens. You keep the strength dial — the schedule just shapes it.</p>
 
 
 

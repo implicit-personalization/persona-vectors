@@ -403,6 +403,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#trait-vector-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trait Vector Store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#analysis-facing-bundle" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -638,6 +649,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#trait-vector-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trait Vector Store
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#analysis-facing-bundle" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -693,6 +715,10 @@
 <h1 id="artifacts">Artifacts</h1>
 <p><code>PersonaVectorStore</code> reads and writes local tensors. <code>HFPersonaVectorStore</code> reads published Hub datasets. The on-disk layout below matches what <code>HFPersonaVectorStore</code> expects on the Hub, so the same model code reads either source.</p>
 <p>Core module: <code>src/persona_vectors/artifacts.py</code></p>
+<p><code>PersonaVectorStore</code> and <code>TraitVectorStore</code> share a <code>LocalVectorStore</code> base that
+owns the local safetensors + manifest machinery
+(<code>&lt;root&gt;/&lt;model&gt;/&lt;mask_strategy&gt;/&lt;variant&gt;/&lt;item&gt;.safetensors</code>); they differ only
+in the item key (persona vs attribute) and per-item metadata.</p>
 <h2 id="layout">Layout</h2>
 <div class="highlight"><pre><span></span><code>artifacts/activations/   # also: artifacts/persona-vectors/ from the all-questions script
 └── google__gemma-2-9b-it/
@@ -750,6 +776,30 @@ prompt variant. <code>HFPersonaVectorStore</code> is read-only and supports the 
 methods as the local store: <code>load</code>, <code>available_variants</code>, <code>list_personas</code>,
 <code>persona_names</code>, and <code>list_layers</code>.</p>
 <p><code>HFPersonaVectorStore.release_cache()</code> clears cached datasets and metadata.</p>
+<h2 id="trait-vector-store">Trait Vector Store</h2>
+<p><code>TraitVectorStore</code> stores minimal-pair <a href="../traits/">trait vectors</a>: one tensor per
+<strong>attribute</strong> — the per-layer mean swap delta <code>(num_layers, hidden_size)</code> — so a
+steering direction can be rebuilt at any layer. It lives under <code>trait_vectors/</code>
+so it never collides with persona activations.</p>
+<div class="highlight"><pre><span></span><code>artifacts/trait_vectors/
+└── google__gemma-2-2b-it/
+    └── persona_mean/
+        └── templated/
+            ├── manifest.json    # per-attribute: positive, value_from/to,
+            │                    # n_personas, auc_by_layer, act_norm_by_layer
+            └── sex.safetensors   # (num_layers, hidden) mean delta
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.artifacts</span><span class="w"> </span><span class="kn">import</span> <span class="n">TraitVectorStore</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">persona_vectors.traits</span><span class="w"> </span><span class="kn">import</span> <span class="n">save_trait_deltas</span><span class="p">,</span> <span class="n">load_trait_direction</span>
+
+<span class="n">store</span> <span class="o">=</span> <span class="n">TraitVectorStore</span><span class="p">(</span><span class="s2">&quot;google/gemma-2-2b-it&quot;</span><span class="p">,</span> <span class="n">mask_strategy</span><span class="o">=</span><span class="s2">&quot;persona_mean&quot;</span><span class="p">)</span>
+<span class="n">save_trait_deltas</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">deltas</span><span class="p">,</span> <span class="n">mask_strategy</span><span class="o">=</span><span class="s2">&quot;persona_mean&quot;</span><span class="p">)</span>
+
+<span class="n">info</span> <span class="o">=</span> <span class="n">load_trait_direction</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="s2">&quot;sex&quot;</span><span class="p">,</span> <span class="n">layer</span><span class="o">=</span><span class="mi">13</span><span class="p">)</span>   <span class="c1"># steering-ready dict</span>
+<span class="n">attrs</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">list_attributes</span><span class="p">(</span><span class="n">variant</span><span class="o">=</span><span class="s2">&quot;templated&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Trait vectors load locally today; an <code>HFTraitVectorStore</code> (mirroring
+<code>HFPersonaVectorStore</code>) can be added when they are published to the Hub.</p>
 <h2 id="analysis-facing-bundle">Analysis-facing bundle</h2>
 <p>The stores stay intentionally low-level. When analysis code needs vectors plus
 their aligned ids, names, and shared layers, build one dataset-facing bundle:</p>
