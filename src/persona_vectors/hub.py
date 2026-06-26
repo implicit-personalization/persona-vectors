@@ -9,8 +9,8 @@ from persona_vectors.artifacts import (
     _TENSOR_KEY,
     DEFAULT_MASK_STRATEGY,
     SUPPORTED_VARIANTS,
+    _item_tensor_path,
     _load_manifest,
-    _persona_tensor_path,
     _variant_root,
     activation_config_name,
 )
@@ -57,7 +57,7 @@ def push_to_hub(
     from datasets import Array2D, Dataset, Features, Sequence, Value
 
     def build_split(variant_root: Path) -> Dataset:
-        manifest = _load_manifest(variant_root)
+        manifest = _load_manifest(variant_root, "personas")
         features = Features(
             {
                 "persona_id": Value("string"),
@@ -75,7 +75,7 @@ def push_to_hub(
                 "name": entry["name"],
                 "sample_ids": entry["sample_ids"],
                 "vector": load_file(
-                    str(_persona_tensor_path(variant_root, persona_id))
+                    str(_item_tensor_path(variant_root, persona_id))
                 )[_TENSOR_KEY]
                 .float()
                 .numpy(),

@@ -221,6 +221,29 @@ def steering_coefficient(info: dict, strength: float, *, sign: float = 1.0) -> f
     return float(strength * sign * info["gap_norm"])
 
 
+def _format_chat(model, prompt: str, system: str | None) -> tuple[str, int]:
+    """Apply the chat template to ``(system?, user)`` → ``(text, prompt_token_count)``.
+
+    ``format_messages`` normalizes the system turn for models like gemma that lack
+    one; the token count is used to slice the prompt off the decoded output.
+    """
+    messages = ([{"role": "system", "content": system}] if system else []) + [
+        {"role": "user", "content": prompt}
+    ]
+    return format_messages(messages, model.tokenizer, add_generation_prompt=True)
+
+
+def _decode_continuation(model, out, prompt_token_count: int) -> str:
+    """Decode the continuation, slicing the prompt off by token count.
+
+    Slicing by count (not string prefix) is required: ``skip_special_tokens`` drops
+    the chat-template markers, so a string-prefix test would let the prompt leak in.
+    """
+    return model.tokenizer.decode(
+        out[0][prompt_token_count:], skip_special_tokens=True
+    ).strip()
+
+
 def generate_steered_once(
     model,
     prompt: str,
@@ -236,7 +259,8 @@ def generate_steered_once(
 
     Returns the full output ids (prompt + continuation).
     """
-    # NOTE: This workaround is required due to unexpected behavior in NDIF.
+    # NDIF returns nothing for steered runs that stop early; pin min_new_tokens
+    # to max_new_tokens so the full continuation comes back.
     if "max_new_tokens" in generation_kwargs:
         generation_kwargs.setdefault(
             "min_new_tokens", generation_kwargs["max_new_tokens"]
@@ -287,16 +311,9 @@ def generate_steered(
     from NDIF.
 
     Returns ``{factor: continuation}``. The prompt is sliced off by token count
-    (``prompt_token_count`` from ``format_messages``) rather than by string
-    matching: decoding with ``skip_special_tokens`` drops the chat-template
-    markers, so a string prefix test fails and the prompt leaks into the output.
+    (see :func:`_decode_continuation`).
     """
-    messages = ([{"role": "system", "content": system}] if system else []) + [
-        {"role": "user", "content": prompt}
-    ]
-    text, prompt_token_count = format_messages(
-        messages, model.tokenizer, add_generation_prompt=True
-    )
+    text, prompt_token_count = _format_chat(model, prompt, system)
 
     outputs: dict[float, str] = {}
     for factor in factors:
@@ -309,7 +326,140 @@ def generate_steered(
             remote=remote,
             max_new_tokens=max_new_tokens,
         )
-        outputs[float(factor)] = model.tokenizer.decode(
-            out[0][prompt_token_count:], skip_special_tokens=True
-        ).strip()
+        outputs[float(factor)] = _decode_continuation(model, out, prompt_token_count)
     return outputs
+
+
+# ── Band steering (multi-layer) + optional adaptive intensity ─────────────────
+#
+# The best-performing steering here: add each trait's own direction across a band
+# of layers at a modest per-layer strength (compounds while staying
+# in-distribution), optionally modulating the intensity over generation steps.
+# The per-step schedules (linear taper / start-only) are the remote-feasible,
+# dial-preserving slice of Scalena, Sarti & Nissim, *Multi-property Steering with
+# Dynamic Activation Composition* (BlackboxNLP 2024,
+# https://aclanthology.org/2024.blackboxnlp-1.34/); their full KL-adaptive DAC
+# (Eq. 6) is a per-token feedback loop (local-only) and unnecessary here.
+
+
+def band_steering_vectors(
+    bands: dict | Sequence[dict], strength: float
+) -> dict[int, torch.Tensor]:
+    """Build ``{layer: combined_vector}`` for band steering at gap-unit ``strength``.
+
+    ``bands`` is one ``{layer: info_dict}`` band (e.g. from
+    :func:`persona_vectors.traits.load_trait_band`) or a list of them for
+    multi-trait composition. Each layer's vector is
+    ``Σ_trait steering_coefficient(info, strength) · unit_direction`` — the *base*
+    magnitude the user dials in (``strength`` in gap units; ``strength=1`` = that
+    layer's opposite-class centroid). Summing several bands per layer composes
+    multiple traits (correlated traits reinforce). Feed the result to
+    :func:`generate_band_steered`.
+    """
+    if isinstance(bands, dict):
+        bands = [bands]
+    out: dict[int, torch.Tensor] = {}
+    for band in bands:
+        for layer, info in band.items():
+            term = steering_coefficient(info, strength) * info["unit_direction"]
+            key = int(layer)
+            out[key] = term if key not in out else out[key] + term
+    return out
+
+
+def dim_schedule(step: int, n_steps: int) -> float:
+    """Per-step multiplier tapering linearly 1→0 (Scalena–Sarti–Nissim, Eq. 5)."""
+    return max(0.0, 1.0 - step / max(n_steps - 1, 1))
+
+
+def start_schedule(step: int, n_steps: int, frac: float = 1 / 3) -> float:
+    """Per-step multiplier: full intensity for the first ``frac`` of steps, then 0.
+
+    Pass bare as ``schedule=start_schedule``; for a different ``frac`` bind it with
+    ``functools.partial(start_schedule, frac=0.5)``.
+    """
+    return 1.0 if step < max(1, int(n_steps * frac)) else 0.0
+
+
+def generate_band_steered_once(
+    model,
+    prompt: str,
+    layer_vectors: dict[int, torch.Tensor],
+    *,
+    schedule=None,
+    remote: bool = True,
+    max_new_tokens: int = 120,
+) -> torch.Tensor:
+    """One band-steered pass over an already-formatted ``prompt`` → full output ids.
+
+    The band analogue of :func:`generate_steered_once` (the caller owns prompt
+    formatting and decoding). Every layer in ``layer_vectors`` — each vector already
+    carrying the dialled strength — is steered at every generated position, or
+    per-step when ``schedule`` is given. ``model.steer`` is applied once per layer in
+    ascending order (several steers on one layer raise nnsight's ``OutOfOrderError``).
+    """
+    layers = sorted(layer_vectors)
+    with model.generate(
+        prompt, remote=remote, max_new_tokens=max_new_tokens, min_new_tokens=max_new_tokens
+    ) as tracer:
+        if schedule is None:
+            with tracer.all():
+                for layer in layers:
+                    model.steer(
+                        layers=layer,
+                        steering_vector=layer_vectors[layer],
+                        factor=1.0,
+                    )
+        else:
+            for step in range(max_new_tokens):
+                factor = schedule(step, max_new_tokens)
+                if factor:
+                    with tracer.iter[step]:
+                        for layer in layers:
+                            model.steer(
+                                layers=layer,
+                                steering_vector=layer_vectors[layer],
+                                factor=float(factor),
+                            )
+        out = model.generator.output.save()
+    return out
+
+
+def generate_band_steered(
+    model,
+    prompt: str,
+    layer_vectors: dict[int, torch.Tensor],
+    *,
+    schedule=None,
+    system: str | None = None,
+    max_new_tokens: int = 120,
+    remote: bool = True,
+) -> str:
+    """Current best steering: a band of layers, optionally with adaptive intensity.
+
+    ``layer_vectors`` is ``{layer: vector}`` (e.g. from
+    :func:`band_steering_vectors`) — each vector already carries the user-dialled
+    *base* strength. Every layer is steered at every generated position; using each
+    layer's own direction at a modest per-layer strength compounds across the band
+    while staying in-distribution — far stronger and more coherent than a large
+    single-layer push.
+
+    ``schedule`` shapes the intensity **over generation steps** as a multiplier on
+    that base — a ``schedule(step, n_steps) -> [0, 1]`` callable, called internally
+    with ``n_steps=max_new_tokens`` so it always matches the step count: ``None``
+    keeps it constant (multi-layer, fixed — a drop-in for the single-layer fixed
+    steering, just stronger); :func:`dim_schedule` tapers it 1→0 to protect fluency
+    when steering hard; :func:`start_schedule` steers only the opening tokens. The
+    user keeps the strength dial *and* gains an adaptive multiplier. Returns the
+    continuation string.
+    """
+    text, prompt_token_count = _format_chat(model, prompt, system)
+    out = generate_band_steered_once(
+        model,
+        text,
+        layer_vectors,
+        schedule=schedule,
+        remote=remote,
+        max_new_tokens=max_new_tokens,
+    )
+    return _decode_continuation(model, out, prompt_token_count)

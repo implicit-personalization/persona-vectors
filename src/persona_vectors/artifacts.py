@@ -46,19 +46,19 @@ def _variant_root(
     )
 
 
-def _persona_tensor_path(variant_root: Path, persona_id: str) -> Path:
-    if "/" in persona_id or "\\" in persona_id:
-        raise ValueError(f"persona_id cannot contain path separators: {persona_id!r}")
-    return variant_root / f"{persona_id}{_TENSOR_SUFFIX}"
+def _item_tensor_path(variant_root: Path, item_id: str) -> Path:
+    if "/" in item_id or "\\" in item_id:
+        raise ValueError(f"item id cannot contain path separators: {item_id!r}")
+    return variant_root / f"{item_id}{_TENSOR_SUFFIX}"
 
 
-def _load_manifest(variant_root: Path) -> dict:
+def _load_manifest(variant_root: Path, item_key: str) -> dict:
     manifest_file = variant_root / _MANIFEST_FILENAME
     if not manifest_file.exists():
         raise FileNotFoundError(manifest_file)
     manifest = json.loads(manifest_file.read_text())
-    if not isinstance(manifest.get("personas"), dict):
-        raise ValueError(f"manifest {manifest_file} is missing a personas mapping")
+    if not isinstance(manifest.get(item_key), dict):
+        raise ValueError(f"manifest {manifest_file} is missing a {item_key} mapping")
     return manifest
 
 
@@ -96,8 +96,17 @@ def _first_nonempty_name(
     return names
 
 
-class PersonaVectorStore:
-    """Local artifact storage for masked-mean persona vectors."""
+class LocalVectorStore:
+    """Local safetensors storage for per-item ``(num_layers, hidden_size)`` vectors.
+
+    Layout: ``<root>/<model>/<mask_strategy>/<variant>/<item>.safetensors`` plus a
+    ``manifest.json`` keyed by ``_ITEM_KEY`` (``{<item>: <entry dict>}``).
+    Subclasses set ``_ITEM_KEY`` and ``_DEFAULT_SUBDIR`` and add domain-friendly
+    ``save``/``load`` wrappers over the generic ``_save_item`` / ``_load_item``.
+    """
+
+    _ITEM_KEY = "items"
+    _DEFAULT_SUBDIR = "activations"
 
     def __init__(
         self,
@@ -112,17 +121,17 @@ class PersonaVectorStore:
         self.root_dir = (
             Path(root_dir)
             if root_dir is not None
-            else get_artifacts_dir() / "activations"
+            else get_artifacts_dir() / self._DEFAULT_SUBDIR
         )
 
     def _resolved_mask(self, mask_strategy: object | None) -> object:
         return self.mask_strategy if mask_strategy is None else mask_strategy
 
-    def _root(self, prompt_variant: str, mask_strategy: object | None = None) -> Path:
+    def _root(self, variant: str, mask_strategy: object | None = None) -> Path:
         return _variant_root(
             self.root_dir,
             self.model_name,
-            prompt_variant,
+            variant,
             self._resolved_mask(mask_strategy),
         )
 
@@ -135,7 +144,154 @@ class PersonaVectorStore:
         roots = [self._root(variant, mask_strategy) for variant in variants]
         if not roots or any(not (r / _MANIFEST_FILENAME).exists() for r in roots):
             return []
-        return [_load_manifest(r) for r in roots]
+        return [_load_manifest(r, self._ITEM_KEY) for r in roots]
+
+    def _save_item(
+        self,
+        variant: str,
+        item_id: str,
+        vectors: torch.Tensor,
+        entry: dict,
+        mask_strategy: object | None = None,
+    ) -> Path:
+        """Save a ``(num_layers, hidden_size)`` tensor and its manifest ``entry``."""
+        if vectors.ndim != 2:
+            raise ValueError("vectors must have shape (num_layers, hidden_size)")
+        variant_root = self._root(variant, mask_strategy)
+        variant_root.mkdir(parents=True, exist_ok=True)
+
+        manifest_path = variant_root / _MANIFEST_FILENAME
+        num_layers, hidden_size = int(vectors.shape[0]), int(vectors.shape[1])
+        manifest = (
+            _load_manifest(variant_root, self._ITEM_KEY)
+            if manifest_path.exists()
+            else {
+                "num_layers": num_layers,
+                "hidden_size": hidden_size,
+                self._ITEM_KEY: {},
+            }
+        )
+        if (
+            manifest.get("num_layers") != num_layers
+            or manifest.get("hidden_size") != hidden_size
+        ):
+            raise ValueError(
+                f"tensor shape for {item_id!r} does not match existing artifact manifest"
+            )
+
+        save_file(
+            {_TENSOR_KEY: vectors.detach().cpu()},
+            str(_item_tensor_path(variant_root, item_id)),
+        )
+
+        manifest["num_layers"] = num_layers
+        manifest["hidden_size"] = hidden_size
+        manifest[self._ITEM_KEY][item_id] = entry
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        return variant_root
+
+    def _load_item(
+        self,
+        variant: str,
+        item_id: str,
+        mask_strategy: object | None = None,
+    ) -> torch.Tensor:
+        """Load the saved ``(num_layers, hidden_size)`` tensor for ``item_id``.
+
+        Raises ``FileNotFoundError`` if no artifact exists for the combination.
+        """
+        variant_root = self._root(variant, mask_strategy)
+        manifest = _load_manifest(variant_root, self._ITEM_KEY)
+        if not isinstance(manifest[self._ITEM_KEY].get(item_id), dict):
+            requested = normalize_mask_strategy(self._resolved_mask(mask_strategy))
+            raise FileNotFoundError(
+                f"No {self._DEFAULT_SUBDIR} found for {self.model_name!r} /"
+                f" {variant!r} / {requested!r} / {item_id!r}"
+            )
+
+        tensor_path = _item_tensor_path(variant_root, item_id)
+        tensors = load_file(str(tensor_path))
+        if _TENSOR_KEY not in tensors:
+            raise FileNotFoundError(f"Missing {_TENSOR_KEY!r} tensor in {tensor_path}")
+        vectors = tensors[_TENSOR_KEY]
+        if vectors.ndim != 2:
+            raise ValueError(
+                f"tensor for {item_id!r} must have shape (num_layers, hidden_size)"
+            )
+        return vectors
+
+    def _item_entry(
+        self,
+        variant: str,
+        item_id: str,
+        mask_strategy: object | None = None,
+    ) -> dict | None:
+        """Return the manifest entry for ``item_id``, or ``None`` if absent."""
+        variant_root = self._root(variant, mask_strategy)
+        if not (variant_root / _MANIFEST_FILENAME).exists():
+            return None
+        entry = _load_manifest(variant_root, self._ITEM_KEY)[self._ITEM_KEY].get(item_id)
+        return entry if isinstance(entry, dict) else None
+
+    def _list_items(
+        self,
+        variants: list[str] | tuple[str, ...],
+        mask_strategy: object | None = None,
+        warn_missing: bool = True,
+    ) -> list[str]:
+        """Return item ids present in every requested variant (sorted)."""
+        manifests = self._manifests(list(variants), mask_strategy)
+        if not manifests:
+            return []
+        return _shared_persona_ids(
+            [set(m[self._ITEM_KEY].keys()) for m in manifests],
+            warn_missing=warn_missing,
+        )
+
+    def list_layers(
+        self,
+        variants: list[str] | tuple[str, ...],
+        item_ids: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> list[int]:
+        """Return shared layer indices for the requested local artifacts."""
+        manifests = self._manifests(list(variants), mask_strategy)
+        if not manifests:
+            return []
+
+        if item_ids:
+            shared = set.intersection(*(set(m[self._ITEM_KEY]) for m in manifests))
+            if not set(item_ids) <= shared:
+                return []
+
+        shared_layers: set[int] | None = None
+        for manifest in manifests:
+            num_layers = manifest.get("num_layers")
+            if isinstance(num_layers, int) and num_layers >= 0:
+                layers = set(range(num_layers))
+                shared_layers = (
+                    layers if shared_layers is None else shared_layers & layers
+                )
+        return sorted(shared_layers or set())
+
+    def available_variants(
+        self,
+        variants: list[str] | tuple[str, ...] | None = None,
+        mask_strategy: object | None = None,
+    ) -> list[str]:
+        """Return candidate variants that have at least one saved item."""
+        candidates = self.variants if variants is None else variants
+        return [
+            variant
+            for variant in candidates
+            if self._list_items([variant], mask_strategy, warn_missing=False)
+        ]
+
+
+class PersonaVectorStore(LocalVectorStore):
+    """Local artifact storage for masked-mean persona vectors."""
+
+    _ITEM_KEY = "personas"  # _DEFAULT_SUBDIR inherits "activations"
 
     def save(
         self,
@@ -147,39 +303,13 @@ class PersonaVectorStore:
         mask_strategy: object | None = None,
     ) -> Path:
         """Save a ``(num_layers, hidden_size)`` mean activation tensor. ``sample_ids`` are stored in the manifest for provenance."""
-        if vectors.ndim != 2:
-            raise ValueError("vectors must have shape (num_layers, hidden_size)")
-        variant_root = self._root(prompt_variant, mask_strategy)
-        variant_root.mkdir(parents=True, exist_ok=True)
-
-        manifest_path = variant_root / _MANIFEST_FILENAME
-        num_layers, hidden_size = int(vectors.shape[0]), int(vectors.shape[1])
-        manifest = (
-            _load_manifest(variant_root)
-            if manifest_path.exists()
-            else {"num_layers": num_layers, "hidden_size": hidden_size, "personas": {}}
+        return self._save_item(
+            prompt_variant,
+            persona_id,
+            vectors,
+            {"name": persona_name, "sample_ids": list(sample_ids)},
+            mask_strategy,
         )
-        if (
-            manifest.get("num_layers") != num_layers
-            or manifest.get("hidden_size") != hidden_size
-        ):
-            raise ValueError(
-                f"tensor shape for {persona_id!r} does not match existing artifact manifest"
-            )
-
-        save_file(
-            {_TENSOR_KEY: vectors.detach().cpu()},
-            str(_persona_tensor_path(variant_root, persona_id)),
-        )
-
-        manifest["num_layers"] = num_layers
-        manifest["hidden_size"] = hidden_size
-        manifest["personas"][persona_id] = {
-            "name": persona_name,
-            "sample_ids": list(sample_ids),
-        }
-        manifest_path.write_text(json.dumps(manifest, indent=2))
-        return variant_root
 
     def load(
         self,
@@ -191,25 +321,7 @@ class PersonaVectorStore:
 
         Raises ``FileNotFoundError`` if no artifact exists for the combination.
         """
-        variant_root = self._root(prompt_variant, mask_strategy)
-        manifest = _load_manifest(variant_root)
-        if not isinstance(manifest["personas"].get(persona_id), dict):
-            requested = normalize_mask_strategy(self._resolved_mask(mask_strategy))
-            raise FileNotFoundError(
-                f"No activations found for {self.model_name!r} / {prompt_variant!r}"
-                f" / {requested!r} / {persona_id!r}"
-            )
-
-        tensor_path = _persona_tensor_path(variant_root, persona_id)
-        tensors = load_file(str(tensor_path))
-        if _TENSOR_KEY not in tensors:
-            raise FileNotFoundError(f"Missing {_TENSOR_KEY!r} tensor in {tensor_path}")
-        vectors = tensors[_TENSOR_KEY]
-        if vectors.ndim != 2:
-            raise ValueError(
-                f"tensor for {persona_id!r} must have shape (num_layers, hidden_size)"
-            )
-        return vectors
+        return self._load_item(prompt_variant, persona_id, mask_strategy)
 
     def list_personas(
         self,
@@ -225,20 +337,10 @@ class PersonaVectorStore:
         ``include_baseline=True`` to keep it.
         """
         requested = self.variants if variants is None else tuple(variants)
-        manifests = self._manifests(list(requested), mask_strategy)
-        if not manifests:
-            return []
-        persona_ids = _shared_persona_ids(
-            [set(m["personas"].keys()) for m in manifests],
-            warn_missing=warn_missing,
-        )
+        persona_ids = self._list_items(list(requested), mask_strategy, warn_missing)
         if include_baseline:
             return persona_ids
-        return [
-            persona_id
-            for persona_id in persona_ids
-            if persona_id != BASELINE_PERSONA_ID
-        ]
+        return [pid for pid in persona_ids if pid != BASELINE_PERSONA_ID]
 
     def persona_sample_ids(
         self,
@@ -247,15 +349,8 @@ class PersonaVectorStore:
         mask_strategy: object | None = None,
     ) -> list[str] | None:
         """Return stored sample ids for a persona, if present."""
-        variant_root = self._root(prompt_variant, mask_strategy)
-        manifest_file = variant_root / _MANIFEST_FILENAME
-        if not manifest_file.exists():
-            return None
-        manifest = _load_manifest(variant_root)
-        entry = manifest["personas"].get(persona_id)
-        if not isinstance(entry, dict):
-            return None
-        sample_ids = entry.get("sample_ids")
+        entry = self._item_entry(prompt_variant, persona_id, mask_strategy)
+        sample_ids = entry.get("sample_ids") if entry else None
         if not isinstance(sample_ids, list):
             return None
         return [str(sample_id) for sample_id in sample_ids]
@@ -283,49 +378,63 @@ class PersonaVectorStore:
 
         return _first_nonempty_name(persona_ids, requested, lookup)
 
-    def list_layers(
+
+class TraitVectorStore(LocalVectorStore):
+    """Local storage for minimal-pair *trait* vectors (see :mod:`persona_vectors.traits`).
+
+    One ``(num_layers, hidden_size)`` tensor per attribute (the per-layer mean
+    swap delta) plus its contrast metadata in the manifest entry. Lives under
+    ``trait_vectors/`` so it never collides with persona activations.
+    """
+
+    _ITEM_KEY = "attributes"
+    _DEFAULT_SUBDIR = "trait_vectors"
+
+    def save(
         self,
-        variants: list[str] | tuple[str, ...],
-        persona_ids: list[str] | tuple[str, ...] | None = None,
+        attribute: str,
+        mean_delta: torch.Tensor,
+        *,
+        variant: str = "templated",
         mask_strategy: object | None = None,
-    ) -> list[int]:
-        """Return shared layer indices for the requested local artifacts."""
-        manifests = self._manifests(list(variants), mask_strategy)
-        if not manifests:
-            return []
+        **entry: object,
+    ) -> Path:
+        """Save the per-layer mean delta for ``attribute`` plus its metadata ``entry``."""
+        return self._save_item(variant, attribute, mean_delta, dict(entry), mask_strategy)
 
-        if persona_ids:
-            shared = set.intersection(*(set(m["personas"].keys()) for m in manifests))
-            if not set(persona_ids) <= shared:
-                return []
-
-        shared_layers: set[int] | None = None
-        for manifest in manifests:
-            num_layers = manifest.get("num_layers")
-            if isinstance(num_layers, int) and num_layers >= 0:
-                layers = set(range(num_layers))
-                shared_layers = (
-                    layers if shared_layers is None else shared_layers & layers
-                )
-        return sorted(shared_layers or set())
-
-    def available_variants(
+    def load(
         self,
-        variants: list[str] | tuple[str, ...] | None = None,
+        attribute: str,
+        *,
+        variant: str = "templated",
+        mask_strategy: object | None = None,
+    ) -> torch.Tensor:
+        """Load the saved ``(num_layers, hidden_size)`` mean delta for ``attribute``."""
+        return self._load_item(variant, attribute, mask_strategy)
+
+    def metadata(
+        self,
+        attribute: str,
+        *,
+        variant: str = "templated",
+        mask_strategy: object | None = None,
+    ) -> dict:
+        """Return the stored contrast metadata for ``attribute``."""
+        entry = self._item_entry(variant, attribute, mask_strategy)
+        if entry is None:
+            raise FileNotFoundError(
+                f"No trait vector for {self.model_name!r} / {variant!r} / {attribute!r}"
+            )
+        return entry
+
+    def list_attributes(
+        self,
+        *,
+        variant: str = "templated",
         mask_strategy: object | None = None,
     ) -> list[str]:
-        """Return candidate variants that have at least one saved persona."""
-        candidates = self.variants if variants is None else variants
-        return [
-            variant
-            for variant in candidates
-            if self.list_personas(
-                [variant],
-                mask_strategy=mask_strategy,
-                warn_missing=False,
-                include_baseline=True,
-            )
-        ]
+        """Return attributes with a saved trait vector for ``variant``."""
+        return self._list_items([variant], mask_strategy, warn_missing=False)
 
 
 class HFPersonaVectorStore:
