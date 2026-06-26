@@ -887,3 +887,34 @@ def test_band_steering_vectors_and_schedules() -> None:
     assert 0.0 < dim_schedule(5, 10) < 1.0
     assert start_schedule(0, 9) == 1.0 and start_schedule(2, 9) == 1.0
     assert start_schedule(3, 9) == 0.0
+
+
+def test_merge_trait_bands(monkeypatch) -> None:
+    """merge_trait_bands loads each attribute's band and sums them per layer."""
+    from persona_vectors import traits
+    from persona_vectors.steering import steering_coefficient
+
+    def info(layer: int, gap: float) -> dict:
+        v = torch.randn(8)
+        return {"layer": layer, "gap_norm": gap, "unit_direction": v / v.norm()}
+
+    bands = {
+        "age": {14: info(14, 2.0), 21: info(21, 4.0)},
+        "sex": {14: info(14, 1.0), 21: info(21, 3.0)},
+    }
+    monkeypatch.setattr(
+        traits, "load_trait_band", lambda store, a, layers, **kw: bands[a]
+    )
+
+    merged = traits.merge_trait_bands(None, ["age", "sex"], [14, 21], strength=1.0)
+    summed = (
+        steering_coefficient(bands["age"][21], 1.0) * bands["age"][21]["unit_direction"]
+        + steering_coefficient(bands["sex"][21], 1.0) * bands["sex"][21]["unit_direction"]
+    )
+    assert torch.allclose(merged[21], summed)
+
+    # single attribute == that attribute's solo band
+    solo = traits.merge_trait_bands(None, ["age"], [14, 21], strength=2.0)
+    assert torch.allclose(
+        solo[14], steering_coefficient(bands["age"][14], 2.0) * bands["age"][14]["unit_direction"]
+    )
