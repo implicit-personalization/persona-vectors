@@ -59,7 +59,7 @@ artifacts/
 *.jsonl.bak
 
 # Tmp to avoid pushing things I'm testing
-__marimo__/
 AGENTS.md
 CLAUDE.md
+.claude/**
 # notebook_marimo.py

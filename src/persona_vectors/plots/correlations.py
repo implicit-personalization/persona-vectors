@@ -13,13 +13,17 @@ def build_cooccurrence_heatmap(
     filename: str | None = None,
     show: bool = False,
     cell_px: int = 44,
+    diverging: bool = False,
+    colorbar_title: str = "Cramér's V",
 ) -> go.Figure:
-    """Heatmap of a symmetric attribute association matrix in ``[0, 1]``.
+    """Heatmap of a symmetric attribute association matrix.
 
     ``matrix`` is the ``(A, A)`` array from
     :func:`persona_vectors.correlations.attribute_association_matrix`; ``labels``
-    are the matching attribute names. Mirrors the similarity-heatmap styling but
-    uses a sequential 0..1 scale since association is non-negative.
+    are the matching attribute names. Mirrors the similarity-heatmap styling.
+    The default sequential 0..1 scale fits non-negative association; pass
+    ``diverging=True`` for signed matrices (e.g. |cos| − V), which switches to a
+    zero-centred −1..1 RdBu scale.
 
     The figure is sized so each cell is ``cell_px`` square (the grid is
     ``cell_px * n`` on a side); axis-label margins are added on top via
@@ -30,20 +34,23 @@ def build_cooccurrence_heatmap(
     # Room for the (short) tick labels on the top and left; automargin grows this
     # if needed but a generous base keeps the grid square in the common case.
     label_pad = 200
+    scale_kwargs = (
+        dict(zmin=-1.0, zmax=1.0, zmid=0.0, colorscale="RdBu")
+        if diverging
+        else dict(zmin=0.0, zmax=1.0, colorscale="Blues")
+    )
     fig = go.Figure(
         go.Heatmap(
             z=matrix,
             x=labels,
             y=labels,
-            zmin=0.0,
-            zmax=1.0,
-            colorscale="Blues",
             texttemplate="%{z:.2f}",
             textfont=dict(size=11),
-            colorbar=dict(title="Cramér's V", thickness=18),
-            hovertemplate="(%{x}, %{y})<br>Cramér's V: %{z:.4f}<extra></extra>",
+            colorbar=dict(title=colorbar_title, thickness=18),
+            hovertemplate=f"(%{{x}}, %{{y}})<br>{colorbar_title}: %{{z:.4f}}<extra></extra>",
             xgap=1,
             ygap=1,
+            **scale_kwargs,
         )
     )
     fig.update_layout(

@@ -21,7 +21,7 @@ from rich.console import Console
 
 from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.extraction import MaskStrategy
-from persona_vectors.steering import generate_band_steered
+from persona_vectors.steering import PERSONA_SYS, generate_band_steered
 from persona_vectors.traits import merge_trait_bands
 
 console = Console()
@@ -44,18 +44,16 @@ BAND = list(range(mid - 7, mid + 10))  # mid-stack band, e.g. 14–30 on gemma-2
 # a coherent non-US, non-citizen, multilingual persona.
 ATTRS = ["born_in_us", "us_citizenship_status", "speak_other_language"]
 
-PERSONA_SYS = (
-    "You are a human being having a casual conversation. Stay in character and "
-    "answer in the first person as a real person. Never say you are an AI."
+PROMPT = (
+    "Tell me about your background — where you're from and the languages you speak."
 )
-PROMPT = "Tell me about your background — where you're from and the languages you speak."
 
-# %% Baseline (no steering)
+# %% Baseline (no steering: an empty band generates unsteered)
 store = TraitVectorStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 baseline = generate_band_steered(
     model,
     PROMPT,
-    merge_trait_bands(store, ATTRS, BAND, strength=0.0, mask_strategy=MASK_STRATEGY),
+    {},
     system=PERSONA_SYS,
     max_new_tokens=120,
     remote=REMOTE,
@@ -65,7 +63,9 @@ print(baseline)
 
 # %% Each trait solo (one attribute's band at strength 1)
 for attr in ATTRS:
-    solo = merge_trait_bands(store, [attr], BAND, strength=1.0, mask_strategy=MASK_STRATEGY)
+    solo = merge_trait_bands(
+        store, [attr], BAND, strength=1.0, mask_strategy=MASK_STRATEGY
+    )
     text = generate_band_steered(
         model, PROMPT, solo, system=PERSONA_SYS, max_new_tokens=120, remote=REMOTE
     )

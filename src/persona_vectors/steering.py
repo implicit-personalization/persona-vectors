@@ -1,20 +1,19 @@
-"""
-Generate persona steering vectors from pre-extracted activations.
+"""Steering vectors: legacy per-persona vectors and calibrated trait/band steering.
 
-Method: Contrastive mean-diff
-──────────────────────────────────────────────────────────────────────────────
-For each persona:
+Two halves live here:
 
-  negative prompt  ->  Templated prompt + Question + Answer
-  positive prompt  ->  Biography + Question + Answer
+1. **Legacy persona steering** (``compute_steering_vector`` /
+   ``save_steering_vector`` / ``load_steering_vector``): contrastive mean-diff
+   between the saved biography and templated masked-mean activations at one
+   layer (``steering_vector = biography_h[layer] - templated_h[layer]``), with
+   a ``suggested_alpha`` of 20x the negatives' RMS. Kept for the existing
+   persona artifacts/UI; that alpha heuristic over-steers 8-28x the real class
+   gap and is superseded by the gap-unit calibration below.
 
-Load the saved mean response-token hidden states at STEER_LAYER. The activation
-artifacts are already averaged across QA pairs and masked tokens, so each one
-is a single (num_layers, hidden_size) tensor per (variant, persona).
-
-  steering_vector = biography_h[layer] - templated_h[layer]
-
-Output saved to: artifacts/vectors/{persona_id}/steering_vector.safetensors
+2. **Trait steering** (``steering_coefficient`` onwards): gap-unit
+   coefficients, causal single-layer generation (``generate_steered``), and
+   multi-layer band steering (``band_steering_vectors`` /
+   ``generate_band_steered``) with optional per-step intensity schedules.
 """
 
 import json
@@ -31,6 +30,14 @@ from persona_vectors.artifacts import PersonaVectorStore
 
 # Config
 STEER_LAYER = 20
+
+# Generic-human framing for steering prompts. Without it the model answers as
+# an AI assistant, each attribute saturates at its prior pole, and steering has
+# no room to move — every steering experiment/notebook shares this context.
+PERSONA_SYS = (
+    "You are a human being having a casual conversation. Stay in character and "
+    "answer in the first person as a real person. Never say you are an AI."
+)
 
 console = Console()
 
@@ -397,30 +404,35 @@ def generate_band_steered_once(
     carrying the dialled strength — is steered at every generated position, or
     per-step when ``schedule`` is given. ``model.steer`` is applied once per layer in
     ascending order (several steers on one layer raise nnsight's ``OutOfOrderError``).
+    An empty ``layer_vectors`` generates unsteered — the baseline condition.
     """
     layers = sorted(layer_vectors)
     with model.generate(
-        prompt, remote=remote, max_new_tokens=max_new_tokens, min_new_tokens=max_new_tokens
+        prompt,
+        remote=remote,
+        max_new_tokens=max_new_tokens,
+        min_new_tokens=max_new_tokens,
     ) as tracer:
-        if schedule is None:
-            with tracer.all():
-                for layer in layers:
-                    model.steer(
-                        layers=layer,
-                        steering_vector=layer_vectors[layer],
-                        factor=1.0,
-                    )
-        else:
-            for step in range(max_new_tokens):
-                factor = schedule(step, max_new_tokens)
-                if factor:
-                    with tracer.iter[step]:
-                        for layer in layers:
-                            model.steer(
-                                layers=layer,
-                                steering_vector=layer_vectors[layer],
-                                factor=float(factor),
-                            )
+        if layers:
+            if schedule is None:
+                with tracer.all():
+                    for layer in layers:
+                        model.steer(
+                            layers=layer,
+                            steering_vector=layer_vectors[layer],
+                            factor=1.0,
+                        )
+            else:
+                for step in range(max_new_tokens):
+                    factor = schedule(step, max_new_tokens)
+                    if factor:
+                        with tracer.iter[step]:
+                            for layer in layers:
+                                model.steer(
+                                    layers=layer,
+                                    steering_vector=layer_vectors[layer],
+                                    factor=float(factor),
+                                )
         out = model.generator.output.save()
     return out
 

@@ -18,6 +18,7 @@ steering flow.
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -62,11 +63,13 @@ class TraitDeltas:
         """Mean swap delta per layer, ``(num_layers, hidden)`` (the trait vector)."""
         return self.deltas.mean(0).astype(np.float32)
 
+    @cached_property
     def layer_stats(self) -> dict[int, dict[str, float]]:
         """Per-layer ``{auc, act_norm}`` for the paired ``from``/``to`` activations.
 
         ``auc`` is how well projecting both values onto the mean unit delta
         separates them; ``act_norm`` is the typical residual-stream norm.
+        Cached: both saving and direction-building read the same stats.
         """
         n = len(self.persona_ids)
         y = np.concatenate([np.zeros(n), np.ones(n)])  # 0 = value_from, 1 = value_to
@@ -82,6 +85,30 @@ class TraitDeltas:
                 "act_norm": float(np.linalg.norm(stacked, axis=1).mean()),
             }
         return stats
+
+    def auc_ci(
+        self, layer: int, *, n_boot: int = 1000, seed: int = 0
+    ) -> tuple[float, float]:
+        """Bootstrap 95% CI for the layer's projection AUC.
+
+        Resamples personas with replacement — ``acts_from``/``acts_to`` rows
+        together, so pairs stay paired — and recomputes the mean-delta
+        projection AUC per resample. Returns the (2.5, 97.5) percentiles.
+        """
+        rng = np.random.default_rng(seed)
+        x_from = self.acts_from[:, layer, :]
+        x_to = self.acts_to[:, layer, :]
+        n = len(self.persona_ids)
+        y = np.concatenate([np.zeros(n), np.ones(n)])
+        aucs = np.empty(n_boot)
+        for b in range(n_boot):
+            idx = rng.integers(0, n, n)
+            xf, xt = x_from[idx], x_to[idx]
+            d = (xt - xf).mean(0)
+            unit = d / (np.linalg.norm(d) + 1e-12)
+            aucs[b] = roc_auc_score(y, np.concatenate([xf, xt]) @ unit)
+        lo, hi = np.percentile(aucs, [2.5, 97.5])
+        return float(lo), float(hi)
 
 
 def binary_attribute_values(persona_dataset, attribute: str) -> tuple[str, str]:
@@ -137,7 +164,9 @@ def attribute_contrast_values(persona_dataset, attribute: str) -> tuple[object, 
     )
 
 
-def _render_at_pole(persona_dataset, persona: PersonaData, attribute: str, value: object):
+def _render_at_pole(
+    persona_dataset, persona: PersonaData, attribute: str, value: object
+):
     """Return ``persona`` re-rendered with ``attribute == value`` (minimal pair pole).
 
     Reuses :func:`swap_attribute` (which validates the v4.0 template and only
@@ -309,7 +338,9 @@ def _trait_direction_dict(
     }
 
 
-def build_trait_direction(deltas: TraitDeltas, *, candidate_layers: Sequence[int]) -> dict:
+def build_trait_direction(
+    deltas: TraitDeltas, *, candidate_layers: Sequence[int]
+) -> dict:
     """Mean minimal-pair delta at the best-separating layer.
 
     The direction is the mean of ``act(value_to) - act(value_from)`` over
@@ -319,7 +350,7 @@ def build_trait_direction(deltas: TraitDeltas, *, candidate_layers: Sequence[int
     population difference-of-means builder, but on minimal pairs). Returns a
     steering-harness direction dict so the result drops into the steering flow.
     """
-    stats = deltas.layer_stats()
+    stats = deltas.layer_stats
     mean = deltas.mean_delta
     best = max(candidate_layers, key=lambda layer: abs(stats[layer]["auc"] - 0.5))
     return _trait_direction_dict(
@@ -342,7 +373,7 @@ def save_trait_deltas(
     Stores the full ``(num_layers, hidden)`` mean delta so a direction can later
     be rebuilt at any layer with :func:`load_trait_direction`.
     """
-    stats = deltas.layer_stats()
+    stats = deltas.layer_stats
     return store.save(
         deltas.attribute,
         torch.from_numpy(deltas.mean_delta),

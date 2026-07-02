@@ -230,7 +230,9 @@ class LocalVectorStore:
         variant_root = self._root(variant, mask_strategy)
         if not (variant_root / _MANIFEST_FILENAME).exists():
             return None
-        entry = _load_manifest(variant_root, self._ITEM_KEY)[self._ITEM_KEY].get(item_id)
+        entry = _load_manifest(variant_root, self._ITEM_KEY)[self._ITEM_KEY].get(
+            item_id
+        )
         return entry if isinstance(entry, dict) else None
 
     def _list_items(
@@ -400,7 +402,9 @@ class TraitVectorStore(LocalVectorStore):
         **entry: object,
     ) -> Path:
         """Save the per-layer mean delta for ``attribute`` plus its metadata ``entry``."""
-        return self._save_item(variant, attribute, mean_delta, dict(entry), mask_strategy)
+        return self._save_item(
+            variant, attribute, mean_delta, dict(entry), mask_strategy
+        )
 
     def load(
         self,

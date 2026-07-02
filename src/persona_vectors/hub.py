@@ -74,9 +74,9 @@ def push_to_hub(
                 "persona_id": persona_id,
                 "name": entry["name"],
                 "sample_ids": entry["sample_ids"],
-                "vector": load_file(
-                    str(_item_tensor_path(variant_root, persona_id))
-                )[_TENSOR_KEY]
+                "vector": load_file(str(_item_tensor_path(variant_root, persona_id)))[
+                    _TENSOR_KEY
+                ]
                 .float()
                 .numpy(),
             }

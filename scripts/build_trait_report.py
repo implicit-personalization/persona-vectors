@@ -6,11 +6,15 @@ matrices (``gemma_*.npz/json``, ``multilayer_diag``, ``ood_geometry``) plus the
 experiment JSONs (``generalization``, ``copyhead``, ``merge``, ``adaptive``,
 ``perpos``). Emits one self-contained HTML with embedded plotly.
 """
-import html, json
+
+import html
+import json
 from pathlib import Path
+
 import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
+from scipy.stats import spearmanr
 
 ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "trait_report"
 
@@ -26,20 +30,45 @@ def esc(s):
 
 
 _first = [True]
+
+
 def figdiv(fig):
-    d = pio.to_html(fig, include_plotlyjs=("inline" if _first[0] else False),
-                    full_html=False, config={"displayModeBar": False})
+    d = pio.to_html(
+        fig,
+        include_plotlyjs=("inline" if _first[0] else False),
+        full_html=False,
+        config={"displayModeBar": False},
+    )
     _first[0] = False
     return f"<div class='fig'>{d}</div>"
 
 
 def heat(z, labels, title, diverging=False, zlabel=""):
-    kw = dict(colorscale="RdBu", zmid=0, zmin=-1, zmax=1) if diverging else dict(colorscale="Blues", zmin=0, zmax=1)
-    fig = go.Figure(go.Heatmap(z=z, x=labels, y=labels, texttemplate="%{z:.2f}",
-                               textfont=dict(size=9), colorbar=dict(title=zlabel, thickness=14),
-                               xgap=1, ygap=1, **kw))
-    fig.update_layout(title=title, template="plotly_white", width=820, height=720,
-                      margin=dict(t=110, b=30, l=30, r=30))
+    kw = (
+        dict(colorscale="RdBu", zmid=0, zmin=-1, zmax=1)
+        if diverging
+        else dict(colorscale="Blues", zmin=0, zmax=1)
+    )
+    fig = go.Figure(
+        go.Heatmap(
+            z=z,
+            x=labels,
+            y=labels,
+            texttemplate="%{z:.2f}",
+            textfont=dict(size=9),
+            colorbar=dict(title=zlabel, thickness=14),
+            xgap=1,
+            ygap=1,
+            **kw,
+        )
+    )
+    fig.update_layout(
+        title=title,
+        template="plotly_white",
+        width=820,
+        height=720,
+        margin=dict(t=110, b=30, l=30, r=30),
+    )
     fig.update_xaxes(side="top", tickangle=-45, automargin=True)
     fig.update_yaxes(autorange="reversed", automargin=True, scaleanchor="x")
     return fig
@@ -53,7 +82,8 @@ if not _matrices.exists():
         "to populate artifacts/trait_report/ first"
     )
 mats = np.load(_matrices, allow_pickle=True)
-attrs = list(mats["attrs"]); cos, co, delta = mats["cos"], mats["co"], mats["delta"]
+attrs = list(mats["attrs"])
+cos, co, delta = mats["cos"], mats["co"], mats["delta"]
 found = jload(ROOT / "gemma_foundation.json")
 ml = jload(ROOT / "multilayer_diag.json")
 oodg = jload(ROOT / "ood_geometry.json")
@@ -88,7 +118,8 @@ parts.append(
     "<em>directions</em> (e.g. sex AUC≈1) and attribute <em>manifolds</em> (age as the leading "
     "diffusion axis) replicate on <code>gemma-2-9b-it</code> and <code>gemma-3-27b</code>, with "
     "templated extraction also run on Llama-3.1-70B / 405B — none of which are plotted in this "
-    "report.</p>")
+    "report.</p>"
+)
 
 # ---------- 1. method ----------
 parts.append(
@@ -99,33 +130,70 @@ parts.append(
     "delta — everything that didn't change cancels.</p>"
     "<div class='eq'>v(attr) = mean over personas [ act(persona@value_to) − act(persona@value_from) ]</div>"
     "<p>Built per attribute at a mid-stack layer; oriented by value so Female→Male and Male→Female "
-    "reinforce. All 14 attributes decode near-perfectly (AUC@L21 0.84–1.0, n=100).</p>")
+    "reinforce. All 14 attributes decode near-perfectly (AUC@L21 0.84–1.0, n=100).</p>"
+)
 
 # ---------- 2. deconfounding (headline) ----------
 parts.append("<h2>2 · Trait cosine tracks meaning, not co-occurrence</h2>")
 parts.append(figdiv(heat(co, attrs, "Data co-occurrence (Cramér's V)", zlabel="V")))
-parts.append(figdiv(heat(cos, attrs, "Trait-direction similarity (|cosine|)", zlabel="|cos|")))
-parts.append(figdiv(heat(delta, attrs, "Trait cosine − co-occurrence", diverging=True, zlabel="|cos|−V")))
+parts.append(
+    figdiv(heat(cos, attrs, "Trait-direction similarity (|cosine|)", zlabel="|cos|"))
+)
+parts.append(
+    figdiv(
+        heat(
+            delta,
+            attrs,
+            "Trait cosine − co-occurrence",
+            diverging=True,
+            zlabel="|cos|−V",
+        )
+    )
+)
 # scatter
 xs, ys, tx = [], [], []
 for i in range(len(attrs)):
     for j in range(i + 1, len(attrs)):
         if np.isfinite(co[i, j]):
-            xs.append(float(co[i, j])); ys.append(float(cos[i, j])); tx.append(f"{attrs[i]} · {attrs[j]}")
-sf = go.Figure(go.Scatter(x=xs, y=ys, mode="markers", text=tx,
-              marker=dict(size=9, color=ys, colorscale="Viridis", line=dict(width=.5, color="#444")),
-              hovertemplate="%{text}<br>V=%{x:.2f} |cos|=%{y:.2f}<extra></extra>"))
+            xs.append(float(co[i, j]))
+            ys.append(float(cos[i, j]))
+            tx.append(f"{attrs[i]} · {attrs[j]}")
+sf = go.Figure(
+    go.Scatter(
+        x=xs,
+        y=ys,
+        mode="markers",
+        text=tx,
+        marker=dict(
+            size=9, color=ys, colorscale="Viridis", line=dict(width=0.5, color="#444")
+        ),
+        hovertemplate="%{text}<br>V=%{x:.2f} |cos|=%{y:.2f}<extra></extra>",
+    )
+)
 sf.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(dash="dot", color="#bbb"))
-sf.update_layout(title="Alignment vs co-occurrence (points below diagonal = deconfounded)",
-                 xaxis_title="Cramér's V", yaxis_title="trait |cosine|", template="plotly_white",
-                 width=720, height=520, xaxis=dict(range=[-.02, 1]), yaxis=dict(range=[-.02, 1]))
+sf.update_layout(
+    title="Alignment vs co-occurrence (points below diagonal = deconfounded)",
+    xaxis_title="Cramér's V",
+    yaxis_title="trait |cosine|",
+    template="plotly_white",
+    width=720,
+    height=520,
+    xaxis=dict(range=[-0.02, 1]),
+    yaxis=dict(range=[-0.02, 1]),
+)
 parts.append(figdiv(sf))
+rho, rho_p = spearmanr(xs, ys)
 parts.append(
     "<div class='key'><div><b>Spurious co-occurrence removed.</b> <code>born_in_us</code>·"
     "<code>same_residence_since_16</code>: V=0.38 but |cos|=0.09.</div>"
     "<div><b>Real semantics kept.</b> parents' degrees |cos|=0.82; income·wealth 0.59.</div></div>"
     "<p>Points sit below the diagonal: trait cosine reflects shared <em>concept</em>, not how often "
-    "two attributes happen to travel together. The minimal pair does what it was designed to.</p>")
+    "two attributes happen to travel together. The minimal pair does what it was designed to.</p>"
+    f"<p class='m'>Rank summary: Spearman ρ(|cos|, V) = {rho:.2f} (p = {rho_p:.3g}, "
+    f"{len(xs)} pairs). |cos| and V are not commensurate scales, so the difference heatmap above "
+    "is qualitative; this rank correlation is the quantitative statement of how (weakly) direction "
+    "geometry orders like dataset co-occurrence.</p>"
+)
 
 # ---------- 3. decodability != steerability + band ----------
 parts.append("<h2>3 · Steering: single layer is weak; a band is the fix</h2>")
@@ -133,51 +201,92 @@ parts.append(
     "<p>Every direction decodes at AUC≈1, but a single mid-layer injection barely moves generation "
     "in-distribution — decodability does not imply steerability. Steering a <b>band</b> of layers "
     "(each with its own direction and a modest per-layer strength, t≈1 = that layer's opposite-class "
-    "centroid) compounds the effect while every layer stays in-distribution.</p>")
+    "centroid) compounds the effect while every layer stays in-distribution.</p>"
+)
 if ml:
-    series = [("baseline", "base", "#9ca3af"), ("single L21 (t=2)", "L21_t2", "#60a5fa"),
-              ("band (t=0.5)", "band_t0.5", "#f59e0b"), ("band (t=1)", "band_t1", "#dc2626")]
+    series = [
+        ("baseline", "base", "#9ca3af"),
+        ("single L21 (t=2)", "L21_t2", "#60a5fa"),
+        ("band (t=0.5)", "band_t0.5", "#f59e0b"),
+        ("band (t=1)", "band_t1", "#dc2626"),
+    ]
+
     def nm(a, key):
-        o = ml[a]; p = np.array(o[key], float); p = p / p.sum(); vals = o.get("vals")
-        return (float((p * np.array(vals)).sum()) - min(vals)) / (max(vals) - min(vals)) if vals \
+        o = ml[a]
+        p = np.array(o[key], float)
+        p = p / p.sum()
+        vals = o.get("vals")
+        return (
+            (float((p * np.array(vals)).sum()) - min(vals)) / (max(vals) - min(vals))
+            if vals
             else float((p * np.arange(len(o["opts"]))).sum()) / (len(o["opts"]) - 1)
+        )
+
     f = go.Figure()
     for lab, key, c in series:
-        f.add_trace(go.Bar(name=lab, x=list(ml), y=[nm(a, key) for a in ml], marker_color=c))
-    f.update_layout(title="Single-layer vs band steering (MCQ answer toward + pole)", barmode="group",
-                    template="plotly_white", width=820, height=440, yaxis=dict(range=[0, 1.02]),
-                    legend=dict(orientation="h", y=1.13, font=dict(size=11)))
+        f.add_trace(
+            go.Bar(name=lab, x=list(ml), y=[nm(a, key) for a in ml], marker_color=c)
+        )
+    f.update_layout(
+        title="Single-layer vs band steering (MCQ answer toward + pole)",
+        barmode="group",
+        template="plotly_white",
+        width=820,
+        height=440,
+        yaxis=dict(range=[0, 1.02]),
+        legend=dict(orientation="h", y=1.13, font=dict(size=11)),
+    )
     parts.append(figdiv(f))
 if oodg:
     # geometry
-    norm = {"age": (22, 88)}; geo = oodg["geometry"]; cfgs = list(next(iter(geo.values())))
+    norm = {"age": (22, 88)}
+    geo = oodg["geometry"]
+    cfgs = list(next(iter(geo.values())))
     gf = go.Figure()
     for a, row in geo.items():
-        ys2 = [(row[c] - norm[a][0]) / (norm[a][1] - norm[a][0]) if a in norm else row[c] for c in cfgs]
+        ys2 = [
+            (row[c] - norm[a][0]) / (norm[a][1] - norm[a][0]) if a in norm else row[c]
+            for c in cfgs
+        ]
         gf.add_trace(go.Scatter(x=cfgs, y=ys2, mode="lines+markers", name=a))
-    gf.update_layout(title="Layer-band geometry (MCQ effect by band, t=1)", template="plotly_white",
-                     width=820, height=430, xaxis_title="band", yaxis_title="effect", yaxis=dict(range=[0, 1.02]))
+    gf.update_layout(
+        title="Layer-band geometry (MCQ effect by band, t=1)",
+        template="plotly_white",
+        width=820,
+        height=430,
+        xaxis_title="band",
+        yaxis_title="effect",
+        yaxis=dict(range=[0, 1.02]),
+    )
     parts.append(figdiv(gf))
     ood = oodg["ood"]
-    rows = "".join(f"<tr><td class='c'>{esc(k)}</td><td>P(+)={v['P_no']:.2f} · rep={v['rep_frac']:.2f}</td>"
-                   f"<td class='g'>{esc(v['text'])}</td></tr>" for k, v in ood.items())
+    rows = "".join(
+        f"<tr><td class='c'>{esc(k)}</td><td>P(+)={v['P_no']:.2f} · rep={v['rep_frac']:.2f}</td>"
+        f"<td class='g'>{esc(v['text'])}</td></tr>"
+        for k, v in ood.items()
+    )
     parts.append(
         "<div class='key'><div><b>Late layers (24–38) are causally dead</b>; wide contiguous bands "
         "are strongest; skipping layers hurts; the best band is attribute-specific.</div>"
         "<div><b>Band steering stays on-manifold.</b> Even t=2 keeps repeat-frac≈0 and rewrites content "
-        "(\"a village in Italy\"); the OOD case is a <em>large single layer</em>, which flips the MCQ "
+        '("a village in Italy"); the OOD case is a <em>large single layer</em>, which flips the MCQ '
         "letter but leaves the text unchanged and starts to repeat.</div></div>"
-        f"<table class='t'><tr><th>config (born_in_us)</th><th>effect · fluency</th><th>generation</th></tr>{rows}</table>")
+        f"<table class='t'><tr><th>config (born_in_us)</th><th>effect · fluency</th><th>generation</th></tr>{rows}</table>"
+    )
 
 # ---------- 4. merging + correlation ----------
 if merge:
-    parts.append("<h2>4 · Merging several trait vectors, and why correlation matters</h2>")
+    parts.append(
+        "<h2>4 · Merging several trait vectors, and why correlation matters</h2>"
+    )
     rows = []
     for sn, d in merge.items():
         rows.append(f"<tr><td class='a' colspan='4'>{esc(sn)}</td></tr>")
         for a, r in d["per_attr"].items():
-            rows.append(f"<tr><td>{esc(a)}</td><td>{r['unsteered']}</td><td>{r['solo']}</td>"
-                        f"<td class='dl'>{r['joint']}</td></tr>")
+            rows.append(
+                f"<tr><td>{esc(a)}</td><td>{r['unsteered']}</td><td>{r['solo']}</td>"
+                f"<td class='dl'>{r['joint']}</td></tr>"
+            )
     parts.append(
         "<p>Trait vectors share one residual space, so several can be added at once (summed per "
         "layer). The interesting variable is their <b>correlation</b>:</p>"
@@ -188,14 +297,17 @@ if merge:
         "axis (|cos| 0.25–0.33).</div>"
         "<div><b>Orthogonal traits coexist but with cross-talk.</b> The summed perturbation grows, so "
         "joint effects differ from solo (here <code>sex</code> amplified, <code>born_in_us</code> "
-        "partly suppressed). Composition is not a clean linear sum.</div></div>")
+        "partly suppressed). Composition is not a clean linear sum.</div></div>"
+    )
     if decomp:
         rows = []
         for sn, d in decomp["sets"].items():
             rows.append(f"<tr><td class='a' colspan='3'>{esc(sn)}</td></tr>")
             for a, r in d["per_attr"].items():
-                rows.append(f"<tr><td>{esc(a)}</td><td>{r['raw_amp']}×</td>"
-                            f"<td class='dl'>{r['proj_own_over_solo']}×</td></tr>")
+                rows.append(
+                    f"<tr><td>{esc(a)}</td><td>{r['raw_amp']}×</td>"
+                    f"<td class='dl'>{r['proj_own_over_solo']}×</td></tr>"
+                )
         b = decomp["band"]
         parts.append(
             "<p><b>Is the joint effect just larger magnitude?</b> The raw joint vector is "
@@ -213,7 +325,8 @@ if merge:
             "<code>citizenship</code>'s own-axis push is <b>1.76×</b> larger in joint and its total "
             "norm <b>3.29×</b>, because the correlated neighbours (|cos| 0.03–0.29) project onto its "
             "axis. Is that magnitude what flips it, or the borrowed direction? The steering control "
-            "below decides.</div></div>")
+            "below decides.</div></div>"
+        )
     if ctrl:
         cz = ctrl["us_citizenship_status"]["p_pole"]
         parts.append(
@@ -228,49 +341,102 @@ if merge:
             f"<tr><td class='c'>joint t=1</td><td>1.76×</td><td>3.29×</td><td class='dl'>{cz['joint_t1']}</td></tr>"
             f"<tr><td>solo, own-axis matched</td><td>1.76×</td><td>1.76×</td><td>{cz['solo_matched_1.76']}</td></tr>"
             f"<tr><td>solo, total-norm matched</td><td>3.29×</td><td>3.29×</td><td>{cz['solo_normmatched_3.29']}</td></tr>"
-            + (f"<tr><td class='c'>joint direction @ solo norm</td><td>—</td><td>1×</td>"
-               f"<td>{ctrldir['joint_dir_at_solo_norm']['p_pole']}</td></tr>" if ctrldir else "")
+            + (
+                f"<tr><td class='c'>joint direction @ solo norm</td><td>—</td><td>1×</td>"
+                f"<td>{ctrldir['joint_dir_at_solo_norm']['p_pole']}</td></tr>"
+                if ctrldir
+                else ""
+            )
             + "</table>"
             "<div class='key'><div><b>The effect tracks magnitude, not direction.</b> Matching "
-            f"citizenship's own-axis magnitude (1.76×) leaves it inert ({cz['solo_matched_1.76']}); "
-            f"matching the joint's <em>total</em> norm (3.29×) flips it ({cz['solo_normmatched_3.29']}). "
-            + (f"And the joint <em>direction</em> renormalised back to solo magnitude (1×) is again inert "
-               f"({ctrldir['joint_dir_at_solo_norm']['p_pole']} ≈ solo {ctrldir['solo_t1']['p_pole']}) — "
-               "so at fixed norm the correlated blend is no better than pure citizenship. " if ctrldir else "")
+            f"citizenship's own-axis magnitude (1.76×) recovers only part of the joint effect "
+            f"({cz['solo_matched_1.76']} vs joint {cz['joint_t1']}); matching the joint's <em>total</em> "
+            f"norm (3.29×) reproduces it ({cz['solo_normmatched_3.29']}). "
+            + (
+                f"And the joint <em>direction</em> renormalised back to solo magnitude (1×) stays near "
+                f"solo ({ctrldir['joint_dir_at_solo_norm']['p_pole']} ≈ {ctrldir['solo_t1']['p_pole']}) — "
+                "so at fixed norm the correlated blend is no better than pure citizenship. "
+                if ctrldir
+                else ""
+            )
             + "P is governed by total push magnitude in this subspace, direction-agnostic among the "
             "correlated axes.</div>"
             "<div><b>Correlation reinforces by supplying in-distribution magnitude, not a better "
-            "direction.</b> The flip needs a threshold total push; co-steering reaches it with each "
+            "direction.</b> The effect needs a threshold total push; co-steering reaches it with each "
             "trait at a modest, on-manifold t=1, whereas one trait alone needs 3.29× strength. The "
-            "neighbours contribute magnitude, not steering know-how.</div></div>")
+            "neighbours contribute magnitude, not steering know-how.</div></div>"
+        )
         # figure: P(+pole) by condition, coloured by outcome (flip = magnitude, not direction)
-        lab = ["unsteered", "solo t=1", "joint t=1", "solo<br>own-axis 1.76×", "solo<br>norm 3.29×"]
-        val = [cz["unsteered"], cz["solo_t1"], cz["joint_t1"],
-               cz["solo_matched_1.76"], cz["solo_normmatched_3.29"]]
+        lab = [
+            "unsteered",
+            "solo t=1",
+            "joint t=1",
+            "solo<br>own-axis 1.76×",
+            "solo<br>norm 3.29×",
+        ]
+        val = [
+            cz["unsteered"],
+            cz["solo_t1"],
+            cz["joint_t1"],
+            cz["solo_matched_1.76"],
+            cz["solo_normmatched_3.29"],
+        ]
         col = ["#9ca3af", "#9ca3af", "#dc2626", "#f59e0b", "#16a34a"]
         if ctrldir:
             lab.append("joint dir<br>@ solo norm")
             val.append(ctrldir["joint_dir_at_solo_norm"]["p_pole"])
             col.append("#9ca3af")
-        cfig = go.Figure(go.Bar(x=lab, y=val, marker_color=col,
-                                text=[f"{v:.2f}" for v in val], textposition="outside"))
+        cfig = go.Figure(
+            go.Bar(
+                x=lab,
+                y=val,
+                marker_color=col,
+                text=[f"{v:.2f}" for v in val],
+                textposition="outside",
+            )
+        )
         cfig.update_layout(
             title="Citizenship flip P(+pole) by condition — tracks total magnitude, not direction",
-            template="plotly_white", width=820, height=440, yaxis=dict(range=[0, 1.08], title="P(+pole)"),
-            margin=dict(t=70, b=40))
+            template="plotly_white",
+            width=820,
+            height=440,
+            yaxis=dict(range=[0, 1.08], title="P(+pole)"),
+            margin=dict(t=70, b=40),
+        )
         parts.append(figdiv(cfig))
+        jv = ctrl["us_citizenship_status"].get("p_pole_variants", {}).get("joint_t1")
+        if jv:
+            parts.append(
+                "<p class='m'>P(+pole) values in this section are means over three MCQ readout "
+                "variants — original option order, reversed order (position-bias check), and an "
+                "alternate instruction phrasing. The spread across readouts is large (citizenship "
+                f"joint t=1 ranges {min(jv.values()):.2f}–{max(jv.values()):.2f}; the reversed order "
+                "barely moves in any condition), so single-readout MCQ numbers overstate precision — "
+                "the variant mean is the honest readout, and the magnitude-vs-direction ordering "
+                "above holds under it.</p>"
+            )
         if ctrlflu:
             j, s = ctrlflu["joint_t1"], ctrlflu["solo_normmatched_3.29"]
-            ffig = go.Figure(go.Bar(
-                x=["joint (each t=1)", "solo citizenship 3.29×"],
-                y=[j["rep_frac"], s["rep_frac"]],
-                marker_color=["#dc2626", "#16a34a"],
-                text=[f"{j['rep_frac']:.3f}", f"{s['rep_frac']:.3f}"], textposition="outside"))
+            ffig = go.Figure(
+                go.Bar(
+                    x=["joint (each t=1)", "solo citizenship 3.29×"],
+                    y=[j["rep_frac"], s["rep_frac"]],
+                    marker_color=["#dc2626", "#16a34a"],
+                    text=[f"{j['rep_frac']:.3f}", f"{s['rep_frac']:.3f}"],
+                    textposition="outside",
+                )
+            )
             ffig.update_layout(
                 title="Fluency at matched total norm (repeat-frac, lower = better)",
-                template="plotly_white", width=620, height=380,
-                yaxis=dict(range=[0, max(j["rep_frac"], s["rep_frac"]) * 1.3 + 0.02], title="repeat-frac"),
-                margin=dict(t=70, b=40))
+                template="plotly_white",
+                width=620,
+                height=380,
+                yaxis=dict(
+                    range=[0, max(j["rep_frac"], s["rep_frac"]) * 1.3 + 0.02],
+                    title="repeat-frac",
+                ),
+                margin=dict(t=70, b=40),
+            )
             parts.append(figdiv(ffig))
             parts.append(
                 "<p><b>And pooling stays more on-manifold.</b> Generating free text at the matched "
@@ -283,8 +449,12 @@ if merge:
                 "effect is real but modest at this strength, not a collapse.</p>"
                 "<p class='m'>Readout is MCQ option-probability (deterministic, no judge), a faithful "
                 "but not bit-identical stand-in for the original free-text+judge merge metric; "
-                "born_in_us 0.04→0.96 and language 0.01→0.99 reproduce the same solo&lt;joint "
-                "ordering.</p>")
+                f"born_in_us {ctrl['born_in_us']['p_pole']['unsteered']}→"
+                f"{ctrl['born_in_us']['p_pole']['joint_t1']} and language "
+                f"{ctrl['speak_other_language']['p_pole']['unsteered']}→"
+                f"{ctrl['speak_other_language']['p_pole']['joint_t1']} reproduce the same "
+                "solo&lt;joint ordering.</p>"
+            )
 
 # ---------- 5. adaptive / per-position ----------
 if adapt:
@@ -294,13 +464,22 @@ if adapt:
     af = go.Figure()
     for a in adapt:
         af.add_trace(go.Bar(name=a, x=names, y=[adapt[a][n]["rep"] for n in names]))
-    af.update_layout(title="Fluency under steering schedules at t=2.5 (repeat-frac, lower=better)",
-                     barmode="group", template="plotly_white", width=760, height=400,
-                     yaxis_title="repeated-bigram fraction")
+    af.update_layout(
+        title="Fluency under steering schedules at t=2.5 (repeat-frac, lower=better)",
+        barmode="group",
+        template="plotly_white",
+        width=760,
+        height=400,
+        yaxis_title="repeated-bigram fraction",
+    )
     parts.append(figdiv(af))
     ex = adapt.get("age", {})
-    rows = "".join(f"<tr><td class='c'>{esc(n)}</td><td>rep={ex[n]['rep']:.2f}</td>"
-                   f"<td class='g'>{esc(ex[n]['text'])}</td></tr>" for n in names if n in ex)
+    rows = "".join(
+        f"<tr><td class='c'>{esc(n)}</td><td>rep={ex[n]['rep']:.2f}</td>"
+        f"<td class='g'>{esc(ex[n]['text'])}</td></tr>"
+        for n in names
+        if n in ex
+    )
     parts.append(
         "<p>At <em>modest</em> strength band steering is already fluent, so adaptive scheduling adds "
         "little. Its value appears when you steer <b>hard</b> (here t=2.5). For <code>age</code>, "
@@ -311,36 +490,51 @@ if adapt:
         f"<table class='t'><tr><th>schedule (age, t=2.5)</th><th>fluency</th><th>generation</th></tr>{rows}</table>"
         "<p>So per-position / adaptive steering is the lever for pushing stubborn attributes harder "
         "without breaking fluency. (Full KL-adaptive DAC, Eq. 6, is implemented but is a per-token "
-        "feedback loop — local-only — and unnecessary in the modest-strength regime.)</p>")
+        "feedback loop — local-only — and unnecessary in the modest-strength regime.)</p>"
+    )
 
 # ---------- 6. generalization + copy heads ----------
 if gen and cp:
     parts.append("<h2>6 · Generalization and the copy-head limit</h2>")
-    ha = gen["heldout_actual"]; rows = []
+    ha = gen["heldout_actual"]
+    rows = []
     for a in ["born_in_us", "age", "sex"]:
         d = gen[a]
-        rows.append(f"<tr><td class='a' rowspan='3'>{esc(a)}<br><span class='m'>held-out={esc(ha[a])}</span></td>"
-                    f"<td>no prompt</td><td>{d['no_prompt']['unsteered']}</td><td>{d['no_prompt']['steered_band_t1']}</td><td class='dl'>{d['no_prompt']['delta']:+}</td></tr>")
+        rows.append(
+            f"<tr><td class='a' rowspan='3'>{esc(a)}<br><span class='m'>held-out={esc(ha[a])}</span></td>"
+            f"<td>no prompt</td><td>{d['no_prompt']['unsteered']}</td><td>{d['no_prompt']['steered_band_t1']}</td><td class='dl'>{d['no_prompt']['delta']:+}</td></tr>"
+        )
         for cn in ["generic", "heldout_persona"]:
-            rows.append(f"<tr><td>{esc(cn)}</td><td>{d[cn]['unsteered']}</td><td>{d[cn]['steered_band_t1']}</td><td class='dl'>{d[cn]['delta']:+}</td></tr>")
+            rows.append(
+                f"<tr><td>{esc(cn)}</td><td>{d[cn]['unsteered']}</td><td>{d[cn]['steered_band_t1']}</td><td class='dl'>{d[cn]['delta']:+}</td></tr>"
+            )
     cf = go.Figure()
     for cn, row in cp.items():
         ts = sorted(int(k) for k in row)
-        cf.add_trace(go.Scatter(x=ts, y=[row[str(t)] for t in ts], mode="lines+markers", name=cn))
-    cf.update_layout(title="Copy head vs steering: P(not-US) vs band strength", template="plotly_white",
-                     width=820, height=440, xaxis_title="band strength (per layer)", yaxis_title="P(No)",
-                     legend=dict(orientation="h", y=1.13, font=dict(size=10)))
+        cf.add_trace(
+            go.Scatter(x=ts, y=[row[str(t)] for t in ts], mode="lines+markers", name=cn)
+        )
+    cf.update_layout(
+        title="Copy head vs steering: P(not-US) vs band strength",
+        template="plotly_white",
+        width=820,
+        height=440,
+        xaxis_title="band strength (per layer)",
+        yaxis_title="P(No)",
+        legend=dict(orientation="h", y=1.13, font=dict(size=10)),
+    )
     parts.append(
         "<p>Trait vectors generalize beyond their 100 extraction personas — they steer with <b>no "
         "prompt</b> and on an <b>unseen</b> held-out persona:</p>"
         f"<table class='t'><tr><th>attr</th><th>context</th><th>unsteered</th><th>steered</th><th>Δ</th></tr>{''.join(rows)}</table>"
-        + figdiv(cf) +
-        "<div class='key'><div><b>The limit is a copy head, not the vector.</b> When the held-out "
+        + figdiv(cf)
+        + "<div class='key'><div><b>The limit is a copy head, not the vector.</b> When the held-out "
         "persona states a fact <em>verbatim</em> (“I was born in the United States”), an "
         "induction/copy circuit pins the answer: steering can't flip it through t=4. Delete that one "
         "sentence and the same steering flips it at t=3; the generic context flips at t=1.</div>"
         "<div><b><code>age</code> escapes</b> because its value isn't a copyable option — it steers "
-        "in every context (35→55 even against the held-out persona).</div></div>")
+        "in every context (35→55 even against the held-out persona).</div></div>"
+    )
 
 # ---------- 7. appendix: tested-but-not-adopted ----------
 perpos = jload(ROOT / "perpos.json")
@@ -362,7 +556,8 @@ if perpos:
         "noise at this K, each still tracks the pooled mean, and there is no evidence it steers "
         "better — the pooled vector across a layer band already flips attributes fluently. Per-position "
         "extraction is also a different, heavier pipeline (extract during generation), so for a "
-        "<em>global</em> persona attribute it adds complexity for no gain.</p>")
+        "<em>global</em> persona attribute it adds complexity for no gain.</p>"
+    )
 app.append(
     "<h3>B. Full KL-adaptive DAC vs. the simple schedule we kept</h3>"
     "<p>The paper's headline method, DAC (Eq. 6), sets the per-step intensity <em>fully "
@@ -372,7 +567,8 @@ app.append(
     "<code>start_schedule</code> keep it (the schedule is a 0–1 multiplier on the user's base "
     "strength); (2) the fluency benefit DAC exists for is already delivered by the simple taper "
     "(see §5); (3) DAC is a per-token feedback loop, so it is local-only and cannot run on the remote "
-    "(NDIF) path the UI uses. The simple, dial-preserving schedule is the better fit here.</p>")
+    "(NDIF) path the UI uses. The simple, dial-preserving schedule is the better fit here.</p>"
+)
 app.append(
     "<h3>C. Method details: band steering and scheduling</h3>"
     "<p><b>Trait direction.</b> For an attribute we re-render each persona at both poles, take the "
@@ -395,10 +591,88 @@ app.append(
     "only shapes it over tokens. Two shapes: the <b>linear taper</b> "
     "<code>s(t) = 1 − t/(N−1)</code> (full at the first token, 0 at the last — protects fluency once "
     "the trait is established) and <b>start-only</b> <code>s(t) = 1 if t &lt; N/3 else 0</code> "
-    "(steer the opening, then release). <code>s(t)=1</code> everywhere recovers constant band steering.</p>")
+    "(steer the opening, then release). <code>s(t)=1</code> everywhere recovers constant band steering.</p>"
+)
 parts.append("".join(app))
 
-# ---------- 8. conclusions ----------
+# ---------- 8. critical review ----------
+_has_variants = bool(ctrl) and any(
+    isinstance(v, dict) and "p_pole_variants" in v for v in ctrl.values()
+)
+_rev_rows = [
+    (
+        "|cos| − V difference heatmap (§2)",
+        "Cosine and Cramér's V are not commensurate scales, so cell values imply a precision the "
+        "comparison doesn't have.",
+        "Read it qualitatively; the scatter plus the Spearman rank summary in §2 is the quantitative "
+        "claim. <b>Fixed in this report.</b>",
+    ),
+    (
+        "Single-question MCQ readout (§§3–4)",
+        "One question, one option order per attribute — MCQ answers are position- and wording-biased, "
+        "so a flip could be an artifact of the readout.",
+        "Average P(+pole) over readout variants (original / reversed option order / alternate phrasing). "
+        + (
+            "<b>Fixed in this report</b> — §4 values are 3-variant means."
+            if _has_variants
+            else "<b>Code updated</b> (scripts/merge_magnitude_control.py); re-run it to refresh §4 with "
+            "variant-mean values."
+        ),
+    ),
+    (
+        "AUC ≈ 1 with no uncertainty (§1)",
+        "Decodability is claimed from n=100 personas with no error bars; near-ceiling AUC can be "
+        "optimistic at this n.",
+        "Bootstrap 95% CI over personas added at extraction (<code>TraitDeltas.auc_ci</code>, paired "
+        "resample); the extraction notebook now reports it per attribute.",
+    ),
+    (
+        "Hard-coded magnitude-match factors (§4)",
+        "The 1.76× / 3.29× control strengths are constants copied from one decomposition run; if trait "
+        "vectors are re-extracted the controls silently stop matching the joint vector.",
+        "Compute both factors at runtime from the loaded bands (project the joint onto the solo unit "
+        "direction per layer) instead of hard-coding. <b>Not yet changed.</b>",
+    ),
+    (
+        "Artifact provenance",
+        "Most figures here read artifacts whose generator scripts were never committed — only the §4 "
+        "magnitude control (<code>merge_control*.json</code>) is regenerable today.",
+        "Commit the generator scripts, or freeze the artifacts with provenance notes; tracked in "
+        "<code>docs/performance.md</code>. <b>Open.</b>",
+    ),
+    (
+        "Legacy steering calibration in code",
+        "The old per-persona <code>suggested_alpha</code> (20× residual RMS) over-steers 8–28× the real "
+        "class gap and collapses generation off-manifold.",
+        "Superseded by gap-unit strengths (used everywhere in this report); don't use "
+        "<code>suggested_alpha</code> for new work.",
+    ),
+    (
+        "MCQ saturation (limitations)",
+        "political_views / total_wealth pin at a pole under the MCQ readout, so steering there looks "
+        "inert regardless of the vector.",
+        "Use a free-text + judge readout for those attributes before concluding they don't steer.",
+    ),
+    (
+        "Single-model results",
+        "All plotted results are gemma-2-9b-it; band-steering conclusions could be model-specific.",
+        "Replicate the §3–4 steering runs on a second model — the direction and manifold findings "
+        "already replicate on gemma-3-27b, steering has not been re-run there. <b>Open.</b>",
+    ),
+]
+parts.append(
+    "<h2>Critical review · weak points and recommended changes</h2>"
+    "<p>A self-review of the analyses above: what to read with caution, what has been fixed in "
+    "code or in this report, and what is still open.</p>"
+    "<table class='t'><tr><th>weak point</th><th>why it matters</th><th>fix / status</th></tr>"
+    + "".join(
+        f"<tr><td class='a'>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td></tr>"
+        for r in _rev_rows
+    )
+    + "</table>"
+)
+
+# ---------- 9. conclusions ----------
 parts.append(
     "<h2>Conclusions</h2><ul>"
     "<li><b>Minimal-pair trait vectors deconfound attributes</b> — cosine tracks meaning, not "
@@ -425,7 +699,8 @@ parts.append(
     "readout there.</li>"
     "<li>Full KL-adaptive DAC is per-token (local-only); only the linear-taper / per-position "
     "variants were run remotely.</li>"
-    "</ul>")
+    "</ul>"
+)
 
 CSS = """
 body{font:16px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;color:#1a1a1a;max-width:900px;margin:0 auto;padding:60px 26px 120px}
@@ -443,9 +718,11 @@ td.a{background:#f8fafc;font-weight:600} td.c{white-space:nowrap;color:#2563eb;f
 td.g{color:#222} td.dl{font-family:ui-monospace,monospace;color:#2563eb;font-weight:600}
 ul{padding-left:22px} li{margin:6px 0}
 """
-doc = (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-       f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
-       f"<title>Persona trait vectors & steering</title><style>{CSS}</style></head>"
-       f"<body>{''.join(parts)}</body></html>")
+doc = (
+    f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+    f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    f"<title>Persona trait vectors & steering</title><style>{CSS}</style></head>"
+    f"<body>{''.join(parts)}</body></html>"
+)
 OUT.write_text(doc)
-print(f"wrote {OUT}  ({OUT.stat().st_size/1e6:.2f} MB)")
+print(f"wrote {OUT}  ({OUT.stat().st_size / 1e6:.2f} MB)")

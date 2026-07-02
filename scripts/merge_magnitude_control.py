@@ -15,8 +15,11 @@ Headline: P(+pole) tracks total push magnitude in the correlated subspace,
 joint effect; the joint blend at solo magnitude does not. Co-steering's only edge
 is fluency. Readout is MCQ option-probability (deterministic, no judge) under a
 generic-human context (PERSONA_SYS), without which the bare model saturates each
-attribute at its prior pole and steering has no room to move.
+attribute at its prior pole and steering has no room to move. Reported P(+pole)
+is the mean over three readout variants (original / reversed option order /
+alternate phrasing) to control for MCQ position and wording bias.
 """
+
 import json
 import os
 import re
@@ -30,7 +33,7 @@ from persona_data.synth_persona import SynthPersonaDataset
 
 from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.extraction import MaskStrategy
-from persona_vectors.steering import generate_band_steered
+from persona_vectors.steering import PERSONA_SYS, generate_band_steered
 from persona_vectors.traits import merge_trait_bands
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,49 +49,87 @@ CZ = "us_citizenship_status"
 OWN_AXIS_MATCH = 1.76
 NORM_MATCH = 3.29
 
-PERSONA_SYS = (
-    "You are a human being having a casual conversation. Stay in character and "
-    "answer in the first person as a real person. Never say you are an AI."
-)
 MC_INSTRUCTION = (
     "Answer the multiple-choice question with your single best guess.\n"
     "Return exactly one uppercase letter."
 )
+MC_INSTRUCTION_ALT = (
+    "Pick the option that best describes you.\n"
+    "Reply with only the letter of your choice."
+)
+# Readout-robustness variants: (name, instruction, reverse option order). The
+# reversed order is the classic MCQ position-bias check; reported P(+pole) is
+# the mean over the three.
+READOUT_VARIANTS = [
+    ("orig", MC_INSTRUCTION, False),
+    ("rev_options", MC_INSTRUCTION, True),
+    ("alt_phrase", MC_INSTRUCTION_ALT, False),
+]
 LETTERS = ["A", "B", "C", "D", "E", "F"]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-def mcq_prompt(model, qa) -> tuple[str, list[int], int]:
-    """(formatted prompt, option-letter token ids, +pole option index) for a seed MCQ.
+def mcq_options(qa) -> list[str]:
+    """Option texts for a seed MCQ, dropping the 'not enough information' escape
+    (the model otherwise parks there with no persona context)."""
+    return [str(c).strip() for c in qa.choices if "not enough" not in str(c).lower()]
 
-    Drops the 'not enough information' escape (the model otherwise parks there with no
-    persona context) and frames the question with PERSONA_SYS so the answer is steerable.
+
+def mcq_prompt(
+    model, qa, *, instruction: str = MC_INSTRUCTION, reverse: bool = False
+) -> tuple[str, list[int], list[str]]:
+    """(formatted prompt, option-letter token ids, option texts) for a seed MCQ.
+
+    Frames the question with PERSONA_SYS so the answer is steerable. ``reverse``
+    flips the option order (position-bias readout variant).
     """
-    opts = [str(c).strip() for c in qa.choices if "not enough" not in str(c).lower()]
+    opts = mcq_options(qa)
+    if reverse:
+        opts = opts[::-1]
     letters = LETTERS[: len(opts)]
     body = "\n".join(f"{letters[i]}. {opts[i]}" for i in range(len(opts)))
-    user = f"{PERSONA_SYS}\n\n{MC_INSTRUCTION}\n\nQUESTION:\n{qa.question.strip()}\n\nOPTIONS:\n{body}\n\nANSWER:"
+    user = f"{PERSONA_SYS}\n\n{instruction}\n\nQUESTION:\n{qa.question.strip()}\n\nOPTIONS:\n{body}\n\nANSWER:"
     prompt = model.tokenizer.apply_chat_template(
         [{"role": "user", "content": user}], tokenize=False, add_generation_prompt=True
     )
-    letter_ids = [model.tokenizer(l, add_special_tokens=False).input_ids[0] for l in letters]
+    letter_ids = [
+        model.tokenizer(l, add_special_tokens=False).input_ids[0] for l in letters
+    ]
     return prompt, letter_ids, opts
 
 
 def score_mcq(model, prompt, letter_ids, layer_vectors) -> list[float]:
     """P over option letters at the answer position under band steering (one remote trace)."""
-    ids = model.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).input_ids
+    ids = model.tokenizer(
+        prompt, return_tensors="pt", add_special_tokens=False
+    ).input_ids
     pos = ids.shape[1] - 1
     for attempt in range(4):  # NDIF drops are intermittent
         try:
             with model.trace(ids, remote=True):
                 for layer in sorted(layer_vectors):
-                    model.steer(layers=layer, steering_vector=layer_vectors[layer], factor=1.0)
-                lp = torch.log_softmax(model.logits[0, pos, letter_ids].float(), dim=-1).save()
+                    model.steer(
+                        layers=layer, steering_vector=layer_vectors[layer], factor=1.0
+                    )
+                lp = torch.log_softmax(
+                    model.logits[0, pos, letter_ids].float(), dim=-1
+                ).save()
             return lp.exp().detach().cpu().numpy().tolist()
         except Exception:
             if attempt == 3:
                 raise
+
+
+def score_pole(model, qa, pole_value, layer_vectors) -> tuple[float, dict[str, float]]:
+    """P(+pole) averaged over the readout variants → ``(mean, {variant: p})``."""
+    per_variant = {}
+    for name, instruction, reverse in READOUT_VARIANTS:
+        prompt, letter_ids, opts = mcq_prompt(
+            model, qa, instruction=instruction, reverse=reverse
+        )
+        p = score_mcq(model, prompt, letter_ids, layer_vectors)
+        per_variant[name] = round(p[opts.index(pole_value)], 3)
+    return round(sum(per_variant.values()) / len(per_variant), 3), per_variant
 
 
 def renorm_per_layer(src: dict, target: dict) -> dict:
@@ -119,37 +160,45 @@ def seed_mcqs(dataset, attributes):
 
 # ── experiments ───────────────────────────────────────────────────────────────
 def run_mcq_control(model, store, qas, pole):
-    """Solo / joint / magnitude-matched P(+pole) per correlated attribute."""
+    """Solo / joint / magnitude-matched P(+pole) per correlated attribute.
+
+    ``p_pole`` is the mean over READOUT_VARIANTS; the per-variant values land in
+    ``p_pole_variants``.
+    """
     joint = merge_trait_bands(store, CORR, BAND, strength=1.0, mask_strategy=MS)
     results = {}
     for a in CORR:
-        prompt, letter_ids, opts = mcq_prompt(model, qas[a])
-        to_idx = opts.index(pole[a])
         solo = merge_trait_bands(store, [a], BAND, strength=1.0, mask_strategy=MS)
         conds = {
-            "unsteered": merge_trait_bands(store, [a], BAND, strength=0.0, mask_strategy=MS),
+            "unsteered": {},
             "solo_t1": solo,
             "joint_t1": joint,
         }
-        if a == CZ:  # the magnitude controls only on the attribute that barely steers alone
+        if (
+            a == CZ
+        ):  # the magnitude controls only on the attribute that barely steers alone
             conds[f"solo_matched_{OWN_AXIS_MATCH}"] = merge_trait_bands(
                 store, [a], BAND, strength=OWN_AXIS_MATCH, mask_strategy=MS
             )
             conds[f"solo_normmatched_{NORM_MATCH}"] = merge_trait_bands(
                 store, [a], BAND, strength=NORM_MATCH, mask_strategy=MS
             )
-        p = {n: round(score_mcq(model, prompt, letter_ids, lv)[to_idx], 3) for n, lv in conds.items()}
-        for n, v in p.items():
-            print(f"  {a:24s} {n:22s} P(+pole)={v}")
-        results[a] = {"pole": pole[a], "options": opts, "p_pole": p}
+        p, pvar = {}, {}
+        for n, lv in conds.items():
+            p[n], pvar[n] = score_pole(model, qas[a], pole[a], lv)
+            print(f"  {a:24s} {n:22s} P(+pole)={p[n]}  {pvar[n]}")
+        results[a] = {
+            "pole": pole[a],
+            "options": mcq_options(qas[a]),
+            "p_pole": p,
+            "p_pole_variants": pvar,
+        }
     (OUTDIR / "merge_control.json").write_text(json.dumps(results, indent=2))
     return results
 
 
 def run_dirnorm(model, store, qas, pole):
     """Direction-at-fixed-magnitude: joint blend renormalised down to citizenship's solo norm."""
-    prompt, letter_ids, opts = mcq_prompt(model, qas[CZ])
-    to_idx = opts.index(pole[CZ])
     solo = merge_trait_bands(store, [CZ], BAND, strength=1.0, mask_strategy=MS)
     joint = merge_trait_bands(store, CORR, BAND, strength=1.0, mask_strategy=MS)
     conds = {
@@ -160,19 +209,23 @@ def run_dirnorm(model, store, qas, pole):
     results = {}
     for n, lv in conds.items():
         mid = round(float(lv[BAND[len(BAND) // 2]].norm()), 2)
-        p = round(score_mcq(model, prompt, letter_ids, lv)[to_idx], 3)
-        results[n] = {"mid_layer_norm": mid, "p_pole": p}
-        print(f"  {n:24s} mid|v|={mid:6.2f}  P(+pole)={p}")
+        p, pvar = score_pole(model, qas[CZ], pole[CZ], lv)
+        results[n] = {"mid_layer_norm": mid, "p_pole": p, "p_pole_variants": pvar}
+        print(f"  {n:24s} mid|v|={mid:6.2f}  P(+pole)={p}  {pvar}")
     (OUTDIR / "merge_control_dirnorm.json").write_text(json.dumps(results, indent=2))
     return results
 
 
 def run_fluency(model, store):
     """Free-text repeat-frac at matched total norm: joint (each t=1) vs solo citizenship 3.29x."""
-    prompt = "Tell me about your background — where you're from and the languages you speak."
+    prompt = (
+        "Tell me about your background — where you're from and the languages you speak."
+    )
     conds = {
-        "unsteered": merge_trait_bands(store, [CZ], BAND, strength=0.0, mask_strategy=MS),
-        "joint_t1": merge_trait_bands(store, CORR, BAND, strength=1.0, mask_strategy=MS),
+        "unsteered": {},
+        "joint_t1": merge_trait_bands(
+            store, CORR, BAND, strength=1.0, mask_strategy=MS
+        ),
         f"solo_normmatched_{NORM_MATCH}": merge_trait_bands(
             store, [CZ], BAND, strength=NORM_MATCH, mask_strategy=MS
         ),

@@ -16,7 +16,6 @@
 
 # %% Setup
 import numpy as np
-import plotly.graph_objects as go
 import torch
 from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
@@ -24,13 +23,14 @@ from persona_data.environment import set_seed
 from persona_data.synth_persona import SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
+from scipy.stats import spearmanr
 
 from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.attributes import attribute_schema
 from persona_vectors.correlations import attribute_association_matrix
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots.correlations import build_cooccurrence_heatmap
-from persona_vectors.steering import generate_steered, steering_coefficient
+from persona_vectors.steering import PERSONA_SYS, generate_steered, steering_coefficient
 from persona_vectors.traits import (
     build_trait_direction,
     extract_trait_deltas,
@@ -79,7 +79,9 @@ runs = [
 runs = [(p, qa) for p, qa in runs if qa]
 
 binary_attrs = [
-    name for name, info in attribute_schema(dataset).items() if info.get("kind") == "binary"
+    name
+    for name, info in attribute_schema(dataset).items()
+    if info.get("kind") == "binary"
 ]
 
 dataset_table = Table(title="Dataset")
@@ -97,6 +99,8 @@ console.print(dataset_table)
 # `persona_vectors.traits.load_trait_direction`.
 store = TraitVectorStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 directions: dict[str, dict] = {}
+auc_cis: dict[str, tuple[float, float]] = {}
+
 for i, attr in enumerate(binary_attrs):
     console.rule(f"trait: {attr}")
     deltas = extract_trait_deltas(
@@ -109,17 +113,21 @@ for i, attr in enumerate(binary_attrs):
         remote=REMOTE,
         verbose=(i == 0),
     )
+
     save_trait_deltas(store, deltas, mask_strategy=MASK_STRATEGY)
     directions[attr] = build_trait_direction(deltas, candidate_layers=[TRAIT_LAYER])
+    auc_cis[attr] = deltas.auc_ci(TRAIT_LAYER)
 
 trait_table = Table(title=f"Trait directions @ layer {TRAIT_LAYER}")
-for col in ("attribute", "+ (positive)", "auc", "gap_norm", "n"):
+for col in ("attribute", "+ (positive)", "auc", "auc 95% CI", "gap_norm", "n"):
     trait_table.add_column(col)
 for attr, info in directions.items():
+    lo, hi = auc_cis[attr]
     trait_table.add_row(
         attr,
         str(info["positive"]),
         f"{info['auc']:.3f}",
+        f"[{lo:.3f}, {hi:.3f}]",
         f"{info['gap_norm']:.2f}",
         str(info["n_personas"]),
     )
@@ -151,38 +159,32 @@ build_cooccurrence_heatmap(
 # %% The "delta": trait-cosine minus co-occurrence
 # Near zero where directions track co-occurrence; strongly negative where two
 # attributes co-occur yet the trait directions stay orthogonal (deconfounded).
-diff = cos - co_matrix
-fig = go.Figure(
-    go.Heatmap(
-        z=diff,
-        x=labels,
-        y=labels,
-        zmin=-1.0,
-        zmax=1.0,
-        colorscale="RdBu",
-        zmid=0.0,
-        texttemplate="%{z:.2f}",
-        colorbar=dict(title="|cos| − V"),
-    )
-)
-fig.update_layout(
+build_cooccurrence_heatmap(
+    labels,
+    cos - co_matrix,
     title="Trait-cosine − co-occurrence",
-    template="plotly_white",
-    width=700,
-    height=640,
+    diverging=True,
+    colorbar_title="|cos| − V",
+    show=True,
 )
-fig.update_yaxes(autorange="reversed")
-fig.show()
+
+# %% Rank agreement between geometry and co-occurrence
+# The difference heatmap treats |cos| and V as commensurate scales, which they
+# are not; the defensible one-number summary is the *rank* correlation between
+# the pairwise values. Low rho = directions do not order like the confounds.
+iu = np.triu_indices(len(labels), k=1)
+finite = np.isfinite(co_matrix[iu])
+rho, pval = spearmanr(cos[iu][finite], co_matrix[iu][finite])
+print(
+    f"Spearman(|cos|, V) over {int(finite.sum())} attribute pairs: "
+    f"rho={rho:.2f} (p={pval:.3f})"
+)
 
 # %% Steering sanity check
 # Steer toward one binary trait on a neutral human prompt (uniform coefficient,
 # swept - / 0 / +) and read off whether the model adopts the trait.
 ATTR = "born_in_us"
 info = directions[ATTR]
-PERSONA_SYS = (
-    "You are a human being having a casual conversation. Stay in character and "
-    "answer in the first person as a real person. Never say you are an AI."
-)
 PROMPT = "Tell me about where you were born and where you grew up."
 
 out = generate_steered(

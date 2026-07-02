@@ -909,12 +909,15 @@ def test_merge_trait_bands(monkeypatch) -> None:
     merged = traits.merge_trait_bands(None, ["age", "sex"], [14, 21], strength=1.0)
     summed = (
         steering_coefficient(bands["age"][21], 1.0) * bands["age"][21]["unit_direction"]
-        + steering_coefficient(bands["sex"][21], 1.0) * bands["sex"][21]["unit_direction"]
+        + steering_coefficient(bands["sex"][21], 1.0)
+        * bands["sex"][21]["unit_direction"]
     )
     assert torch.allclose(merged[21], summed)
 
     # single attribute == that attribute's solo band
     solo = traits.merge_trait_bands(None, ["age"], [14, 21], strength=2.0)
     assert torch.allclose(
-        solo[14], steering_coefficient(bands["age"][14], 2.0) * bands["age"][14]["unit_direction"]
+        solo[14],
+        steering_coefficient(bands["age"][14], 2.0)
+        * bands["age"][14]["unit_direction"],
     )
