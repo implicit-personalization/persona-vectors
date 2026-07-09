@@ -92,11 +92,12 @@ def extract_activations(
                 f"input ids length {ids.shape[0]} does not match mask length {mask.shape[0]}"
             )
 
-    pad_id = (
-        model.tokenizer.pad_token_id
-        if model.tokenizer.pad_token_id is not None
-        else 0
-    )
+    # Padding is only needed by the batched path. Some local models do not
+    # carry a tokenizer, so resolve a safe fallback only when it is needed.
+    pad_id = 0
+    if batch_size > 1:
+        tokenizer = getattr(model, "tokenizer", None)
+        pad_id = getattr(tokenizer, "pad_token_id", None) or 0
 
     # Remote sessions are lost on websocket or artifact-download failures.
     max_retries = 3 if remote else 1

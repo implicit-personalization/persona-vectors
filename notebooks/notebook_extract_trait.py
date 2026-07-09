@@ -130,7 +130,7 @@ for i, attr in enumerate(ordered_attrs):
     auc_cis[attr] = deltas.auc_ci(TRAIT_LAYER)
 
 trait_table = Table(title=f"Trait directions @ layer {TRAIT_LAYER}")
-for col in ("attribute", "+ (positive)", "auc", "auc 95% CI", "gap_norm", "n"):
+for col in ("attribute", "+ (positive)", "in-sample AUC", "bootstrap 95% interval", "gap_norm", "n"):
     trait_table.add_column(col)
 for attr, info in directions.items():
     lo, hi = auc_cis[attr]

@@ -107,8 +107,8 @@ parts = []
 # ---------- header ----------
 parts.append(
     "<h1>Deconfounded persona trait vectors: extraction, geometry, and steering</h1>"
-    "<p class='lede'>Isolating one persona attribute at a time with minimal-pair activation "
-    "deltas yields directions that (i) track meaning rather than dataset co-occurrence, and "
+    "<p class='lede'>Contrasting one persona attribute at a time with minimal-pair activation "
+    "deltas yields directions that (i) are less entangled with dataset co-occurrence, and "
     "(ii) causally steer an instruction-tuned model — most effectively across a band of layers, "
     "at strengths that stay in-distribution.</p>"
     "<p class='by'>google/gemma-2-9b-it · SynthPersona (100 personas) · steering run remotely on NDIF</p>"
@@ -120,23 +120,24 @@ parts.append(
     "(description-level) mask; decodability is reported at layer 21, steering uses the per-layer band "
     "L14–30. The MCQ control adds a generic-human framing (<code>PERSONA_SYS</code>) and reads option "
     "probabilities (no LLM judge).</div></div>"
-    "<p class='m'>Scope note: results here are single-model. In separate analyses the trait "
-    "<em>directions</em> (e.g. sex AUC≈1) and attribute <em>manifolds</em> (age as the leading "
-    "diffusion axis) replicate on <code>gemma-2-9b-it</code> and <code>gemma-3-27b</code>, with "
-    "templated extraction also run on Llama-3.1-70B / 405B — none of which are plotted in this "
-    "report.</p>"
+    "<p class='m'>Scope note: results here are single-model. Related Gemma runs support the same "
+    "qualitative geometry, but they are not plotted here. Local Llama-3.1-70B artifacts include a "
+    "100-person <code>born_in_us</code> contrastive vector and several n=8 pilots; they are useful "
+    "follow-ups, not a 14-attribute replication of this report.</p>"
 )
 
 # ---------- 1. method ----------
 parts.append(
     "<h2>1 · Minimal-pair trait vectors</h2>"
     "<p>A population difference-of-means <em>persona</em> vector for one attribute absorbs whatever "
-    "co-occurs with it. A <b>trait</b> vector removes the confound: re-render a persona's templated "
+    "co-occurs with it. A <b>trait</b> vector controls that population confound: re-render a persona's templated "
     "description at both poles of a single attribute, extract both, and average the within-pair "
     "delta — everything that didn't change cancels.</p>"
     "<div class='eq'>v(attr) = mean over personas [ act(persona@value_to) − act(persona@value_from) ]</div>"
     "<p>Built per attribute at a mid-stack layer; oriented by value so Female→Male and Male→Female "
-    "reinforce. All 14 attributes decode near-perfectly (AUC@L21 0.84–1.0, n=100).</p>"
+    "reinforce. The bundled foundation artifact reports in-sample AUC@L21 0.84–1.0 (n=100): it is a "
+    "separability diagnostic, not held-out validation. The appropriate next check is to freeze these "
+    "vectors and evaluate paired effects on personas outside the 100-person extraction set.</p>"
 )
 
 # ---------- 2. deconfounding (headline) ----------
@@ -658,11 +659,20 @@ _rev_rows = [
         ),
     ),
     (
-        "AUC ≈ 1 with no uncertainty (§1)",
-        "Decodability is claimed from n=100 personas with no error bars; near-ceiling AUC can be "
-        "optimistic at this n.",
-        "Bootstrap 95% CI over personas added at extraction (<code>TraitDeltas.auc_ci</code>, paired "
-        "resample); the extraction notebook now reports it per attribute.",
+        "Resubstitution AUC presented as validation (§1)",
+        "The old AUC uses the same minimal pairs to construct and score a direction. Bootstrap resampling "
+        "does not remove that leakage, so near-ceiling values can overstate cross-persona stability.",
+        "Label AUC as in-sample and, without re-fitting, score each frozen 100-person vector on a "
+        "disjoint persona set. Report the paired activation effect and steering readout there.",
+    ),
+    (
+        "What a template swap represents",
+        "The deterministic v4.0 renderer preserves unrelated lines and updates only the target line, a "
+        "composite line (such as age + sex), or a conditional line (religion). The direction therefore "
+        "includes the attribute's intended textual realization, not an abstract feature independently of language.",
+        "This is a strong controlled template intervention for removing <em>population</em> co-occurrence. "
+        "Use a held-out cross-template check and a small remote minimal-pair replication to test transfer "
+        "beyond that realization.",
     ),
     (
         "Hard-coded magnitude-match factors (§4)",
