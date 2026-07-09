@@ -47,6 +47,10 @@ set_seed(1337)
 # Use 9b/70b for remote (production), 2b for local testing.
 REMOTE = False
 MODEL_NAME = "meta-llama/Llama-3.1-70B-Instruct" if REMOTE else "google/gemma-2-2b-it"
+# Number of personas to process per forward pass. batch_size=1 is the original
+# sequential path. Larger values right-pad inputs within each chunk and run one
+# GPU forward pass per chunk; set to fit VRAM (e.g. 4–8 on an 80 GB A100).
+BATCH_SIZE = 2
 
 print(f"Loading {MODEL_NAME}...")
 model = StandardizedTransformer(MODEL_NAME)
@@ -69,7 +73,7 @@ console.print(model_table)
 
 # %% Load dataset, select personas, and list the binary attributes
 N_TRAIN = 1  # PERSONA_MEAN ignores the question, so one QA only builds the prompt
-dataset = SynthPersonaDataset(sample_size=8)
+dataset = SynthPersonaDataset(sample_size=2)
 
 # (persona, qa) runs, exactly like notebook_extract; drop personas with no QA.
 runs = [
@@ -112,6 +116,7 @@ for i, attr in enumerate(binary_attrs):
         mask_strategy=MASK_STRATEGY,
         remote=REMOTE,
         verbose=(i == 0),
+        batch_size=BATCH_SIZE,
     )
 
     save_trait_deltas(store, deltas, mask_strategy=MASK_STRATEGY)

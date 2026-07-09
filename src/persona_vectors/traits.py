@@ -224,6 +224,7 @@ def extract_trait_deltas(
     on_status: Callable | None = None,
     backend_factory: Callable[[], object] | None = None,
     verbose: bool = False,
+    batch_size: int = 1,
 ) -> TraitDeltas:
     """Extract value-oriented minimal-pair activations for one attribute.
 
@@ -238,58 +239,151 @@ def extract_trait_deltas(
     averages the persona prefix, so the question content is irrelevant. Personas
     whose ``templated_view`` is not the swappable v4.0 render (e.g. the
     attribute-less ``baseline_assistant``) are skipped.
+
+    When ``batch_size > 1``, all prepared inputs for all personas are collected
+    first and then passed to :func:`extract_activations` in batches (right-padded
+    chunks of ``batch_size``), yielding one GPU forward pass per chunk instead of
+    one per persona. For ``PERSONA_MEAN`` with ``N_TRAIN=1`` each persona
+    contributes exactly one input per pole so the speedup equals the batch size.
     """
     value_from, value_to = attribute_contrast_values(persona_dataset, attribute)
 
     ids: list[str] = []
     from_rows: list[np.ndarray] = []
     to_rows: list[np.ndarray] = []
-    for persona, qa_pairs in runs:
-        if not qa_pairs:
-            continue
-        try:
-            view_from = _render_at_pole(persona_dataset, persona, attribute, value_from)
-            view_to = _render_at_pole(persona_dataset, persona, attribute, value_to)
-        except (KeyError, ValueError) as exc:
+
+    if batch_size <= 1:
+        # Original sequential path: one forward pass per persona per pole.
+        for persona, qa_pairs in runs:
+            if not qa_pairs:
+                continue
+            try:
+                view_from = _render_at_pole(persona_dataset, persona, attribute, value_from)
+                view_to = _render_at_pole(persona_dataset, persona, attribute, value_to)
+            except (KeyError, ValueError) as exc:
+                if verbose:
+                    print(f"  skip {persona.id}: {exc}")
+                continue
+
             if verbose:
-                print(f"  skip {persona.id}: {exc}")
-            continue
+                from persona_vectors.preview import preview_trait_contrast
 
-        if verbose:
-            from persona_vectors.preview import preview_trait_contrast
+                preview_trait_contrast(
+                    attribute,
+                    str(value_from),
+                    str(value_to),
+                    view_from.templated_view,
+                    view_to.templated_view,
+                )
 
-            preview_trait_contrast(
-                attribute,
-                str(value_from),
-                str(value_to),
-                view_from.templated_view,
-                view_to.templated_view,
+            kwargs = dict(
+                variant=variant,
+                mask_strategy=mask_strategy,
+                remote=remote,
+                on_status=on_status,
+                backend_factory=backend_factory,
+            )
+            from_vec, from_prepared = _persona_vectors(model, view_from, qa_pairs, **kwargs)
+            to_vec, _ = _persona_vectors(model, view_to, qa_pairs, **kwargs)
+
+            # Show the averaged region once, on the first kept persona.
+            if verbose and not ids:
+                from persona_vectors.preview import preview_prepared_inputs
+
+                preview_prepared_inputs(
+                    from_prepared,
+                    tokenizer=model.tokenizer,
+                    variant=variant,
+                    mask_strategy=mask_strategy,
+                )
+
+            from_rows.append(from_vec)
+            to_rows.append(to_vec)
+            ids.append(persona.id)
+
+    else:
+        # Batched path: collect all prepared inputs, then extract in chunks.
+        from_all_ids: list[torch.Tensor] = []
+        from_all_masks: list[torch.Tensor] = []
+        to_all_ids: list[torch.Tensor] = []
+        to_all_masks: list[torch.Tensor] = []
+        n_inputs_per_persona: list[int] = []
+        first_from_prepared = None
+
+        for persona, qa_pairs in runs:
+            if not qa_pairs:
+                continue
+            try:
+                view_from = _render_at_pole(persona_dataset, persona, attribute, value_from)
+                view_to = _render_at_pole(persona_dataset, persona, attribute, value_to)
+            except (KeyError, ValueError) as exc:
+                if verbose:
+                    print(f"  skip {persona.id}: {exc}")
+                continue
+
+            if verbose:
+                from persona_vectors.preview import preview_trait_contrast
+
+                preview_trait_contrast(
+                    attribute,
+                    str(value_from),
+                    str(value_to),
+                    view_from.templated_view,
+                    view_to.templated_view,
+                )
+
+            from_prepared = prepare_inputs_for_strategy(
+                tokenizer=model.tokenizer,
+                system_prompt=format_prompt(view_from, variant),
+                qa_pairs=qa_pairs,
+                mask_strategy=mask_strategy,
+            )
+            to_prepared = prepare_inputs_for_strategy(
+                tokenizer=model.tokenizer,
+                system_prompt=format_prompt(view_to, variant),
+                qa_pairs=qa_pairs,
+                mask_strategy=mask_strategy,
             )
 
-        kwargs = dict(
-            variant=variant,
-            mask_strategy=mask_strategy,
-            remote=remote,
-            on_status=on_status,
-            backend_factory=backend_factory,
-        )
-        from_vec, from_prepared = _persona_vectors(model, view_from, qa_pairs, **kwargs)
-        to_vec, _ = _persona_vectors(model, view_to, qa_pairs, **kwargs)
+            if verbose and not ids and first_from_prepared is None:
+                first_from_prepared = from_prepared
 
-        # Show the averaged region once, on the first kept persona.
-        if verbose and not ids:
+            from_all_ids.extend(p.input_ids for p in from_prepared)
+            from_all_masks.extend(p.token_mask for p in from_prepared)
+            to_all_ids.extend(p.input_ids for p in to_prepared)
+            to_all_masks.extend(p.token_mask for p in to_prepared)
+            n_inputs_per_persona.append(len(from_prepared))
+            ids.append(persona.id)
+
+        if not ids:
+            raise ValueError(f"no swappable personas for attribute {attribute!r}")
+
+        if verbose and first_from_prepared is not None:
             from persona_vectors.preview import preview_prepared_inputs
 
             preview_prepared_inputs(
-                from_prepared,
+                first_from_prepared,
                 tokenizer=model.tokenizer,
                 variant=variant,
                 mask_strategy=mask_strategy,
             )
 
-        from_rows.append(from_vec)
-        to_rows.append(to_vec)
-        ids.append(persona.id)
+        common_kwargs = dict(
+            remote=remote,
+            on_status=on_status,
+            backend_factory=backend_factory,
+            batch_size=batch_size,
+            return_per_sample=True,
+        )
+        from_all_vecs = extract_activations(model, from_all_ids, from_all_masks, **common_kwargs)
+        to_all_vecs = extract_activations(model, to_all_ids, to_all_masks, **common_kwargs)
+
+        # Average inputs belonging to the same persona (handles N_TRAIN > 1).
+        offset = 0
+        for n in n_inputs_per_persona:
+            from_rows.append(from_all_vecs[offset : offset + n].mean(0).float().cpu().numpy())
+            to_rows.append(to_all_vecs[offset : offset + n].mean(0).float().cpu().numpy())
+            offset += n
 
     if not ids:
         raise ValueError(f"no swappable personas for attribute {attribute!r}")
