@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 from persona_data.synth_persona import BASELINE_PERSONA_ID
+from scipy.stats import rankdata, spearmanr
 from scipy.stats.contingency import association, crosstab
 
 
@@ -110,3 +111,105 @@ def top_cooccurring_pairs(
     ]
     pairs.sort(key=lambda p: p[2], reverse=True)
     return pairs[:k]
+
+
+def off_diagonal_pair_values(
+    left: np.ndarray, right: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Aligned finite off-diagonal values from two square matrices."""
+    left = np.asarray(left, dtype=float)
+    right = np.asarray(right, dtype=float)
+    if left.shape != right.shape or left.ndim != 2 or left.shape[0] != left.shape[1]:
+        raise ValueError(
+            f"expected two square matrices with the same shape, got {left.shape} and {right.shape}"
+        )
+    idx = np.triu_indices(left.shape[0], k=1)
+    x = left[idx]
+    y = right[idx]
+    finite = np.isfinite(x) & np.isfinite(y)
+    return x[finite], y[finite]
+
+
+def rank_delta_matrix(
+    trait_similarity: np.ndarray, cooccurrence: np.ndarray
+) -> np.ndarray:
+    """Off-diagonal rank-percentile difference between two association matrices.
+
+    Raw ``|cosine| - Cramér's V`` is visually useful but not metric-faithful:
+    cosine similarity and Cramér's V do not share units. This converts each
+    matrix's finite off-diagonal entries to within-matrix percentile ranks and
+    returns ``rank(|cosine|) - rank(V)`` in ``[-1, 1]``. Positive cells are more
+    prominent in representation geometry than in dataset co-occurrence; negative
+    cells are stronger co-occurrences than geometry would suggest.
+    """
+    trait_similarity = np.asarray(trait_similarity, dtype=float)
+    cooccurrence = np.asarray(cooccurrence, dtype=float)
+    if (
+        trait_similarity.shape != cooccurrence.shape
+        or trait_similarity.ndim != 2
+        or trait_similarity.shape[0] != trait_similarity.shape[1]
+    ):
+        raise ValueError(
+            "trait_similarity and cooccurrence must be square matrices with the same shape"
+        )
+
+    n = trait_similarity.shape[0]
+    idx = np.triu_indices(n, k=1)
+    trait_vals = trait_similarity[idx]
+    co_vals = cooccurrence[idx]
+    finite = np.isfinite(trait_vals) & np.isfinite(co_vals)
+    if finite.sum() < 2:
+        return np.full_like(trait_similarity, np.nan, dtype=float)
+
+    denom = float(finite.sum() - 1)
+    trait_pct = (rankdata(trait_vals[finite], method="average") - 1.0) / denom
+    co_pct = (rankdata(co_vals[finite], method="average") - 1.0) / denom
+
+    out = np.full((n, n), np.nan, dtype=float)
+    out[np.diag_indices(n)] = 0.0
+    rows = idx[0][finite]
+    cols = idx[1][finite]
+    values = trait_pct - co_pct
+    out[rows, cols] = values
+    out[cols, rows] = values
+    return out
+
+
+def matrix_spearman(
+    trait_similarity: np.ndarray, cooccurrence: np.ndarray
+) -> tuple[float, float, int]:
+    """Spearman correlation over aligned finite off-diagonal matrix entries."""
+    x, y = off_diagonal_pair_values(trait_similarity, cooccurrence)
+    rho, p = spearmanr(x, y)
+    return float(rho), float(p), int(len(x))
+
+
+def matrix_permutation_test(
+    trait_similarity: np.ndarray,
+    cooccurrence: np.ndarray,
+    *,
+    n_perm: int = 4999,
+    seed: int = 0,
+) -> tuple[float, float]:
+    """Mantel/QAP-style permutation test for two attribute-pair matrices.
+
+    The off-diagonal matrix entries are not independent because every attribute
+    appears in many pairs. This test keeps one matrix fixed, repeatedly permutes
+    the attribute labels of the other matrix (same permutation for rows and
+    columns), and recomputes Spearman correlation. The returned two-sided
+    empirical p-value asks how often a random relabeling yields an association at
+    least as large as the observed one.
+    """
+    trait_similarity = np.asarray(trait_similarity, dtype=float)
+    cooccurrence = np.asarray(cooccurrence, dtype=float)
+    observed, _, _ = matrix_spearman(trait_similarity, cooccurrence)
+    rng = np.random.default_rng(seed)
+    count = 0
+    for _ in range(n_perm):
+        perm = rng.permutation(cooccurrence.shape[0])
+        shuffled = cooccurrence[perm][:, perm]
+        rho, _, _ = matrix_spearman(trait_similarity, shuffled)
+        if abs(rho) >= abs(observed):
+            count += 1
+    p = (count + 1.0) / (n_perm + 1.0)
+    return float(observed), float(p)

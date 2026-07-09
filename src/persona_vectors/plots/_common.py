@@ -21,7 +21,9 @@ def _plots_dir() -> Path:
 
 def save_plot_html(fig: go.Figure, filename: str) -> Path:
     """Save a Plotly figure as an HTML artifact."""
-    output_path = _plots_dir() / f"{filename}.html"
+    output_path = _plots_dir() / filename
+    if output_path.suffix != ".html":
+        output_path = output_path.with_suffix(".html")
     fig.write_html(str(output_path))
     return output_path
 

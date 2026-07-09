@@ -3,7 +3,7 @@
 # # Deconfounded trait vectors from minimal-pair attribute swaps
 #
 # Mirrors `notebook_extract.py`, but instead of one vector per persona we build
-# one vector per **binary attribute**: swap only that attribute on each persona
+# one vector per **ordered attribute**: swap only that attribute on each persona
 # (re-rendering the whole templated view, via `persona_data.templated`), extract
 # both views, and average the within-pair activation delta. Everything that did
 # not change cancels, so the direction isolates the attribute instead of
@@ -20,14 +20,18 @@ import torch
 from dotenv import load_dotenv
 from nnterp import StandardizedTransformer
 from persona_data.environment import set_seed
-from persona_data.synth_persona import SynthPersonaDataset
+from persona_data.synth_persona import BASELINE_PERSONA_ID, SynthPersonaDataset
 from rich.console import Console
 from rich.table import Table
-from scipy.stats import spearmanr
 
 from persona_vectors.artifacts import TraitVectorStore
 from persona_vectors.attributes import attribute_schema
-from persona_vectors.correlations import attribute_association_matrix
+from persona_vectors.correlations import (
+    attribute_association_matrix,
+    matrix_permutation_test,
+    matrix_spearman,
+    rank_delta_matrix,
+)
 from persona_vectors.extraction import MaskStrategy
 from persona_vectors.plots.correlations import build_cooccurrence_heatmap
 from persona_vectors.steering import PERSONA_SYS, generate_steered, steering_coefficient
@@ -44,9 +48,9 @@ torch.set_grad_enabled(False)
 set_seed(1337)
 
 # %% Setting up the model
-# Use 9b/70b for remote (production), 2b for local testing.
+# Use 9B for remote/report reproduction, 2B for quick local testing.
 REMOTE = False
-MODEL_NAME = "meta-llama/Llama-3.1-70B-Instruct" if REMOTE else "google/gemma-2-2b-it"
+MODEL_NAME = "google/gemma-2-9b-it" if REMOTE else "google/gemma-2-2b-it"
 # Number of personas to process per forward pass. batch_size=1 is the original
 # sequential path. Larger values right-pad inputs within each chunk and run one
 # GPU forward pass per chunk; set to fit VRAM (e.g. 4–8 on an 80 GB A100).
@@ -71,31 +75,33 @@ model_table.add_row("Layers", str(NUM_LAYERS))
 model_table.add_row("Trait layer", str(TRAIT_LAYER))
 console.print(model_table)
 
-# %% Load dataset, select personas, and list the binary attributes
+# %% Load dataset, select personas, and list the ordered attributes
 N_TRAIN = 1  # PERSONA_MEAN ignores the question, so one QA only builds the prompt
-dataset = SynthPersonaDataset(sample_size=2)
+N_PERSONAS = 100 if REMOTE else 2
+dataset = SynthPersonaDataset(sample_size=N_PERSONAS)
 
 # (persona, qa) runs, exactly like notebook_extract; drop personas with no QA.
 runs = [
     (persona, dataset.train_test_split(persona.id, n_train=N_TRAIN)[0])
     for persona in dataset
+    if persona.id != BASELINE_PERSONA_ID
 ]
 runs = [(p, qa) for p, qa in runs if qa]
 
-binary_attrs = [
+ordered_attrs = [
     name
     for name, info in attribute_schema(dataset).items()
-    if info.get("kind") == "binary"
+    if info.get("kind") in {"binary", "ordinal", "numeric"}
 ]
 
 dataset_table = Table(title="Dataset")
 dataset_table.add_column("Property", style="cyan")
 dataset_table.add_column("Value", style="magenta")
 dataset_table.add_row("Personas with QA", str(len(runs)))
-dataset_table.add_row("Binary attributes", ", ".join(binary_attrs))
+dataset_table.add_row("Ordered attributes", ", ".join(ordered_attrs))
 console.print(dataset_table)
 
-# %% Extract a trait vector per binary attribute
+# %% Extract a trait vector per ordered attribute
 # `verbose=True` on the first attribute prints the contrasted sentence for every
 # persona (the minimal-pair diff) plus, once, the averaged token region. Each
 # trait vector is saved locally (safetensors + metadata) under
@@ -105,7 +111,7 @@ store = TraitVectorStore(MODEL_NAME, mask_strategy=MASK_STRATEGY)
 directions: dict[str, dict] = {}
 auc_cis: dict[str, tuple[float, float]] = {}
 
-for i, attr in enumerate(binary_attrs):
+for i, attr in enumerate(ordered_attrs):
     console.rule(f"trait: {attr}")
     deltas = extract_trait_deltas(
         model,
@@ -151,7 +157,7 @@ build_cooccurrence_heatmap(
     show=True,
 )
 
-# %% Co-occurrence matrix over the same binary attributes (the baseline)
+# %% Co-occurrence matrix over the same ordered attributes (the baseline)
 co_labels, co_matrix = attribute_association_matrix(dataset, attributes=labels)
 build_cooccurrence_heatmap(
     co_labels,
@@ -161,28 +167,32 @@ build_cooccurrence_heatmap(
     show=True,
 )
 
-# %% The "delta": trait-cosine minus co-occurrence
-# Near zero where directions track co-occurrence; strongly negative where two
-# attributes co-occur yet the trait directions stay orthogonal (deconfounded).
+# %% Rank-percentile comparison: trait geometry minus co-occurrence
+# Raw |cos| - V is not a meaningful metric difference because cosine and
+# Cramér's V use different scales. Instead, rank both off-diagonal matrices and
+# plot percentile-rank(|cos|) - percentile-rank(V). Negative cells are pairs that
+# co-occur more strongly than their trait directions align; positive cells are
+# representation-near despite lower dataset co-occurrence.
+rank_delta = rank_delta_matrix(cos, co_matrix)
 build_cooccurrence_heatmap(
     labels,
-    cos - co_matrix,
-    title="Trait-cosine − co-occurrence",
+    rank_delta,
+    title="Trait geometry rank − co-occurrence rank",
     diverging=True,
-    colorbar_title="|cos| − V",
+    colorbar_title="rank Δ",
     show=True,
 )
 
 # %% Rank agreement between geometry and co-occurrence
-# The difference heatmap treats |cos| and V as commensurate scales, which they
-# are not; the defensible one-number summary is the *rank* correlation between
-# the pairwise values. Low rho = directions do not order like the confounds.
-iu = np.triu_indices(len(labels), k=1)
-finite = np.isfinite(co_matrix[iu])
-rho, pval = spearmanr(cos[iu][finite], co_matrix[iu][finite])
+# Spearman over off-diagonal pairs is the descriptive effect size. The matrix
+# permutation p-value is safer than treating all pairs as independent because
+# each attribute appears in many matrix cells.
+rho, pval, n_pairs = matrix_spearman(cos, co_matrix)
+mantel_rho, mantel_p = matrix_permutation_test(cos, co_matrix, n_perm=4999, seed=1337)
 print(
-    f"Spearman(|cos|, V) over {int(finite.sum())} attribute pairs: "
-    f"rho={rho:.2f} (p={pval:.3f})"
+    f"Spearman(|cos|, V) over {n_pairs} attribute pairs: "
+    f"rho={rho:.2f} (naive p={pval:.3f}); "
+    f"matrix-permutation p={mantel_p:.3f}"
 )
 
 # %% Steering sanity check

@@ -21,9 +21,10 @@ Core module: `src/persona_vectors/traits.py`
 3. Average the paired deltas over personas → the per-layer trait vector.
 
 This builds the **description-level** flavor (`PERSONA_MEAN` over the swapped
-templated view) for **binary** attributes; the answer-level flavor
-(`ANSWER_MEAN`, force-decoded explicit answer) and non-binary attributes reuse
-the same orientation logic.
+templated view) for ordered attributes: binary attributes use their two values,
+ordinal attributes use the two extremes of their ordered scale, and numeric
+attributes use the min/max seed values. The answer-level flavor (`ANSWER_MEAN`,
+force-decoded explicit answer) reuses the same orientation logic.
 
 ## Extract and build
 
@@ -64,7 +65,7 @@ A trait `info` dict feeds `generate_steered` / `generate_band_steered` unchanged
 ## Notebook
 
 `notebooks/notebook_extract_trait.py` runs the full flow: extract a trait vector
-per binary attribute (saving each one), then compare the **trait-cosine** matrix
+per ordered attribute (saving each one), then compare the **trait-cosine** matrix
 against the **co-occurrence** (Cramér's V) matrix — high co-occurrence with low
 trait-cosine means the minimal-pair extraction successfully deconfounded that
 pair.

@@ -14,7 +14,12 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
-from scipy.stats import spearmanr
+
+from persona_vectors.correlations import (
+    matrix_permutation_test,
+    matrix_spearman,
+    rank_delta_matrix,
+)
 
 ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "trait_report"
 
@@ -83,7 +88,8 @@ if not _matrices.exists():
     )
 mats = np.load(_matrices, allow_pickle=True)
 attrs = list(mats["attrs"])
-cos, co, delta = mats["cos"], mats["co"], mats["delta"]
+cos, co = mats["cos"], mats["co"]
+rank_delta = rank_delta_matrix(cos, co)
 found = jload(ROOT / "gemma_foundation.json")
 ml = jload(ROOT / "multilayer_diag.json")
 oodg = jload(ROOT / "ood_geometry.json")
@@ -135,6 +141,15 @@ parts.append(
 
 # ---------- 2. deconfounding (headline) ----------
 parts.append("<h2>2 · Trait cosine tracks meaning, not co-occurrence</h2>")
+parts.append(
+    "<div class='key'><div><b>What is being compared?</b> The left matrix is a "
+    "dataset statistic: Cramér's V says how strongly two persona attributes co-occur. "
+    "The middle matrix is a representation statistic: |cosine| says how aligned the "
+    "two extracted trait directions are.</div>"
+    "<div><b>Why ranks?</b> |cosine| and Cramér's V are both bounded in [0,1], but "
+    "they are not the same unit. The rank-Δ heatmap therefore compares percentile "
+    "ranks within each matrix, not raw values.</div></div>"
+)
 parts.append(figdiv(heat(co, attrs, "Data co-occurrence (Cramér's V)", zlabel="V")))
 parts.append(
     figdiv(heat(cos, attrs, "Trait-direction similarity (|cosine|)", zlabel="|cos|"))
@@ -142,11 +157,11 @@ parts.append(
 parts.append(
     figdiv(
         heat(
-            delta,
+            rank_delta,
             attrs,
-            "Trait cosine − co-occurrence",
+            "Trait geometry rank − co-occurrence rank",
             diverging=True,
-            zlabel="|cos|−V",
+            zlabel="rank Δ",
         )
     )
 )
@@ -182,17 +197,40 @@ sf.update_layout(
     yaxis=dict(range=[-0.02, 1]),
 )
 parts.append(figdiv(sf))
-rho, rho_p = spearmanr(xs, ys)
+rho, rho_p, n_pairs = matrix_spearman(cos, co)
+_, perm_p = matrix_permutation_test(cos, co, n_perm=4999, seed=1337)
+rank_pairs = []
+for i in range(len(attrs)):
+    for j in range(i + 1, len(attrs)):
+        if np.isfinite(rank_delta[i, j]):
+            rank_pairs.append(
+                (float(rank_delta[i, j]), float(co[i, j]), float(cos[i, j]), attrs[i], attrs[j])
+            )
+rank_rows = []
+for label, pairs in (
+    ("co-occurs more than geometry aligns", sorted(rank_pairs)[:5]),
+    ("geometry aligns more than co-occurrence", sorted(rank_pairs, reverse=True)[:5]),
+):
+    rank_rows.append(f"<tr><td class='a' colspan='5'>{label}</td></tr>")
+    for d, v, c, a, b in pairs:
+        rank_rows.append(
+            f"<tr><td><code>{esc(a)}</code> · <code>{esc(b)}</code></td>"
+            f"<td class='dl'>{d:+.2f}</td><td>{v:.2f}</td><td>{c:.2f}</td>"
+            f"<td>{'candidate dataset confound' if d < 0 else 'candidate shared representation'}</td></tr>"
+        )
 parts.append(
     "<div class='key'><div><b>Spurious co-occurrence removed.</b> <code>born_in_us</code>·"
     "<code>same_residence_since_16</code>: V=0.38 but |cos|=0.09.</div>"
     "<div><b>Real semantics kept.</b> parents' degrees |cos|=0.82; income·wealth 0.59.</div></div>"
     "<p>Points sit below the diagonal: trait cosine reflects shared <em>concept</em>, not how often "
     "two attributes happen to travel together. The minimal pair does what it was designed to.</p>"
-    f"<p class='m'>Rank summary: Spearman ρ(|cos|, V) = {rho:.2f} (p = {rho_p:.3g}, "
-    f"{len(xs)} pairs). |cos| and V are not commensurate scales, so the difference heatmap above "
-    "is qualitative; this rank correlation is the quantitative statement of how (weakly) direction "
-    "geometry orders like dataset co-occurrence.</p>"
+    f"<p class='m'>Rank summary: Spearman ρ(|cos|, V) = {rho:.2f} "
+    f"(naive p = {rho_p:.3g}, matrix-permutation p = {perm_p:.3g}, {n_pairs} pairs). "
+    "|cos| and V are not commensurate scales, so the heatmap above compares within-matrix "
+    "percentile ranks: positive means a pair is more prominent in trait geometry than in "
+    "co-occurrence; negative means the reverse.</p>"
+    "<table class='t'><tr><th>attribute pair</th><th>rank Δ</th><th>V</th><th>|cos|</th>"
+    f"<th>read as</th></tr>{''.join(rank_rows)}</table>"
 )
 
 # ---------- 3. decodability != steerability + band ----------
@@ -601,11 +639,11 @@ _has_variants = bool(ctrl) and any(
 )
 _rev_rows = [
     (
-        "|cos| − V difference heatmap (§2)",
-        "Cosine and Cramér's V are not commensurate scales, so cell values imply a precision the "
-        "comparison doesn't have.",
-        "Read it qualitatively; the scatter plus the Spearman rank summary in §2 is the quantitative "
-        "claim. <b>Fixed in this report.</b>",
+        "Raw |cos| − V difference heatmap (§2)",
+        "Cosine and Cramér's V are not commensurate scales, so subtracting raw values implies a "
+        "precision the comparison doesn't have.",
+        "Replaced by percentile-rank difference plus Spearman and matrix-permutation summaries. "
+        "<b>Fixed in this report.</b>",
     ),
     (
         "Single-question MCQ readout (§§3–4)",
